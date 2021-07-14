@@ -6,7 +6,7 @@ import numpy as np
 # get the directory of the current file 
 _dir_of_cur_file = os.path.dirname(os.path.abspath(__file__))
 # get the expected location of the shared library
-_lib_path = os.path.join(_dir_of_cur_file, 'libvsf.so')
+_lib_path = os.path.join(_dir_of_cur_file, '../src/libvsf.so')
 
 # confirm that the shared library exists
 if not os.path.isfile(_lib_path):
@@ -68,6 +68,10 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     Calculates properties pertaining to the velocity structure function for 
     pairs of points.
 
+    If you set both ``pos_b`` and ``vel_b`` to ``None`` then the velocity 
+    structure properties will only be computed for unique pairs of the points
+    specified by ``pos_a`` and ``vel_a``
+
     Parameters
     ----------
     pos_a, pos_b : array_like
@@ -91,8 +95,17 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     points_b = POINTPROPS.construct(pos_b, vel_b, dtype = np.float64,
                                     allow_null_pair = True)
 
-    if pos_b is not None:
+    if pos_b is None:
+        assert points_a.n_points > 1
+    else:
         assert points_a.n_spatial_dims == points_b.n_spatial_dims
+
+    if points_a.n_spatial_dims != 3:
+        raise NotImplementedError(
+            "vsf_props currently only has support for computing velocity "
+            "structure function properties for sets of points with 3 spatial "
+            "dimensions"
+        )
 
     dist_bin_edges = np.asanyarray(dist_bin_edges, dtype = np.float64)
     assert dist_bin_edges.ndim == 1
@@ -125,18 +138,3 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     for k,v in val_dict.items():
         v[w_mask] = np.nan
     return out_counts, val_dict
-
-
-if __name__ == '__main__':
-    x_a = np.arange(6.0).reshape(3,2)
-    vel_a = np.arange(-3.0,3.0).reshape(3,2)
-    
-    x_b = np.arange(6.0,24.0).reshape(3,6)
-    vel_b = np.arange(-9.0,9.0).reshape(3,6)
-    print(x_a)
-    print(vel_a)
-    print(x_b)
-    print(vel_b)
-
-    bin_edges = np.array([17.0, 21.0, 25.0])
-    print(vsf_props(x_a,  x_b, vel_a, vel_b, bin_edges))

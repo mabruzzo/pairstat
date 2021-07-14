@@ -230,8 +230,8 @@ if __name__ == '__main__':
     benchmark((3,20000), shape_b = None, seed = 156,
               dist_bin_edges = np.arange(101.0)/100)
 
-    benchmark((3,30000), shape_b = None, seed = 156,
-              dist_bin_edges = np.arange(101.0)/100)
+    #benchmark((3,30000), shape_b = None, seed = 156,
+    #          dist_bin_edges = np.arange(101.0)/100)
 
-    benchmark((3,50000), shape_b = None, seed = 156,
-              dist_bin_edges = np.arange(101.0)/100)
+    #benchmark((3,50000), shape_b = None, seed = 156,
+    #          dist_bin_edges = np.arange(101.0)/100)

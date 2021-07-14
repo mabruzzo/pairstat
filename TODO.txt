@@ -1,0 +1,7 @@
+- Clean up the docstring of pyvsf.vsf_props
+- Improve the error messages in pyvsf.vsf_props
+- Possibly add support to pyvsf.vsf_props for supporting vsf calculations where the velocities have fewer dimensions than the positions
+- Possibly add support to pyvsf.vsf_props for supporting calculations where the distance has fewer than 3 dimensions.
+
+- Update the c++ code to better support the selection of an accumulator
+- Introduce a function to query the results computed by the different types of accumulators (this will be more necessary if we want to introduce additional accumulators)
