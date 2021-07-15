@@ -65,7 +65,7 @@ namespace{
    template<typename Accum, bool duplicated_points>
   std::vector<Accum> process_data(const PointProps points_a,
 				  const PointProps points_b,
-				  const double *bin_edges,
+				  const double *dist_sqr_bin_edges,
 				  std::size_t nbins)
   {
 
@@ -87,11 +87,13 @@ namespace{
       std::size_t i_b_start = (duplicated_points) ? i_a + 1 : 0;
       for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++){
 
-	double dist = std::sqrt(dist_sqr_3D(pos_a, i_a, n_points_a,
-					    pos_b, i_b, n_points_b));
+	double dist_sqr = dist_sqr_3D(pos_a, i_a, n_points_a,
+				      pos_b, i_b, n_points_b);
 	double abs_vdiff = std::sqrt(dist_sqr_3D(vel_a, i_a, n_points_a,
 						 vel_b, i_b, n_points_b));
-	std::size_t bin_ind = identify_bin_index(dist, bin_edges, nbins);
+	std::size_t bin_ind = identify_bin_index(dist_sqr,
+                                                 dist_sqr_bin_edges,
+                                                 nbins);
 	if (bin_ind < nbins){
 	  accumulators[bin_ind].add_entry(abs_vdiff);
 	}
@@ -104,17 +106,18 @@ namespace{
   template<typename Accum>
   void calc_vsf_props_helper_(const PointProps points_a,
 			      const PointProps points_b,
-			      const double *bin_edges, std::size_t nbins,
+			      const double *dist_sqr_bin_edges,
+                              std::size_t nbins,
 			      double *out_vals, int64_t *out_counts,
 			      bool duplicated_points){
 
     std::vector<Accum> accumulators;
     if (duplicated_points){
       accumulators = process_data<Accum, true>(points_a, points_b,
-					       bin_edges, nbins);
+					       dist_sqr_bin_edges, nbins);
     } else {
       accumulators = process_data<Accum, false>(points_a, points_b,
-						bin_edges, nbins);
+						dist_sqr_bin_edges, nbins);
     }
 
     const std::size_t num_flt_vals = Accum::flt_val_names().size();
@@ -134,7 +137,7 @@ bool calc_vsf_props(const PointProps points_a,
 		    const PointProps points_b,
 		    const char* statistic, const double *bin_edges,
 		    std::size_t nbins,
-		    double *out_vals, int64_t *out_counts)
+		    double *out_vals, int64_t *out_counts) noexcept
 {
   const bool duplicated_points = ((points_b.positions == nullptr) &&
 				  (points_b.velocities == nullptr));
@@ -152,13 +155,28 @@ bool calc_vsf_props(const PointProps points_a,
     return false;
   }
 
+  // recompute the bin edges so that they are stored as squared distances
+  std::vector<double> dist_sqr_bin_edges_vec(nbins+1);
+  for (std::size_t i=0; i < (nbins+1); i++){
+    if (bin_edges[i] < 0){
+      // It doesn't really matter how we handle negative bin edges (since
+      // distances are non-negative), as long as dist_sqr_bin_edges
+      // monotonically increases.
+      dist_sqr_bin_edges_vec[i] = bin_edges[i];
+    } else {
+      dist_sqr_bin_edges_vec[i] = bin_edges[i]*bin_edges[i];
+    }
+  }
+
   std::string stat_str(statistic);
 
   if (stat_str == "mean"){
-    calc_vsf_props_helper_<MeanAccum>(points_a, my_points_b, bin_edges, nbins,
+    calc_vsf_props_helper_<MeanAccum>(points_a, my_points_b,
+                                      dist_sqr_bin_edges_vec.data(), nbins,
 				      out_vals, out_counts, duplicated_points);
   } else if (std::string(statistic) == "variance"){
-    calc_vsf_props_helper_<VarAccum>(points_a, my_points_b, bin_edges, nbins,
+    calc_vsf_props_helper_<VarAccum>(points_a, my_points_b,
+                                     dist_sqr_bin_edges_vec.data(), nbins,
 				     out_vals, out_counts, duplicated_points);
   } else {
     return false;

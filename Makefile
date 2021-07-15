@@ -1,5 +1,8 @@
 CC = g++
-CFLAGS = -g -O2 -Wall -fPIC
+
+# -fno-math-errno lets compilers inline the sqrt command (see comments of to
+# this SO answer) https://stackoverflow.com/a/54642811/4538758
+CFLAGS = -g -O2 -Wall -fPIC -fno-math-errno
 
 LIBS=-lm
 

@@ -45,11 +45,12 @@ in a small buffer (the exact size) and after the remaining steps would be
 performed after the buffer is filled. In detail, there are a few other
 factors to be considered:
 
-- the c standard library's sqrt operation does not vectorize. While
-  it's possible to implement a vectorized version, it would be easy to
-  defer the sqrt operation to one of the other non-vectorizable steps.
-  (In other words, this step would just compute the squared distance
-  and the squared velocity difference)
+- I don't think the c standard library's sqrt operation vectorizes that
+  well (I'm not really sure). However SIMD intrinsics definitely exist
+  for doing this. In practice, we just compute the squared distance and
+  squared velocity difference in this step and defer any sqrt
+  evaluations to the next step (which we might not be able to
+  vectorize anyway).
 
 - We might need to explicitly unroll the loops that fill the buffer to
   demonstrate to coax the compiler into producing vectorized code. We
@@ -81,21 +82,22 @@ vary over the fast axis).
 identification of distance bin index
 ------------------------------------
 
+Currently, we precompute the bin edges in terms of the squared distances
+so that we can avoid a sqrt operation in the innermost loop (i.e. we never
+need to know the actual distance, just knowning the squared distance is
+sufficient). Crude benchmarking indicates that this optimization speeds
+the code up by ~10% when `statistic = "variance"`.
+
 In the case of having bins with a constant linear spacing, it's actually
 possible to vectorize this operation (if the first step has been modified
-to operate in batches). However, that would involve defining a vectorized
-sqrt function.
+to operate in batches). However, doing so would involve some refactoring
+to take the sqrt of the squared distances.
 
-In the general case, it would be faster to recompute the bin edges in
-terms of the squared distances. This would allow us to avoid taking a sqrt
-of the distance in either this step or the previous step (which would
-always provide at least some speed).
-
-Currently the algorithm uses linear bisection to indentify the correct bin.
+The current algorithm uses linear bisection to indentify the correct bin.
 In the case of having relatively few bins, it might be worth changing the
 search algorithm to avoid branches. This involves using linear search (that
 always checks every bin) or a branchless bisection search (a search that
-always goes through the maximum number of iterations). SUch a linear search
+always goes through the maximum number of iterations). Such a linear search
 could actually be vectorized. Note that the changes discussed in this last
 paragraph probably won't provide enough performance benefit to be warranted
 

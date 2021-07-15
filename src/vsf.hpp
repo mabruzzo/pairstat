@@ -34,7 +34,7 @@ extern "C" {
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
 		    const char* statistic,
                     const double *bin_edges, std::size_t nbins,
-                    double *out_vals, int64_t *out_counts);
+                    double *out_vals, int64_t *out_counts) noexcept;
 
 #ifdef __cplusplus
 }
