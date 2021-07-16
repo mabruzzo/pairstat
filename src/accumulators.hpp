@@ -1,6 +1,8 @@
 #ifndef ACCUMULATORS_H
 #define ACCUMULATORS_H
 
+#include <utility> // std::pair
+
 void error(const char* message){
   if (message == nullptr){
     printf("ERROR\n");
@@ -88,6 +90,72 @@ public: // attributes
   double mean;
   // sum of differences from the current mean
   double cur_M2;
+
+};
+
+
+
+template<typename Accum>
+class ScalarAccumCollection{
+
+  ScalarAccumCollection(std::size_t n_spatial_bins, void * other_arg) noexcept
+    : accum_list_(n_spatial_bins)
+  {
+    if (n_spatial_bins == 0) { error("n_spatial_bins must be positive"); }
+    if (other_arg != nullptr) { error("other_arg must be nullptr"); }
+  }
+
+  inline void add_entry(std::size_t spatial_bin_index, double val) noexcept{
+    accum_list_[spatial_bin_index].add_entry(val);
+  }
+
+  /// Return the Floating Point Value Properties
+  ///
+  /// This is a vector holding pairs of the value name and the number of value
+  /// entries per spatial bin.
+  ///
+  /// For Scalar Accumulators, each value only stores 1 entry per spatial bin
+  static std::vector<std::pair<std::string,std::size_t>> flt_val_props()
+    noexcept
+  {
+    std::vector<std::string> flt_val_names = Accum::flt_val_names();
+
+    std::vector<std::pair<std::string,std::size_t>> out;
+    for (std::size_t i = 0; i < flt_val_names.size(); i++){
+      out.push_back(std::make_pair(flt_val_names[i], 1));
+    }
+    return out;
+  }
+
+  /// Return the Int64 Value Properties
+  ///
+  /// This is a vector holding pairs of the integer value name and the number
+  /// of value entries per spatial bin.
+  ///
+  /// This is currently the same for all scalar accumulators
+  static std::vector<std::pair<std::string,std::size_t>> i64_val_props()
+    noexcept
+  { return {{"count", 1}}; }
+
+  void copy_flt_vals(double *out_vals) noexcept {
+    const std::size_t num_flt_vals = Accum::flt_val_names().size();
+    const std::size_t n_bins = accum_list_.size();
+
+    for (std::size_t i = 0; i < n_bins; i++){
+      for (std::size_t j = 0; j < num_flt_vals; j++){
+	out_vals[i + j*n_bins] = accum_list_[i].get_flt_val(j);
+      }
+    }
+  }
+
+  void copy_i64_vals(int64_t *out_vals) noexcept {
+    for (std::size_t i = 0; i < accum_list_.size(); i++){
+      out_vals[i] = accum_list_[i].count;
+    }
+  }
+
+private:
+  std::vector<Accum> accum_list_;
 
 };
 
