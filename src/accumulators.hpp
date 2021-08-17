@@ -2,6 +2,7 @@
 #define ACCUMULATORS_H
 
 #include <utility> // std::pair
+#include <algorithm> // std::copy
 
 void error(const char* message){
   if (message == nullptr){
@@ -158,13 +159,131 @@ public:
     }
   }
 
-  std::vector<Accum> get_accum_vector() const noexcept {
-    return accum_list_;
-  }
-
 private:
   std::vector<Accum> accum_list_;
 
 };
+
+/// identify the index of the bin where x lies.
+///
+/// @param x The value that is being queried
+/// @param bin_edges An array of monotonically increasing bin edges. This
+///    must have ``nbins + 1`` entries. The ith bin includes the interval
+///    ``bin_edges[i] <= x < bin_edges[i]``.
+/// @param nbins The number of bins. This is expected to be at least 1.
+///
+/// @returns index The index that ``x`` belongs in. If ``x`` doesn't lie in
+///    any bins, ``nbins`` is returned.
+///
+/// @notes
+/// At the moment we are using a binary search algorithm. In the future, we
+/// might want to assess the significance of branch mispredictions.
+template<typename T>
+std::size_t identify_bin_index(T x, const T *bin_edges, std::size_t nbins)
+{
+  const T* bin_edges_end = bin_edges+nbins+1;
+  const T* rslt = std::lower_bound(bin_edges, bin_edges_end, x);
+  // rslt is a pointer to the first value that is "not less than" x
+  std::size_t index_p_1 = std::distance(bin_edges, rslt);
+
+  if (index_p_1 == 0 || index_p_1 == (nbins + 1)){
+    return nbins;
+  } else {
+    return index_p_1 - 1;
+  }
+}
+
+class HistogramAccumCollection{
+public:
+
+  HistogramAccumCollection() noexcept
+    : n_spatial_bins_(),
+      n_data_bins_(),
+      bin_counts_(),
+      data_bin_edges_()
+  { }
+  
+  HistogramAccumCollection(std::size_t n_spatial_bins,
+                           void * other_arg) noexcept
+    : n_spatial_bins_(n_spatial_bins),
+      n_data_bins_(),
+      bin_counts_(),
+      data_bin_edges_()
+  {
+    if (n_spatial_bins == 0) { error("n_spatial_bins must be positive"); }
+    if (other_arg != nullptr) { error("other_arg must be nullptr"); }
+
+    std::size_t n_data_bins = 3;
+    double data_bin_edges[4] = {-1.7976931348623157e+308, 1e-8, 1e-4, 1.7976931348623157e+308};
+
+    // initialize n_data_bins_
+    if (n_data_bins == 0) { error("n_data_bins must be positive"); }
+    n_data_bins_ = n_data_bins;
+
+    // initialize data_bin_edges_ (copy data from data_bin_edges)
+    std::size_t len_data_bin_edges = n_data_bins_ + 1;
+    data_bin_edges_.resize(len_data_bin_edges);
+    // we should really confirm the data_bin_edges_ is monotonic
+    for (std::size_t i = 0; i < len_data_bin_edges; i++){
+      data_bin_edges_[i] = data_bin_edges[i];
+    }
+
+    // initialize the counts array
+    bin_counts_.resize(n_data_bins_ * n_spatial_bins_, 0);
+  }
+
+  inline void add_entry(std::size_t spatial_bin_index, double val) noexcept{
+    std::size_t data_bin_index = identify_bin_index(val,
+                                                    data_bin_edges_.data(),
+                                                    n_data_bins_);
+    if (data_bin_index < n_data_bins_){
+      std::size_t i = data_bin_index + spatial_bin_index*n_data_bins_;
+      bin_counts_[i]++;
+    }
+  }
+
+  /// Return the Floating Point Value Properties
+  ///
+  /// This is a vector holding pairs of the value name and the number of value
+  /// entries per spatial bin.
+  ///
+  /// For Scalar Accumulators, each value only stores 1 entry per spatial bin
+  static std::vector<std::pair<std::string,std::size_t>> flt_val_props()
+    noexcept
+  {
+    std::vector<std::pair<std::string,std::size_t>> out;
+    return out;
+  }
+
+  /// Return the Int64 Value Properties
+  ///
+  /// This is a vector holding pairs of the integer value name and the number
+  /// of value entries per spatial bin.
+  ///
+  /// This is currently the same for all scalar accumulators
+  std::vector<std::pair<std::string,std::size_t>> i64_val_props() const
+    noexcept
+  { return {{"bin_counts_", n_data_bins_}}; }
+
+  void copy_flt_vals(double *out_vals) const noexcept { }
+
+  void copy_i64_vals(int64_t *out_vals) const noexcept {
+    for (std::size_t i = 0; i < bin_counts_.size(); i++){
+      out_vals[i] = bin_counts_[i];
+    }
+  }
+
+private:
+  std::size_t n_spatial_bins_;
+  std::size_t n_data_bins_;
+
+  // counts_ holds the histogram counts. It holds n_data_bins_*n_spatial_bins_
+  // entries. The counts for the ith data bin in the jth spatial bin are stored
+  // at index (i + j * n_data_bins_)
+  std::vector<int64_t> bin_counts_;
+
+  std::vector<double> data_bin_edges_;
+};
+
 
 #endif /* ACCUMULATORS_H */

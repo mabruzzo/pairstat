@@ -60,10 +60,19 @@ _lib.calc_vsf_props.argtypes = [
 ]
 _lib.calc_vsf_props.restype = ctypes.c_bool
 
-
+def _verify_bin_edges(bin_edges):
+    nbins = bin_edges.size - 1
+    if bin_edges.ndim != 1:
+        return False
+    elif nbins <= 0:
+        return False
+    elif not (bin_edges[1:] > bin_edges[:-1]).all():
+        return False
+    else:
+        return True
 
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
-              statistic = 'variance'):
+              statistic = 'variance', kwargs = {}):
     """
     Calculates properties pertaining to the velocity structure function for 
     pairs of points.
@@ -88,6 +97,21 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
     statistic: string, optional
         The name of the statistic to compute. Default is variance.
+    kwargs: dict,optional
+        Keyword arguments for computing different statistics. This should be 
+        empty for most cases. 
+
+
+    Notes
+    -----
+    Currently allowed values for statistic include: 'mean', 'variance', and
+    'histogram'.
+
+    When statistic == 'histogram', this constructs a 2D histogram. The bin 
+    edges along axis 0 are given by the dist_bin_edges argument. The velocity
+    differences are binned along axis 1. This function checks the 
+    'val_bin_edges' entry from kwargs for a 1D monotonic array that specifies 
+    the bin edges along axis 1.
     """
 
     points_a = POINTPROPS.construct(pos_a, vel_a, dtype = np.float64,
@@ -108,33 +132,65 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         )
 
     dist_bin_edges = np.asanyarray(dist_bin_edges, dtype = np.float64)
-    assert dist_bin_edges.ndim == 1
-    nbins = dist_bin_edges.size - 1
-    assert nbins > 0
-    assert (dist_bin_edges[1:] > dist_bin_edges[:-1]).all()
+    if not _verify_bin_edges(dist_bin_edges):
+        raise ValueError(
+            'dist_bin_edges must be a 1D monotonically increasing array with '
+            '2 or more values'
+        )
+    ndist_bins = dist_bin_edges.size - 1
 
-    
-    out_counts = np.empty((nbins,), dtype = np.int64)
     statistic_name = ctypes.create_string_buffer(statistic.encode())
 
-    if statistic == 'mean':
-        out_vals = np.empty((nbins,), dtype = np.float64)
-    elif statistic == 'variance':
-        out_vals = np.empty((2*nbins,), dtype = np.float64)
+    if statistic == 'histogram':
+        assert list(kwargs.keys()) == ['val_bin_edges']
+        val_bin_edges = np.asanyarray(kwargs['val_bin_edges'],
+                                      dtype = np.float64)
+        if not _verify_bin_edges(val_bin_edges):
+            raise ValueError(
+                'kwargs["dist_bin_edges"] must be a 1D monotonically '
+                'increasing array with 2 or more values'
+            )
+
+        nval_bins = val_bin_edges.size - 1
+        # out_flt_vals isn't expected to have any values. but for simplicity of
+        # passing arguments through ctypes, give it a single dummy argument
+        out_flt_vals = np.empty((1,), dtype = np.float64)
+        out_i64_vals = np.empty((ndist_bins * nval_bins,),
+                                dtype = np.int64)
     else:
-        raise RuntimeError('Unknown statistic')
+        assert len(kwargs) == 0
+        if statistic == 'mean':
+            out_flt_vals = np.empty((ndist_bins,), dtype = np.float64)
+            out_i64_vals = np.empty((ndist_bins,), dtype = np.int64)
+        elif statistic == 'variance':
+            out_flt_vals = np.empty((2*ndist_bins,), dtype = np.float64)
+            out_i64_vals = np.empty((ndist_bins,), dtype = np.int64)
+        else:
+            raise RuntimeError('Unknown statistic')
 
     # now actually call the function
     success = _lib.calc_vsf_props(points_a, points_b, statistic_name,
-                                  dist_bin_edges, nbins, out_vals, out_counts)
+                                  dist_bin_edges, ndist_bins, out_flt_vals,
+                                  out_i64_vals)
     assert success
 
-    if statistic == 'mean':
-        val_dict = {'mean' : out_vals[:nbins]}
-    else:
-        val_dict = {'mean' : out_vals[:nbins], 'variance' : out_vals[nbins:]}
+    if statistic in ['mean', 'variance']:
+        if statistic == 'mean':
+            val_dict = {'mean' : out_flt_vals[:ndist_bins]}
+        else:
+            val_dict = {'mean' : out_flt_vals[:ndist_bins],
+                        'variance' : out_flt_vals[ndist_bins:]}
 
-    w_mask = (out_counts == 0)
-    for k,v in val_dict.items():
-        v[w_mask] = np.nan
-    return out_counts, val_dict
+        val_dict['counts'] = out_i64_vals
+        w_mask = (val_dict['counts']  == 0)
+        for k,v in val_dict.items():
+            if k == 'counts':
+                continue
+            else:
+                v[w_mask] = np.nan
+
+    elif statistic == 'histogram':
+        val_dict = {'2D_counts' : out_i64_vals}
+        val_dict['2D_counts'].shape = (ndist_bins, nval_bins)
+
+    return val_dict

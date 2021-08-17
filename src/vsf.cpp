@@ -20,42 +20,11 @@ namespace{
 
   // intentionally include this header file within the anonymous namespace
   #include "accumulators.hpp"
-
-
-  /// identify the index of the bin where x lies.
-  ///
-  /// @param x The value that is being queried
-  /// @param bin_edges An array of monotonically increasing bin edges. This
-  ///    must have ``nbins + 1`` entries. The ith bin includes the interval
-  ///    ``bin_edges[i] <= x < bin_edges[i]``.
-  /// @param nbins The number of bins. This is expected to be at least 1.
-  ///
-  /// @returns index The index that ``x`` belongs in. If ``x`` doesn't lie in
-  ///    any bins, ``nbins`` is returned.
-  ///
-  /// @notes
-  /// At the moment we are using a binary search algorithm. In the future, we
-  /// might want to assess the significance of branch mispredictions.
-  template<typename T>
-    std::size_t identify_bin_index(T x, const T *bin_edges, std::size_t nbins)
-  {
-    const T* bin_edges_end = bin_edges+nbins+1;
-    const T* rslt = std::lower_bound(bin_edges, bin_edges_end, x);
-    // rslt is a pointer to the first value that is "not less than" x
-    std::size_t index_p_1 = std::distance(bin_edges, rslt);
-
-    if (index_p_1 == 0 || index_p_1 == (nbins + 1)){
-      return nbins;
-    } else {
-      return index_p_1 - 1;
-    }
-  }
-
   
-   FORCE_INLINE double dist_sqr_3D(const double* arr1, std::size_t i1,
-				   std::size_t stride1,
-				   const double* arr2, std::size_t i2,
-				   std::size_t stride2){
+  FORCE_INLINE double dist_sqr_3D(const double* arr1, std::size_t i1,
+                                  std::size_t stride1,
+                                  const double* arr2, std::size_t i2,
+                                  std::size_t stride2){
     double dx = arr1[i1] - arr2[i2];
     double dy = arr1[i1 + stride1] - arr2[i2 + stride2];
     double dz = arr1[i1 + 2*stride1] - arr2[i2 + 2*stride2];
@@ -64,9 +33,9 @@ namespace{
 
    template<typename AccumCollection, bool duplicated_points>
   AccumCollection process_data(const PointProps points_a,
-				  const PointProps points_b,
-				  const double *dist_sqr_bin_edges,
-				  std::size_t nbins)
+                               const PointProps points_b,
+                               const double *dist_sqr_bin_edges,
+                               std::size_t nbins)
   {
 
     // this assumes 3D
@@ -121,8 +90,10 @@ namespace{
                                                           dist_sqr_bin_edges,
                                                           nbins);
     }
+
     accumulators.copy_flt_vals(out_flt_vals);
     accumulators.copy_i64_vals(out_i64_vals);
+
   }
 }
 
@@ -170,6 +141,10 @@ bool calc_vsf_props(const PointProps points_a,
        out_flt_vals, out_i64_vals, duplicated_points);
   } else if (std::string(statistic) == "variance"){
     calc_vsf_props_helper_<ScalarAccumCollection<VarAccum>>
+      (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+       out_flt_vals, out_i64_vals, duplicated_points);
+  } else if (std::string(statistic) == "histogram"){
+    calc_vsf_props_helper_<HistogramAccumCollection>
       (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
        out_flt_vals, out_i64_vals, duplicated_points);
   } else {
