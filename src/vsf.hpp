@@ -26,15 +26,16 @@ extern "C" {
 ///     binning positions. This must have ``nbins + 1`` entries. The ith bin
 ///     includes the interval ``bin_edges[i] <= x < bin_edges[i]``.
 /// @param[in]  nbins The number of position bins
-/// @param[out] out_vals Preallocated arrays to hold the output values.
-/// @param[out] out_counts Preallocated array of ``nbins`` entries that are
+/// @param[out] out_flt_vals Preallocated arrays to hold the output floating
+///     point values.
+/// @param[out] out_i64_vals Preallocated array of ``nbins`` entries that are
 ///     used to store the number of pairs of points in each bin.
 ///
 /// @returns This returns ``true`` on success and ``false`` on failure.
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
 		    const char* statistic,
                     const double *bin_edges, std::size_t nbins,
-                    double *out_vals, int64_t *out_counts) noexcept;
+                    double *out_flt_vals, int64_t *out_i64_vals) noexcept;
 
 #ifdef __cplusplus
 }

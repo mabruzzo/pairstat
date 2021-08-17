@@ -62,15 +62,15 @@ namespace{
     return dx*dx + dy*dy + dz*dz;
   }
 
-   template<typename Accum, bool duplicated_points>
-  std::vector<Accum> process_data(const PointProps points_a,
+   template<typename AccumCollection, bool duplicated_points>
+  AccumCollection process_data(const PointProps points_a,
 				  const PointProps points_b,
 				  const double *dist_sqr_bin_edges,
 				  std::size_t nbins)
   {
 
     // this assumes 3D
-    std::vector<Accum> accumulators(nbins);
+    AccumCollection accumulators(nbins, nullptr);
 
     const std::size_t n_points_a = points_a.n_points;
     const double *pos_a = points_a.positions;
@@ -95,7 +95,7 @@ namespace{
                                                  dist_sqr_bin_edges,
                                                  nbins);
 	if (bin_ind < nbins){
-	  accumulators[bin_ind].add_entry(abs_vdiff);
+          accumulators.add_entry(bin_ind, abs_vdiff);
 	}
       }
     }
@@ -103,32 +103,26 @@ namespace{
     return accumulators;
   }
 
-  template<typename Accum>
+  template<typename AccumCollection>
   void calc_vsf_props_helper_(const PointProps points_a,
 			      const PointProps points_b,
 			      const double *dist_sqr_bin_edges,
                               std::size_t nbins,
-			      double *out_vals, int64_t *out_counts,
+			      double *out_flt_vals, int64_t *out_i64_vals,
 			      bool duplicated_points){
 
-    std::vector<Accum> accumulators;
+    AccumCollection accumulators;
     if (duplicated_points){
-      accumulators = process_data<Accum, true>(points_a, points_b,
-					       dist_sqr_bin_edges, nbins);
+      accumulators = process_data<AccumCollection, true>(points_a, points_b,
+                                                         dist_sqr_bin_edges,
+                                                         nbins);
     } else {
-      accumulators = process_data<Accum, false>(points_a, points_b,
-						dist_sqr_bin_edges, nbins);
+      accumulators = process_data<AccumCollection, false>(points_a, points_b,
+                                                          dist_sqr_bin_edges,
+                                                          nbins);
     }
-
-    const std::size_t num_flt_vals = Accum::flt_val_names().size();
-
-    for (std::size_t i = 0; i < nbins; i++){
-      out_counts[i] = accumulators[i].count;
-      for (std::size_t j = 0; j < num_flt_vals; j++){
-	out_vals[i + j*nbins] = accumulators[i].get_flt_val(j);
-      }
-    }
-
+    accumulators.copy_flt_vals(out_flt_vals);
+    accumulators.copy_i64_vals(out_i64_vals);
   }
 }
 
@@ -137,7 +131,7 @@ bool calc_vsf_props(const PointProps points_a,
 		    const PointProps points_b,
 		    const char* statistic, const double *bin_edges,
 		    std::size_t nbins,
-		    double *out_vals, int64_t *out_counts) noexcept
+		    double *out_flt_vals, int64_t *out_i64_vals) noexcept
 {
   const bool duplicated_points = ((points_b.positions == nullptr) &&
 				  (points_b.velocities == nullptr));
@@ -171,13 +165,13 @@ bool calc_vsf_props(const PointProps points_a,
   std::string stat_str(statistic);
 
   if (stat_str == "mean"){
-    calc_vsf_props_helper_<MeanAccum>(points_a, my_points_b,
-                                      dist_sqr_bin_edges_vec.data(), nbins,
-				      out_vals, out_counts, duplicated_points);
+    calc_vsf_props_helper_<ScalarAccumCollection<MeanAccum>>
+      (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+       out_flt_vals, out_i64_vals, duplicated_points);
   } else if (std::string(statistic) == "variance"){
-    calc_vsf_props_helper_<VarAccum>(points_a, my_points_b,
-                                     dist_sqr_bin_edges_vec.data(), nbins,
-				     out_vals, out_counts, duplicated_points);
+    calc_vsf_props_helper_<ScalarAccumCollection<VarAccum>>
+      (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+       out_flt_vals, out_i64_vals, duplicated_points);
   } else {
     return false;
   }

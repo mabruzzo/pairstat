@@ -98,6 +98,10 @@ public: // attributes
 template<typename Accum>
 class ScalarAccumCollection{
 
+public:
+
+  ScalarAccumCollection() noexcept : accum_list_() {}
+
   ScalarAccumCollection(std::size_t n_spatial_bins, void * other_arg) noexcept
     : accum_list_(n_spatial_bins)
   {
@@ -152,6 +156,10 @@ class ScalarAccumCollection{
     for (std::size_t i = 0; i < accum_list_.size(); i++){
       out_vals[i] = accum_list_[i].count;
     }
+  }
+
+  std::vector<Accum> get_accum_vector() const noexcept {
+    return accum_list_;
   }
 
 private:
