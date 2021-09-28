@@ -2,7 +2,6 @@
 #define ACCUMULATORS_H
 
 #include <utility> // std::pair
-#include <algorithm> // std::copy
 
 void error(const char* message){
   if (message == nullptr){
@@ -211,21 +210,30 @@ public:
       data_bin_edges_()
   {
     if (n_spatial_bins == 0) { error("n_spatial_bins must be positive"); }
-    if (other_arg != nullptr) { error("other_arg must be nullptr"); }
+    if (other_arg == nullptr) { error("other_arg must not be a nullptr"); }
 
-    std::size_t n_data_bins = 3;
-    double data_bin_edges[4] = {-1.7976931348623157e+308, 1e-8, 1e-4, 1.7976931348623157e+308};
 
+    BinSpecification* data_bins = static_cast<BinSpecification*>(other_arg);
+    //printf("n_bins = %d\n", (int)data_bins->n_bins);
+    //for (std::size_t i = 0; i < (data_bins->n_bins + 1); i++){
+    //  printf("%e, ", data_bins->bin_edges[i]);
+    //}
+    //printf("\n");
+
+    //std::size_t n_data_bins = 3;
+    //double data_bin_edges[4] = {-1.7976931348623157e+308, 1e-8, 1e-4, 1.7976931348623157e+308};
     // initialize n_data_bins_
-    if (n_data_bins == 0) { error("n_data_bins must be positive"); }
-    n_data_bins_ = n_data_bins;
+    if (data_bins->n_bins == 0) {
+      error("There must be a positive number of bins.");
+    }
+    n_data_bins_ = data_bins->n_bins;
 
     // initialize data_bin_edges_ (copy data from data_bin_edges)
     std::size_t len_data_bin_edges = n_data_bins_ + 1;
     data_bin_edges_.resize(len_data_bin_edges);
     // we should really confirm the data_bin_edges_ is monotonic
     for (std::size_t i = 0; i < len_data_bin_edges; i++){
-      data_bin_edges_[i] = data_bin_edges[i];
+      data_bin_edges_[i] = data_bins->bin_edges[i];
     }
 
     // initialize the counts array

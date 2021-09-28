@@ -35,11 +35,12 @@ namespace{
   AccumCollection process_data(const PointProps points_a,
                                const PointProps points_b,
                                const double *dist_sqr_bin_edges,
-                               std::size_t nbins)
+                               std::size_t nbins,
+                               void* accum_arg_ptr)
   {
 
     // this assumes 3D
-    AccumCollection accumulators(nbins, nullptr);
+    AccumCollection accumulators(nbins, accum_arg_ptr);
 
     const std::size_t n_points_a = points_a.n_points;
     const double *pos_a = points_a.positions;
@@ -76,7 +77,7 @@ namespace{
   void calc_vsf_props_helper_(const PointProps points_a,
 			      const PointProps points_b,
 			      const double *dist_sqr_bin_edges,
-                              std::size_t nbins,
+                              std::size_t nbins, void* accum_arg_ptr,
 			      double *out_flt_vals, int64_t *out_i64_vals,
 			      bool duplicated_points){
 
@@ -84,11 +85,11 @@ namespace{
     if (duplicated_points){
       accumulators = process_data<AccumCollection, true>(points_a, points_b,
                                                          dist_sqr_bin_edges,
-                                                         nbins);
+                                                         nbins, accum_arg_ptr);
     } else {
       accumulators = process_data<AccumCollection, false>(points_a, points_b,
                                                           dist_sqr_bin_edges,
-                                                          nbins);
+                                                          nbins, accum_arg_ptr);
     }
 
     accumulators.copy_flt_vals(out_flt_vals);
@@ -101,7 +102,7 @@ namespace{
 bool calc_vsf_props(const PointProps points_a,
 		    const PointProps points_b,
 		    const char* statistic, const double *bin_edges,
-		    std::size_t nbins,
+		    std::size_t nbins, void* accum_arg_ptr,
 		    double *out_flt_vals, int64_t *out_i64_vals) noexcept
 {
   const bool duplicated_points = ((points_b.positions == nullptr) &&
@@ -138,15 +139,15 @@ bool calc_vsf_props(const PointProps points_a,
   if (stat_str == "mean"){
     calc_vsf_props_helper_<ScalarAccumCollection<MeanAccum>>
       (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
-       out_flt_vals, out_i64_vals, duplicated_points);
+       accum_arg_ptr, out_flt_vals, out_i64_vals, duplicated_points);
   } else if (std::string(statistic) == "variance"){
     calc_vsf_props_helper_<ScalarAccumCollection<VarAccum>>
       (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
-       out_flt_vals, out_i64_vals, duplicated_points);
+       accum_arg_ptr, out_flt_vals, out_i64_vals, duplicated_points);
   } else if (std::string(statistic) == "histogram"){
     calc_vsf_props_helper_<HistogramAccumCollection>
       (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
-       out_flt_vals, out_i64_vals, duplicated_points);
+       accum_arg_ptr, out_flt_vals, out_i64_vals, duplicated_points);
   } else {
     return false;
   }

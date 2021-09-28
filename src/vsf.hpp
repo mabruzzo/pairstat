@@ -9,6 +9,11 @@ struct PointProps{
   std::size_t n_spatial_dims;
 };
 
+struct BinSpecification{
+  const double * bin_edges;
+  std::size_t n_bins;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,6 +31,9 @@ extern "C" {
 ///     binning positions. This must have ``nbins + 1`` entries. The ith bin
 ///     includes the interval ``bin_edges[i] <= x < bin_edges[i]``.
 /// @param[in]  nbins The number of position bins
+/// @param[in]  accum_arg_ptr This is a pointer to a struct that is designed to
+///     be passed to the construction of some accumulators. In most cases, this
+///     should be a nullptr.
 /// @param[out] out_flt_vals Preallocated arrays to hold the output floating
 ///     point values.
 /// @param[out] out_i64_vals Preallocated array of ``nbins`` entries that are
@@ -35,6 +43,7 @@ extern "C" {
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
 		    const char* statistic,
                     const double *bin_edges, std::size_t nbins,
+                    void* accum_arg_ptr,
                     double *out_flt_vals, int64_t *out_i64_vals) noexcept;
 
 #ifdef __cplusplus

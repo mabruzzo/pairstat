@@ -207,8 +207,8 @@ def test_vsf_two_collections():
 
 def test_vsf_single_collection():
 
-    val_bin_edges = np.array([-1.7976931348623157e+308, 1e-8,
-                              1e-4, 1.7976931348623157e+308])
+    val_bin_edges = np.array([0] + np.geomspace(start = 1e-16, stop = 100,
+                                                num = 100).tolist())
 
     if True: 
         x_a,vel_a = (np.arange(6.0,24.0).reshape(3,6),
@@ -304,15 +304,11 @@ if __name__ == '__main__':
     #benchmark((3,50000), shape_b = None, seed = 156,
     #          dist_bin_edges = np.arange(101.0)/100)
 
-    if False: # simple case!
-        x_a, vel_a = (np.arange(6.0).reshape(3,2),
-                      np.arange(-3.0,3.0).reshape(3,2))
-
-        x_b,vel_b = (np.arange(6.0,24.0).reshape(3,6),
-                     np.arange(-9.0,9.0).reshape(3,6))
-
-        bin_edges = np.array([17.0, 21.0, 25.0])
-        print(_vsf_props_python(x_a, x_b, vel_a, vel_b, bin_edges,
-                                statistic = 'histogram'))
-        print(pyvsf.vsf_props(x_a, x_b, vel_a, vel_b, bin_edges,
-                              statistic = 'histogram'))
+    val_bin_edges = np.geomspace(start = 1e-16, stop = 2.0, num = 100,
+                                 dtype = np.float64)
+    val_bin_edges[0] = 0.0
+    val_bin_edges[-1] = np.finfo(np.float64).max
+    benchmark((3,20000), shape_b = None, seed = 156,
+              statistic = 'histogram',
+              dist_bin_edges = np.arange(101.0)/100,
+              kwargs = {'val_bin_edges' : val_bin_edges})

@@ -44,6 +44,19 @@ class POINTPROPS(ctypes.Structure):
                           n_points = n_points,
                           n_spatial_dims = n_spatial_dims)
 
+class HISTBINS(ctypes.Structure):
+    _fields_ = [("bin_edges", _double_ptr),
+                ("n_bins", ctypes.c_size_t)]
+
+    @staticmethod
+    def construct(bin_edges, arg_name = None):
+        bin_edges = np.asarray(bin_edges, dtype = np.float64, order = 'C')
+        assert _verify_bin_edges(bin_edges)
+        n_bins = int(bin_edges.size - 1)
+
+        return HISTBINS(bin_edges = bin_edges.ctypes.data_as(_double_ptr),
+                        n_bins = n_bins)
+_HISTBINS_ptr = ctypes.POINTER(HISTBINS)
 
 _ptr_to_double_ptr = ctypes.POINTER(_double_ptr)
 
@@ -53,6 +66,7 @@ _lib.calc_vsf_props.argtypes = [
     np.ctypeslib.ndpointer(dtype = np.float64, ndim = 1,
                            flags = 'C_CONTIGUOUS'),
     ctypes.c_size_t,
+    ctypes.c_void_p,
     np.ctypeslib.ndpointer(dtype = np.float64, ndim = 1,
                            flags = ['C_CONTIGUOUS', 'WRITEABLE']),
     np.ctypeslib.ndpointer(dtype = np.int64, ndim = 1,
@@ -141,6 +155,7 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
 
     statistic_name = ctypes.create_string_buffer(statistic.encode())
 
+    accum_arg_ptr = ctypes.c_void_p(None)
     if statistic == 'histogram':
         assert list(kwargs.keys()) == ['val_bin_edges']
         val_bin_edges = np.asanyarray(kwargs['val_bin_edges'],
@@ -150,6 +165,8 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
                 'kwargs["dist_bin_edges"] must be a 1D monotonically '
                 'increasing array with 2 or more values'
             )
+        val_bins_struct = HISTBINS.construct(val_bin_edges)
+        val_bins_ptr = _HISTBINS_ptr(val_bins_struct)
 
         nval_bins = val_bin_edges.size - 1
         # out_flt_vals isn't expected to have any values. but for simplicity of
@@ -157,6 +174,8 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         out_flt_vals = np.empty((1,), dtype = np.float64)
         out_i64_vals = np.empty((ndist_bins * nval_bins,),
                                 dtype = np.int64)
+
+        accum_arg_ptr = ctypes.cast(val_bins_ptr, ctypes.c_void_p)
     else:
         assert len(kwargs) == 0
         if statistic == 'mean':
@@ -170,8 +189,8 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
 
     # now actually call the function
     success = _lib.calc_vsf_props(points_a, points_b, statistic_name,
-                                  dist_bin_edges, ndist_bins, out_flt_vals,
-                                  out_i64_vals)
+                                  dist_bin_edges, ndist_bins, accum_arg_ptr,
+                                  out_flt_vals, out_i64_vals)
     assert success
 
     if statistic in ['mean', 'variance']:
