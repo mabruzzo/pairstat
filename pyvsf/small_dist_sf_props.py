@@ -1,3 +1,4 @@
+
 from itertools import product
 import logging
 from typing import Tuple, Sequence, Optional
@@ -12,6 +13,11 @@ from pydantic import (
 )
 
 from .pyvsf import vsf_props
+from ._cut_region_iterator import (
+    get_root_level_cell_width,
+    neighbor_ind_iter,
+    get_cut_region_itr_builder
+)
 
 # Define some Data Objects
 
@@ -90,76 +96,17 @@ class SubVolumeDecomposition(BaseModel):
         return (r - l) / np.array(self.subvols_per_ax), self.length_unit
 
     def valid_subvol_index(self, subvol_index):
-        assert len(subvol_index) == 3
+        if len(subvol_index) != 3:
+            raise ValueError(f"Invalid subvol_index: {subvol_index}")
         itr = [0,1,2]
         return (
             all(int(subvol_index[i]) == subvol_index[i] for i in itr) and
             all(0 <= subvol_index[i] < self.subvols_per_ax[i] for i in itr)
         )
 
-    def get_data_obj(self, ds, subvol_index):
-        assert self.valid_subvol_index(subvol_index)
-        subvol_widths, _ = self.subvol_widths
-        ind = np.array(subvol_index)
 
-        # compute the left and right edges of the subvolume
-        subvol_left = np.array(self.left_edge) + ind * subvol_widths
-        subvol_right = np.array(self.left_edge) + (ind+1) * subvol_widths
 
-        # adjust subvol_right in cases where it's expected to line up with
-        # self.right_edge
-        for dim in range(3):
-            if subvol_index[dim] == self.subvols_per_ax[dim]-1:
-                subvol_right[dim] = self.right_edge[dim]
 
-        # convert subvol_left and subvol_right to yt_arrays
-        subvol_left = ds.arr(subvol_left, self.length_unit)
-        subvol_right = ds.arr(subvol_right, self.length_unit)
-
-        return subvolume_dataobject(ds, subvol_left, subvol_right)
-
-def get_root_level_cell_width(ds):
-    # level = 0 denotes the root level
-    out = ds.index.select_grids(level = 0)[0].dds
-    assert str(out.units) == 'code_length'
-    return out
-
-def subvolume_dataobject(ds, left_edge, right_edge):
-    """
-    The resulting dataobject only includes cell-centered values
-    
-    Notes
-    -----
-    Naively using ds.box(left_edge = left_edge, right_edge = right_edge)
-    will include all cells that have any overlap with the volume (and it
-    seems to be subject to some roundoff errors)
-    
-    At the same time, I suspect that creating a cut_region will involve
-    a lot of allocations (since the data needs to be compared everywhere)
-    """
-    lunit = left_edge.units
-    runit = right_edge.units
-
-    # first construct a padded box region, that will definitely include all
-    # desired points and a little extra
-    root_cell_width = get_root_level_cell_width(ds)
-    lpadded = left_edge - root_cell_width.to(lunit)
-    rpadded = right_edge + root_cell_width.to(runit)
-    box_region = ds.box(left_edge = lpadded, right_edge = rpadded)
-
-    # now create a cut_region from box_region that discards all uneeded
-    # points
-    lval, rval = left_edge.ndarray_view(), right_edge.ndarray_view()
-    parts = []
-    for i,ax in enumerate('xyz'):
-        parts.append(
-            f'(obj["gas", "{ax}"].to("{lunit}").ndarray_view() >= {lval[i]})'
-        )
-        parts.append(
-            f'(obj["gas", "{ax}"].to("{runit}").ndarray_view() <= {rval[i]})'
-        )
-    cut_str = ' & '.join(parts)
-    return box_region.cut_region(cut_str)
 
 def decompose_volume(ds, sf_params, force_single_subvol = False):
     """
@@ -245,57 +192,6 @@ def decompose_volume(ds, sf_params, force_single_subvol = False):
     return SubVolumeDecomposition(**kwargs)
 
 
-def _pos_quan_arr_generator(data_region, sf_props, rand_generator = None):
-    """
-    Generator that yields the cut_region_index, positions, and quantities for
-    each cut_region in data_region.
-    """
-
-    for cut_region_index, cut_string in enumerate(sf_props.cut_regions):
-
-        if cut_string is None or cut_string == '':
-            cad = data_region
-        else:
-            cad = data_region.cut_region(cut_string)
-
-        # get the positions for each point
-        pos = np.array([cad[ii].to(sf_props.dist_units).ndarray_view() \
-                        for ii in ['x', 'y', 'z']])
-
-        npoints = pos.shape[1]
-        max_points = sf_props.max_points
-        if npoints == 0:
-            logging.warning("No points!")
-            yield cut_region_index, None, None, 0
-        else:
-            if max_points is not None and npoints > max_points:
-                assert rand_generator is not None
-                logging.info(
-                    f"Too many points (>{max_points}), discarding some"
-                )
-                ipoints \
-                    = rand_generator.permutation(npoints)[:sf_props.max_points]
-                pos = pos[:,ipoints]
-            else:
-                ipoints = slice(None)
-
-            # try to be a little conservative about memory
-            tmp_l = []
-            for field in sf_props.quantity_components:
-                tmp_l.append(cad[field][ipoints].to(sf_props.quantity_units)\
-                             .ndarray_view())
-
-            for i in range(len(tmp_l),3):
-                tmp_l.append(np.zeros_like(tmp_l[0]))
-            quan_arr = np.array(tmp_l)
-
-            cad.clear_data()
-            del ipoints
-            yield cut_region_index, pos, quan_arr, npoints
-
-    data_region.ds.index.clear_all_data()
-
-
 
 
 def consolidate_partial_vsf_results(statistic, *rslts):
@@ -329,12 +225,13 @@ def consolidate_partial_vsf_results(statistic, *rslts):
     else:
         raise ValueError(f"Unknown Statistic: {statistic}")
 
+
 class SFWorker:
     """
     Computes the structure function properties for different subvolumes
     """
     def __init__(self, ds_initializer, subvol_decomp, sf_param, statistic,
-                 kwargs):
+                 kwargs, eager_loading = False):
         self.ds_initializer = ds_initializer
         self.subvol_decomp = subvol_decomp
         if any(subvol_decomp.periodicity):
@@ -342,6 +239,7 @@ class SFWorker:
         self.sf_param = sf_param
         self.statistic = statistic
         self.kwargs = kwargs
+        self.eager_loading = eager_loading
 
     def __call__(self, subvol_index):
         try:
@@ -357,6 +255,13 @@ class SFWorker:
         assert self.subvol_decomp.valid_subvol_index(subvol_index)
         assert self.sf_param.max_points is None
 
+        # cut_region_itr_builder constructs iterators over cut_regions for a
+        # given subvolume_index
+        cut_region_itr_builder = get_cut_region_itr_builder(
+            ds, self.subvol_decomp, self.sf_param, rand_generator = None,
+            eager_loader = self.eager_loading
+        )
+
         sf_param = self.sf_param
         dist_bin_edges = np.copy(np.array(self.sf_param.dist_bin_edges))
 
@@ -368,9 +273,9 @@ class SFWorker:
 
         # First, load in the main assigned subvolume and compute the auto-vsf
         print(f"{subvol_index}-auto")
-        main_data_region = self.subvol_decomp.get_data_obj(ds, subvol_index)
-        itr = _pos_quan_arr_generator(main_data_region, self.sf_param, None)
-        for i, pos, quan, available_points in itr:
+        itr = cut_region_itr_builder(subvol_index, is_central = True)
+
+        for cut_region_ind, pos, quan, available_points in itr:
             main_subvol_available_points.append(available_points)
             main_subvol_pos_and_quan.append((pos,quan))
 
@@ -392,26 +297,13 @@ class SFWorker:
         # Next, load the adjacent subvolumes (on the right side) and compute
         # cross term contributions
 
-        delta_ind = (( 1, 0, 0),
-
-                     (-1, 1, 0), ( 0, 1, 0), ( 1, 1, 0),
-
-                     (-1,-1, 1), ( 0,-1, 1), ( 1,-1, 1), # fix dz = 1
-                     (-1, 0, 1), ( 0, 0, 1), ( 1, 0, 1),
-                     (-1, 1, 1), ( 0, 1, 1), ( 1, 1, 1)
-        )
-
-
-        for di, dj, dk in delta_ind:
-            other_ind = np.array(subvol_index) + np.array([di,dj,dk])
-            if not self.subvol_decomp.valid_subvol_index(other_ind):
-                continue
+        for other_ind in neighbor_ind_iter(subvol_index, self.subvol_decomp):
             print(f"{subvol_index}-{other_ind}")
 
             cross_sf_rslts.append([])
+            print(other_ind)
 
-            other_region = self.subvol_decomp.get_data_obj(ds, other_ind)
-            itr = _pos_quan_arr_generator(other_region, self.sf_param, None)
+            itr = cut_region_itr_builder(other_ind, is_central = False)
             # iterate over the positions/quantities from the adjacent subvolume
             # for each cut region
             for cut_region_index, o_pos, o_quan, o_available_points in itr:
@@ -420,12 +312,9 @@ class SFWorker:
                 m_pos, m_quan = main_subvol_pos_and_quan[cut_region_index]
                 m_available_points \
                     = main_subvol_available_points[cut_region_index]
-                
 
                 if (m_available_points == 0) or (o_available_points == 0):
                     cross_sf_rslts[-1].append({})
-                    if cut_region_index == 0:
-                        print('pairs: 0')
                 else:
                     cross_sf_rslts[-1].append(
                         vsf_props(
@@ -436,10 +325,6 @@ class SFWorker:
                             kwargs = self.kwargs
                         )
                     )
-                    if cut_region_index == 0:
-                        print(
-                            f'pairs: {cross_sf_rslts[-1][-1]["2D_counts"].sum()}'
-                        )
 
         # finally, consolidate cross_sf_rslts together with main_subvol_rslts
         consolidated_rslts = []
@@ -466,6 +351,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         statistic = 'variance', kwargs = {},
                         max_points = None, rand_seed = None,
                         force_single_subvol = False,
+                        eager_loading = False,
                         pool = None, autosf_subvolume_callback = None):
     """
     Computes the structure function.
@@ -514,6 +400,10 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     rand_seed: int, optional
         Optional argument used to seed the pseudorandom permutation used to
         select points when the number of points exceed `maxpoints`.
+    eager_loading: bool, optional
+        When True, this tries to load simulation data much more eagerly
+        (aggregating reads). While this requires additional RAM, this tries to
+        ease pressure on shared file systems.
     pool: `multiprocessing.pool.Pool`-like object, optional
         When specified, this should have a `map` method with a similar
         interface to `multiprocessing.pool.Pool`'s `map method
@@ -630,7 +520,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     worker = SFWorker(ds_initializer, subvol_decomp,
                       sf_param = structure_func_props,
                       statistic = statistic,
-                      kwargs = kwargs)
+                      kwargs = kwargs,
+                      eager_loading = eager_loading)
 
     iterable = product(*(range(elem) for elem in subvol_decomp.subvols_per_ax))
     result_l = [[] for i in cut_regions]
