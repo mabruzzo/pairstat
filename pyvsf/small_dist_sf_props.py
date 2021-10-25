@@ -241,15 +241,18 @@ class SFWorker:
         self.kwargs = kwargs
         self.eager_loading = eager_loading
 
-    def __call__(self, subvol_index):
-        try:
-            return self._call(subvol_index)
-        except BaseException as e:
-            raise RuntimeError(
-                f"Problem encountered while processing {subvol_index}"
-            ) from e
+    def __call__(self, subvol_indices):
+        tmp = []
+        for subvol_index in subvol_indices:
+            try:
+                tmp.append(self._process_index(subvol_index))
+            except BaseException as e:
+                raise RuntimeError(
+                    f"Problem encountered while processing {subvol_index}"
+                ) from e
+        return tmp
 
-    def _call(self, subvol_index):
+    def _process_index(self, subvol_index):
         ds = self.ds_initializer()
 
         assert self.subvol_decomp.valid_subvol_index(subvol_index)
@@ -338,6 +341,38 @@ class SFWorker:
         return (subvol_index,
                 np.array(main_subvol_available_points), main_subvol_rslts,
                 consolidated_rslts)
+
+def subvol_index_batch_generator(subvol_decomp, n_workers,
+                                 subvols_per_chunk = None):
+    num_x, num_y, num_z = subvol_decomp.subvols_per_ax
+    
+    if subvols_per_chunk is None:
+        if (n_workers == 1):
+            chunksize = num_x
+        elif n_workers % (num_y*num_z) == 0:
+            chunksize = num_x
+        else:
+            num_subvols = num_x*num_y*num_z
+            chunksize, remainder = divmod(num_subvols, 2*num_workers)
+            if remainder != 0:
+                chunksize+=1
+            chunksize = min(chunksize, num_x)
+    else:
+        assert subvols_per_chunk <= num_x
+        chunksize = subvols_per_chunk
+    assert chunksize > 0
+
+    cur_batch = []
+
+    for z_ind in range(num_z):
+        for y_ind in range(num_y):
+            for x_ind in range(num_x):
+                cur_batch.append((x_ind, y_ind, z_ind))
+                if len(cur_batch) == chunksize:
+                    yield tuple(cur_batch)
+                    cur_batch = []
+    if len(cur_batch) > 0:
+        yield tuple(cur_batch)
 
 _dflt_vel_components = (('gas','velocity_x'),
                         ('gas','velocity_y'),
@@ -449,6 +484,10 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                 for elem in tmp:
                     yield elem
         pool = Pool()
+        n_workers = 1
+    else:
+        n_workers = pool.size
+
     assert len(cut_regions) > 0
     dist_bin_edges = np.asarray(dist_bin_edges, dtype = np.float64)
     if dist_bin_edges.ndim != 1:
@@ -523,46 +562,49 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                       kwargs = kwargs,
                       eager_loading = eager_loading)
 
-    iterable = product(*(range(elem) for elem in subvol_decomp.subvols_per_ax))
+    iterable = subvol_index_batch_generator(subvol_decomp,
+                                            n_workers = n_workers)
     result_l = [[] for i in cut_regions]
     total_num_points_arr = np.array([0 for i in cut_regions])
 
-    for item in pool.map(worker, iterable):
-        subvol_index = item[0]
+    for batched_result in pool.map(worker, iterable):
+        for item in batched_result:
+            subvol_index = item[0]
 
-        subvol_available_pts, main_subvol_rslts, consolidated_rslts = item[1:]
-        # The following variables are each lists that have an entry for each
-        # cut_region:
-        # - subvol_available_pts is a lists of the available points from just
-        #   the subvolume at subvol_index.
-        #
-        # - main_subvol_rslts is a list of the contributions from just the
-        #   subvolume at subvol_index to the total structure function
-        #   (in the future, it might be nice to write this to disk so you
-        #   could look at the structure function's spatial dependence)
-        #
-        # - consolidated_rslts includes the contribution from main_subvol_rslts
-        #   to the total structure function as the cross-terms contributions
-        #   between points in subvol_index and points in its 7 (or at least
-        #   those that exist) nearest neigboring subvolumes on the right side
+            subvol_available_pts, main_subvol_rslts, consolidated_rslts \
+                = item[1:]
+            # The following variables are each lists that have an entry for
+            # each cut_region:
+            # - subvol_available_pts is a lists of the available points from
+            #   just the subvolume at subvol_index.
+            #
+            # - main_subvol_rslts is a list of the contributions from just the
+            #   subvolume at subvol_index to the total structure function
+            #   (in the future, it might be nice to write this to disk so you
+            #   could look at the structure function's spatial dependence)
+            #
+            # - consolidated_rslts includes the contribution from
+            #   main_subvol_rslts to the total structure function as the
+            #   cross-terms contributions between points in subvol_index and
+            #   points in its 7 (or at least those that exist) nearest
+            #   neigboring subvolumes on the right side
 
-        # when statistic == "histogram", we can losslessly accumulate the
-        # histograms as we receive them
-        if autosf_subvolume_callback is not None:
-            autosf_subvolume_callback(subvol_decomp, subvol_index,
-                                      main_subvol_rslts, subvol_available_pts)
+            # when statistic == "histogram", we can losslessly accumulate the
+            # histograms as we receive them
+            if autosf_subvolume_callback is not None:
+                autosf_subvolume_callback(subvol_decomp, subvol_index,
+                                          main_subvol_rslts,
+                                          subvol_available_pts)
 
-        for cut_region_index in range(len(cut_regions)):
-            result_l[cut_region_index].append(
-                consolidated_rslts[cut_region_index]
-            )
+            for cut_region_index in range(len(cut_regions)):
+                result_l[cut_region_index].append(
+                    consolidated_rslts[cut_region_index]
+                )
 
-        total_num_points_arr += subvol_available_pts
-        print(subvol_index)
-        print('num points from subvol: ', subvol_available_pts)
-        print('total num points: ', total_num_points_arr)
-
-    
+            total_num_points_arr += subvol_available_pts
+            print(subvol_index)
+            print('num points from subvol: ', subvol_available_pts)
+            print('total num points: ', total_num_points_arr)
 
     # now, let's consolidate the results together
     prop_l = [
