@@ -194,6 +194,52 @@ def decompose_volume(ds, sf_params, force_single_subvol = False):
     return SubVolumeDecomposition(**kwargs)
 
 
+class TaskResult:
+    # the fact that we allow num_statistics to be more than 1 is a little
+    # premature
+
+    def __init__(self, subvol_index, main_subvol_available_points,
+                 num_statistics, num_cut_regions):
+        self.subvol_index = subvol_index
+        tmp = np.array(main_subvol_available_points)
+        if tmp.shape != (num_cut_regions,):
+            raise ValueError("main_subvol_available_points should be a 1D "
+                             "array with an entry for each cut_region")
+        self.main_subvol_available_points = tmp
+        # in the future, we may want to actually make the container for the
+        # main_subvol_rslts and consolidated_rslts into its own class and
+        # simplify this class
+        self._main_subvol_rslts = np.empty((num_statistics, num_cut_regions),
+                                           dtype = object)
+        self._consolidated_rslts = np.empty((num_statistics, num_cut_regions),
+                                            dtype = object)
+
+    def store_result(self, stat_index, cut_region_index,
+                     main_subvol_rslt, consolidated_rslt):
+        if self._main_subvol_rslts[stat_index, cut_region_index] is not None:
+            raise IndexError("A result has already been stored for "
+                             f"stat_index = {stat_index}, "
+                             f"cut_region_index = {cut_region_index}")
+        elif main_subvol_rslt is None:
+            # consolidated_rslt is allowed to be None
+            raise IndexError("main_subvol_rslt can't be None")
+
+        self._main_subvol_rslts[stat_index, cut_region_index] = main_subvol_rslt
+        self._consolidated_rslts[stat_index, cut_region_index] = (
+            consolidated_rslt
+        )
+
+    def retrieve_result(self, stat_index, cut_region_index):
+        if self._main_subvol_rslts[stat_index, cut_region_index] is None:
+            raise ValueError("There are no results to retrieve for "
+                             f"stat_index = {stat_index}, "
+                             f"cut_region_index = {cut_region_index}")
+        return (self._main_subvol_rslts[stat_index, cut_region_index],
+                self._consolidated_rslts[stat_index, cut_region_index])
+
+    def entries_stored_for_all_results(self):
+        return all((e is not None) for e in self._main_subvol_rslts.flat)
+
 
 
 def consolidate_partial_vsf_results(statistic, *rslts):
@@ -309,18 +355,22 @@ class SFWorker:
                         )
                     )
 
-        # finally, consolidate cross_sf_rslts together with main_subvol_rslts
-        consolidated_rslts = []
-        for cut_region_i, main_subvol_rslt in enumerate(main_subvol_rslts):
+        out = TaskResult(subvol_index, main_subvol_available_points,
+                         num_statistics = 1,
+                         num_cut_regions = len(sf_param.cut_regions))
 
-            consolidated_rslts.append(consolidate_partial_vsf_results(
+        # finally, consolidate cross_sf_rslts together with main_subvol_rslts
+        for cut_region_i, main_subvol_rslt in enumerate(main_subvol_rslts):
+            consolidated_rslt = consolidate_partial_vsf_results(
                 self.statistic, main_subvol_rslt,
                 *[sublist[cut_region_i] for sublist in cross_sf_rslts]
-            ))
+            )
+            out.store_result(stat_index = 0, cut_region_index = cut_region_i,
+                             main_subvol_rslt = main_subvol_rslt,
+                             consolidated_rslt = consolidated_rslt)
 
-        return (subvol_index,
-                np.array(main_subvol_available_points), main_subvol_rslts,
-                consolidated_rslts)
+        assert out.entries_stored_for_all_results() # sanity check!!!
+        return out
 
 def subvol_index_batch_generator(subvol_decomp, n_workers,
                                  subvols_per_chunk = None):
@@ -549,37 +599,37 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 
     for batched_result in pool.map(worker, iterable):
         for item in batched_result:
-            subvol_index = item[0]
+            subvol_index = item.subvol_index
 
-            subvol_available_pts, main_subvol_rslts, consolidated_rslts \
-                = item[1:]
-            # The following variables are each lists that have an entry for
-            # each cut_region:
-            # - subvol_available_pts is a lists of the available points from
-            #   just the subvolume at subvol_index.
-            #
-            # - main_subvol_rslts is a list of the contributions from just the
-            #   subvolume at subvol_index to the total structure function
-            #   (in the future, it might be nice to write this to disk so you
-            #   could look at the structure function's spatial dependence)
-            #
-            # - consolidated_rslts includes the contribution from
-            #   main_subvol_rslts to the total structure function as the
-            #   cross-terms contributions between points in subvol_index and
-            #   points in its 7 (or at least those that exist) nearest
-            #   neigboring subvolumes on the right side
+            # subvol_available_pts is a lists of the available points from
+            # just the subvolume at subvol_index (there is an entry for each
+            # cut_region).
+            subvol_available_pts = item.main_subvol_available_points
 
             # when statistic == "histogram", we can losslessly accumulate the
             # histograms as we receive them
-            if autosf_subvolume_callback is not None:
-                autosf_subvolume_callback(subvol_decomp, subvol_index,
-                                          main_subvol_rslts,
-                                          subvol_available_pts)
 
-            for cut_region_index in range(len(cut_regions)):
-                result_l[cut_region_index].append(
-                    consolidated_rslts[cut_region_index]
-                )
+            for stat_index in [0]:
+                for cut_region_index in range(len(cut_regions)):
+
+                    # for the given subvol_index, stat_index, cut_region_index:
+                    # - main_subvol_rslts holds the contributions from just the
+                    #   subvolume at subvol_index to the total structure
+                    #   function
+                    # - consolidated_rslt includes the contribution from
+                    #   main_subvol_rslt as well as cross-term contributions
+                    #   between points in subvol_index and points in its 13 (or
+                    #   at least those that exist) nearest neigboring
+                    #   subvolumes on the right side
+                    main_subvol_rslt, consolidated_rslt \
+                        = item.retrieve_result(stat_index, cut_region_index)
+
+                    if autosf_subvolume_callback is not None:
+                        autosf_subvolume_callback(subvol_decomp, subvol_index,
+                                                  stat_index, cut_region_index,
+                                                  main_subvol_rslts,
+                                                  subvol_available_pts)
+                    result_l[cut_region_index].append(consolidated_rslt)
 
             total_num_points_arr += subvol_available_pts
             print(subvol_index)
