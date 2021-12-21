@@ -3,7 +3,7 @@
 
 #include <utility> // std::pair
 
-void error(const char* message){
+[[noreturn]] void error(const char* message){
   if (message == nullptr){
     printf("ERROR\n");
   } else {
@@ -35,7 +35,6 @@ public: // interface
       return mean;
     } else {
       error("MeanAccum only has 1 float_val");
-      return 0.0; // this prevents compiler complaints
     }
   }
 
@@ -69,7 +68,6 @@ struct VarAccum {
       return (count > 1) ? cur_M2 / (count - 1) : 0.0;
     } else {
       error("VarAccum only has 2 float_vals");
-      return 0.0; // this prevents compiler complaints
     }
   }
 
