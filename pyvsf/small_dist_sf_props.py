@@ -19,6 +19,8 @@ from ._cut_region_iterator import (
     get_cut_region_itr_builder
 )
 
+from ._kernels import get_kernel
+
 # Define some Data Objects
 
 class BoxSelector(BaseModel): 
@@ -201,30 +203,8 @@ def consolidate_partial_vsf_results(statistic, *rslts):
     """
     if len(rslts) == 0:
         raise RuntimeError()
-
-    if statistic == 'histogram':
-        out = {}
-        for rslt in rslts:
-            if len(rslt) == 0:
-                continue
-            assert list(rslt.keys()) == ['2D_counts']
-
-            if len(out) == 0:
-                out['2D_counts'] = rslt['2D_counts'].copy()
-            else:
-                out['2D_counts'] += rslt['2D_counts']
-        return out
-    elif statistic in ['mean','variance']:
-        # see the following link for a discussion about numerical instabilities
-        # that are relevant when consolidating contributions to means and
-        # variances
-        # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-        raise NotImplementedError(
-            "support for consolidating results of mean and variance "
-            "calculations needs to be added")
-    else:
-        raise ValueError(f"Unknown Statistic: {statistic}")
-
+    kernel = get_kernel(statistic)
+    return kernel.consolidate_stats(*rslts)
 
 class SFWorker:
     """
