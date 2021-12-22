@@ -383,7 +383,7 @@ def subvol_index_batch_generator(subvol_decomp, n_workers,
             chunksize = num_x
         else:
             num_subvols = num_x*num_y*num_z
-            chunksize, remainder = divmod(num_subvols, 2*num_workers)
+            chunksize, remainder = divmod(num_subvols, 2*n_workers)
             if remainder != 0:
                 chunksize+=1
             chunksize = min(chunksize, num_x)
@@ -477,10 +477,14 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         An optional callable that can process the auto-structure function
         properties computed for individual subvolumes (for example, this could
         be used to save such quantities to disk). The callable should expect
-        the following arugments 
+        the following arugments
+        - an instance of `StructureFuncProps`. This should not be mutated.
         - an instance of `SubVolumeDecomposition` (specifying how the domain is
           broken up). This should not be mutated.
-        - the subvolume index (a tuple of 3 integers)
+        - the subvolume index (a tuple of 3 integers),
+        - stat_index, the index corresponding to the statitic being computed.
+          (If you're only computing a single statistic, this will always be 0)
+        - the index corresponding to the cut_region
         - the structure function properties computed within the subvolume
         - the number of points in that subvolume that are available to be used
           to compute the structure function properties.
@@ -492,7 +496,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     num_points_used_arr: np.ndarray
         The total number of points that were used to compute prop_l (for each
         cut region)
-    toal_avail_points_arr: np.ndarray
+    total_avail_points_arr: np.ndarray
         The total number of points that are available to be used to compute
         structure function properties (for each cut region)
     subvol_decomp: `SubVolumeDecomposition`
@@ -606,8 +610,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             # cut_region).
             subvol_available_pts = item.main_subvol_available_points
 
-            # when statistic == "histogram", we can losslessly accumulate the
-            # histograms as we receive them
+            # TODO: it may be worthwhile to consolidate statistics that are
+            # commutative (e.g. "histogram") as we receive them
 
             for stat_index in [0]:
                 for cut_region_index in range(len(cut_regions)):
@@ -625,7 +629,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         = item.retrieve_result(stat_index, cut_region_index)
 
                     if autosf_subvolume_callback is not None:
-                        autosf_subvolume_callback(subvol_decomp, subvol_index,
+                        autosf_subvolume_callback(structure_func_props,
+                                                  subvol_decomp, subvol_index,
                                                   stat_index, cut_region_index,
                                                   main_subvol_rslts,
                                                   subvol_available_pts)
