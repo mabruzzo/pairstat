@@ -114,7 +114,29 @@ def _consolidate_variance(rslts):
     variance[w] = accum_M2[w] / (accum_counts[w] - 1.0)
     return {'counts' : accum_counts, 'mean' : accum_mean, 'variance' : variance}
 
+def _validate_basic_quan_props(kernel, rslt, dist_bin_edges, kwargs = {}):
+    quan_props = kernel.get_dset_props(dist_bin_edges, kwargs)
+    assert len(quan_props) == len(rslt)
+    for name, dtype, shape in quan_props:
+        if name not in quan_props:
+            raise ValueError(
+                f"The result for the '{kernel.name}' statistic is missing a "
+                f"quantity called '{name}'"
+            )
+        elif rslt[name].dtype != dtype:
+            raise ValueError(
+                f"the {name} quantity for the {kernel.name} statistic should ",
+                f"have a dtype of {dtype}, not of {rslt[name].dtype}"
+            )
+        elif rslt[name].shape != shape:
+            raise ValueError(
+                f"the {name} quantity for the {kernel.name} statistic should ",
+                f"have a shape of {shape}, not of {rslt[name].shape}"
+            )
+        
+
 class Variance:
+    name = "variance"
     output_keys = ('counts', 'mean', 'variance')
     commutative_consolidate = False
 
@@ -122,4 +144,14 @@ class Variance:
     def consolidate_stats(cls, *rslts):
         return _consolidate_variance(rslts)
 
+    @classmethod
+    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
+        assert kwargs == {}
+        assert dist_bin_edges.size >= 2 and dist_bin_edges.ndim == 1
+        return [('counts',   np.int64,   dist_bin_edges.shape),
+                ('mean',     np.float64, dist_bin_edges.shape),
+                ('variance', np.float64, dist_bin_edges.shape)]
 
+    @classmethod
+    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
+        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)

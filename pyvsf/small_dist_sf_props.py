@@ -629,11 +629,11 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         = item.retrieve_result(stat_index, cut_region_index)
 
                     if autosf_subvolume_callback is not None:
-                        autosf_subvolume_callback(structure_func_props,
-                                                  subvol_decomp, subvol_index,
-                                                  stat_index, cut_region_index,
-                                                  main_subvol_rslts,
-                                                  subvol_available_pts)
+                        autosf_subvolume_callback(
+                            structure_func_props, subvol_decomp, subvol_index,
+                            stat_index, cut_region_index, main_subvol_rslt,
+                            subvol_available_pts[cut_region_index]
+                        )
                     result_l[cut_region_index].append(consolidated_rslt)
 
             total_num_points_arr += subvol_available_pts
