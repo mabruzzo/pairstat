@@ -628,15 +628,43 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     logging.info(
         f"Number of subvolumes per axis: {subvol_decomp.subvols_per_ax}"
     )
+
+    if isinstance(statistic, str):
+        if not isinstance(kwargs, dict):
+            raise ValueError("kwargs must be a dict when statistic is a string")
+        statistic_l = (statistic,)
+        kwargs_l = (kwargs,)
+        single_statistic = True
+    elif len(statistic) == 0:
+        raise ValueError("statistic can't be an empty sequence")
+    elif not all(isinstance(e, str) for e in statistic):
+        raise TypeError("statistic must be a string or a sequence of strings")
+    elif isinstance(kwargs,dict) or not all(isinstance(e,dict) for e in kwargs):
+        raise ValueError("When statistic is a sequence of strings, kwargs "
+                         "must be a sequence of dicts.")
+    elif len(statistic) != len(kwargs):
+        raise ValueError("When statistic is a sequence of strings, kwargs "
+                         "must be a sequence of as many dicts.")
+    elif np.unique(statistic) != len(statistic):
+        raise ValueError("When statistic is a sequence of strings, none of "
+                         "the strings are allowed to be duplicates.")
+    else:
+        statistic_l = statistic
+        kwargs_l = kwargs
+        single_statistic = False
+
+    del statistic #primarily for debugging
+    del kwargs # primarily for debugging
+
     worker = SFWorker(ds_initializer, subvol_decomp,
                       sf_param = structure_func_props,
-                      statistic = statistic,
-                      kwargs = kwargs,
+                      statistic = statistic_l[0],
+                      kwargs = kwargs_l[0],
                       eager_loading = eager_loading)
 
     iterable = subvol_index_batch_generator(subvol_decomp,
                                             n_workers = n_workers)
-    result_l = [[] for i in cut_regions]
+    result_l = [[[] for j in cut_regions] for _ in statistic_l]
     total_num_points_arr = np.array([0 for i in cut_regions])
 
     for batched_result in pool.map(worker, iterable):
@@ -654,8 +682,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             # TODO: it may be worthwhile to consolidate statistics that are
             # commutative (e.g. "histogram") as we receive them
 
-            for stat_index in [0]:
-                for cut_region_index in range(len(cut_regions)):
+            for stat_ind in range(len(statistic_l)):
+                for cut_region_ind in range(len(cut_regions)):
 
                     # for the given subvol_index, stat_index, cut_region_index:
                     # - main_subvol_rslts holds the contributions from just the
@@ -667,8 +695,9 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                     #   at least those that exist) nearest neigboring
                     #   subvolumes on the right side
                     consolidated_rslt = consolidated_rslts.retrieve_result(
-                        stat_index, cut_region_index
+                        stat_ind, cut_region_ind
                     )
+                    result_l[stat_ind][cut_region_ind].append(consolidated_rslt)
 
                     if autosf_subvolume_callback is not None:
                         main_subvol_rslt = main_subvol_rslts.retrieve_result(
@@ -676,24 +705,26 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         )
                         autosf_subvolume_callback(
                             structure_func_props, subvol_decomp, subvol_index,
-                            stat_index, cut_region_index, main_subvol_rslt,
+                            stat_ind, cut_region_ind, main_subvol_rslt,
                             subvol_available_pts[cut_region_index]
                         )
-                    result_l[cut_region_index].append(consolidated_rslt)
 
+            # we only update total_num_points_arr once per task rslt
             total_num_points_arr += subvol_available_pts
             print(subvol_index)
             print('num points from subvol: ', subvol_available_pts)
             print('total num points: ', total_num_points_arr)
 
     # now, let's consolidate the results together
-    prop_l = [
-        consolidate_partial_vsf_results(statistic, *sublist) \
-        for sublist in result_l
-    ]
+    prop_l = []
+    for stat_ind, stat_name in enumerate(statistic_l):
+        prop_l.append([
+            consolidate_partial_vsf_results(stat_name, *sublist) \
+            for sublist in result_l[stat_ind]
+        ])
+    if single_statistic:
+        prop_l = prop_l[0]
     total_num_points_used_arr = np.array(total_num_points_arr)
     total_avail_points_arr = np.array(total_num_points_arr)
     return (prop_l, total_num_points_used_arr, total_avail_points_arr,
             subvol_decomp, structure_func_props)
-    
-    
