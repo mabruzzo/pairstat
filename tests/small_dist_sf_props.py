@@ -120,6 +120,15 @@ def compare_variance(ref, actual, mean_rtol = 0.0, variance_rtol = 0.0,
             verbose = True
         )
 
+def perform_comparison(statistic_l, compare_func):
+    if isinstance(statistic_l, str):
+        statistic_l = [statistic_l]
+
+    for statistic in statistic_l:
+        assert isinstance(statistic, str)
+        print("Comparing: " + statistic)
+        compare_func(statistic)
+
 def test_single_subvol(statistic):
     # first, ensure that results are consistent when you use just 1 subvolume
     my_dist_bin_edges = np.arange(step*0.5, 3.5 + step, step)
@@ -133,10 +142,13 @@ def test_single_subvol(statistic):
     )
     assert subvol_decomp.subvols_per_ax == (1,1,1)
 
-    if statistic == 'histogram':
-        assert (ref['2D_counts'] == actual[0]['2D_counts']).all()
-    elif statistic == 'variance':
-        compare_variance(ref, actual[0], mean_rtol = 0.0, variance_rtol = 0.0)
+    def compare_rslts(statistic):
+        if statistic == 'histogram':
+            assert (ref['2D_counts'] == actual[0]['2D_counts']).all()
+        elif statistic == 'variance':
+            compare_variance(ref, actual[0],
+                             mean_rtol = 0.0, variance_rtol = 0.0)
+    perform_comparison(statistic, compare_rslts)
 
 def test_two_subvol(statistic):
     for dim in range(3):
@@ -160,14 +172,16 @@ def test_two_subvol(statistic):
             statistic = statistic
         )
         assert subvol_decomp.subvols_per_ax == subvols_per_ax
-        if statistic == 'histogram':
-            assert (ref['2D_counts'] == actual[0]['2D_counts']).all()
-        elif statistic == 'variance':
-            compare_variance(ref, actual[0],
-                             mean_rtol = 0.0,
-                             variance_rtol = 0.0,
-                             mean_atol = [5.e-16, 3e-16, 3e-16][dim],
-                             variance_atol = [1e-17, 2e-17, 8e-18][dim])
+        def compare_rslts(statistic):
+            if statistic == 'histogram':
+                assert (ref['2D_counts'] == actual[0]['2D_counts']).all()
+            elif statistic == 'variance':
+                compare_variance(ref, actual[0],
+                                 mean_rtol = 0.0,
+                                 variance_rtol = 0.0,
+                                 mean_atol = [5.e-16, 3e-16, 3e-16][dim],
+                                 variance_atol = [1e-17, 2e-17, 8e-18][dim])
+        perform_comparison(statistic, compare_rslts)
 
 def test_four_subvol(statistic):
     for i in range(3):
@@ -191,21 +205,23 @@ def test_four_subvol(statistic):
             statistic = statistic
         )
         assert subvol_decomp.subvols_per_ax == subvols_per_ax
-        
-        if statistic == 'histogram':
-            if not (ref['2D_counts'] == actual[0]['2D_counts']).all():
-                raise ValueError(
-                    "Histograms don't match.\n"
-                    f"Expected {ref['2D_counts'].sum()} counts\n"
-                    f"Found {actual[0]['2D_counts'].sum()} counts\n"
-                )
-        elif statistic == 'variance':
-            compare_variance(ref, actual[0],
-                             mean_rtol = 0.0,
-                             variance_rtol = 0.0,
-                             mean_atol = [5.e-16, 5e-16, 5e-16][i],
-                             variance_atol = [9e-18, 9e-18, 2e-17][i]
-            )
+        def compare_rslts(statistic):
+            if statistic == 'histogram':
+                if not (ref['2D_counts'] == actual[0]['2D_counts']).all():
+                    raise ValueError(
+                        "Histograms don't match.\n"
+                        f"Expected {ref['2D_counts'].sum()} counts\n"
+                        f"Found {actual[0]['2D_counts'].sum()} counts\n"
+                    )
+                elif statistic == 'variance':
+                    compare_variance(ref, actual[0],
+                                     mean_rtol = 0.0,
+                                     variance_rtol = 0.0,
+                                     mean_atol = [5.e-16, 5e-16, 5e-16][i],
+                                     variance_atol = [9e-18, 9e-18, 2e-17][i]
+                    )
+        perform_comparison(statistic, compare_rslts)
+
 def test_64_subvol(statistic):
     my_dist_bin_edges = np.arange(step*0.5, 1.5 + step, step)
     left_edge, right_edge = [-4.0,-4.0,-4.0], [4.0,4.0,4.0]
@@ -220,17 +236,19 @@ def test_64_subvol(statistic):
     )
 
     assert subvol_decomp.subvols_per_ax == subvols_per_ax
-    if statistic == 'histogram':
-        if not (ref['2D_counts'] == actual[0]['2D_counts']).all():
-            raise ValueError(
-                "Histograms don't match.\n"
-                f"Expected {ref['2D_counts'].sum()} counts\n"
-                f"Found {actual[0]['2D_counts'].sum()} counts\n"
-            )
-    elif statistic == 'variance':
-        compare_variance(ref, actual[0],
-                         mean_rtol = 2e-14, variance_rtol = 2e-14,
-                         mean_atol = 0.0, variance_atol = 0.0)
+    def compare_rslts(statistic):
+        if statistic == 'histogram':
+            if not (ref['2D_counts'] == actual[0]['2D_counts']).all():
+                raise ValueError(
+                    "Histograms don't match.\n"
+                    f"Expected {ref['2D_counts'].sum()} counts\n"
+                    f"Found {actual[0]['2D_counts'].sum()} counts\n"
+                )
+        elif statistic == 'variance':
+            compare_variance(ref, actual[0],
+                             mean_rtol = 2e-14, variance_rtol = 2e-14,
+                             mean_atol = 0.0, variance_atol = 0.0)
+    perform_comparison(statistic, compare_rslts)
 
 
 
