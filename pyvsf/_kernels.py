@@ -6,19 +6,24 @@ type of Structure Function object that can be used to abstract over
 consolidation and such...
 """
 
-from ._kernels_cy import Variance, _validate_basic_quan_props
+from ._kernels_cy import (
+    Variance,
+    _validate_basic_quan_props,
+    _allocate_unintialized_rslt_dict
+)
 
 class Mean:
     name = "mean"
     output_keys = ('counts', 'mean')
     commutative_consolidate = False
+    operate_on_pairs = True
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges, kwargs = {}):
         assert kwargs == {}
-        assert dist_bin_edges.size >= 2 and dist_bin_edges.ndim == 1
-        return [('counts', np.int64,   dist_bin_edges.shape),
-                ('mean',   np.float64, dist_bin_edges.shape)]
+        assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
+        return [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
+                ('mean',     np.float64, (np.size(dist_bin_edges) - 1,))]
 
     @classmethod
     def consolidate_stats(cls, *rslts):
@@ -29,11 +34,16 @@ class Mean:
     def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {}):
+        raise NotImplementedError()
+
 
 class Histogram:
     name = "histogram"
     output_keys = ('2D_counts',)
     commutative_consolidate = True
+    operate_on_pairs = True
 
     @classmethod
     def consolidate_stats(cls, *rslts):
@@ -53,10 +63,10 @@ class Histogram:
     def get_dset_props(cls, dist_bin_edges, kwargs = {}):
         assert list(kwargs.keys()) == ['val_bin_edges']
         val_bin_edges = kwargs['val_bin_edges']
-        assert val_bin_edges.size >= 2 and val_bin_edges.ndim == 1
-        assert dist_bin_edges.size >= 2 and dist_bin_edges.ndim == 1
+        assert np.size(val_bin_edges) >= 2 and np.ndim(val_bin_edges) == 1
+        assert np.size(dist_bin_edges) >= 2 and np.ndim(dist_bin_edges) == 1
         return [('2D_counts', np.int64,
-                 (dist_bin_edges.size - 1, val_bin_edges.size - 1))]
+                 (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1))]
 
     @classmethod
     def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {},
@@ -84,6 +94,14 @@ class Histogram:
                     f"histogram should hold no more than {max_pairs} pairs of "
                     f"points. In reality, it has {n_pairs} pairs."
                 )
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {}):
+        # basically create a result object for a dataset that didn't have any
+        # pairs at all
+        rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges, kwargs)
+        for k in rslt.keys():
+            rslt[k][...] = 0
+        return rslt
 
 _KERNELS = (Mean, Variance, Histogram)
 _KERNEL_DICT = dict((kernel.name, kernel) for kernel in _KERNELS)
@@ -98,3 +116,6 @@ def get_kernel(statistic):
 def get_kernel_quan_props(statistic, dist_bin_edges, kwargs = {}):
     kernel = get_kernel(statistic)
     return kernel.get_dset_props(dist_bin_edges, kwargs)
+
+def kernel_operates_on_pairs(statistic):
+    return get_kernel(statistic).operate_on_pairs

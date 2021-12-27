@@ -133,12 +133,19 @@ def _validate_basic_quan_props(kernel, rslt, dist_bin_edges, kwargs = {}):
                 f"the {name} quantity for the {kernel.name} statistic should ",
                 f"have a shape of {shape}, not of {rslt[name].shape}"
             )
-        
+
+def _allocate_unintialized_rslt_dict(kernel, dist_bin_edges, kwargs = {}):
+    quan_props = kernel.get_dset_props(dist_bin_edges, kwargs = kwargs)
+    out = {}
+    for name, dtype, shape in quan_props:
+        out[name] = np.empty(shape = shape, dtype = dtype)
+    return out
 
 class Variance:
     name = "variance"
     output_keys = ('counts', 'mean', 'variance')
     commutative_consolidate = False
+    operate_on_pairs = True
 
     @classmethod
     def consolidate_stats(cls, *rslts):
@@ -147,11 +154,23 @@ class Variance:
     @classmethod
     def get_dset_props(cls, dist_bin_edges, kwargs = {}):
         assert kwargs == {}
-        assert dist_bin_edges.size >= 2 and dist_bin_edges.ndim == 1
-        return [('counts',   np.int64,   dist_bin_edges.shape),
-                ('mean',     np.float64, dist_bin_edges.shape),
-                ('variance', np.float64, dist_bin_edges.shape)]
+        assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
+        return [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
+                ('mean',     np.float64, (np.size(dist_bin_edges) - 1,)),
+                ('variance', np.float64, (np.size(dist_bin_edges) - 1,))]
 
     @classmethod
     def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
+
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {}):
+        # basically create a result object for a dataset that didn't have any
+        # pairs at all
+        rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges, kwargs)
+        for k in rslt.keys():
+            if k == 'counts':
+                rslt['counts'][...] = 0
+            else:
+                rslt[k][...] = np.nan
+        return rslt

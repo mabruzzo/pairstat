@@ -19,7 +19,7 @@ from ._cut_region_iterator import (
     get_cut_region_itr_builder
 )
 
-from ._kernels import get_kernel
+from ._kernels import get_kernel, kernel_operates_on_pairs
 
 # Define some Data Objects
 
@@ -270,22 +270,19 @@ class SFWorker:
     """
     Computes the structure function properties for different subvolumes
     """
-    def __init__(self, ds_initializer, subvol_decomp, sf_param, statistic,
-                 kwargs, eager_loading = False):
+    def __init__(self, ds_initializer, subvol_decomp, sf_param, statistic_l,
+                 kwargs_l, eager_loading = False):
         self.ds_initializer = ds_initializer
         self.subvol_decomp = subvol_decomp
         if any(subvol_decomp.periodicity):
             raise RuntimeError("Can't currently handle periodic boundaries")
         self.sf_param = sf_param
-        self.statistic = statistic
-        self.kwargs = kwargs
+        self.statistic_l = statistic_l
+        self.kwargs_l = kwargs_l
         self.eager_loading = eager_loading
 
     def _get_num_statistics(self):
-        if isinstance(self.statistic, str):
-            return 1
-        else:
-            raise NotImplementedError()
+        return len(self.statistic_l)
 
     def _get_num_cut_regions(self):
         return len(self.sf_param.cut_regions)
@@ -317,6 +314,8 @@ class SFWorker:
         sf_param = self.sf_param
         dist_bin_edges = np.copy(np.array(self.sf_param.dist_bin_edges))
 
+        stat_kw_pairs = list(zip(self.statistic_l, self.kwargs_l))
+
         # define some lists that are used to store some data for the duration
         # of this method's evaluation
         main_subvol_available_points = []
@@ -334,19 +333,22 @@ class SFWorker:
             main_subvol_available_points.append(available_points)
             main_subvol_pos_and_quan.append((pos,quan))
 
-            if available_points <= 1:
-                main_subvol_rslt = {}
-            else:
-                main_subvol_rslt = vsf_props(
-                    pos_a = pos, vel_a = quan,
-                    pos_b = None, vel_b = None,
-                    dist_bin_edges = dist_bin_edges,
-                    statistic = self.statistic,
-                    kwargs = self.kwargs
+            for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+
+                if available_points <= 1:
+                    assert kernel_operates_on_pairs(stat_name)
+                    main_subvol_rslt = {}
+                else:
+                    main_subvol_rslt = vsf_props(
+                        pos_a = pos, vel_a = quan,
+                        pos_b = None, vel_b = None,
+                        dist_bin_edges = dist_bin_edges,
+                        statistic = stat_name, kwargs = kw
+                    )
+                main_subvol_rslts.store_result(
+                    stat_index = stat_ind, cut_region_index = cut_region_ind,
+                    rslt = main_subvol_rslt
                 )
-            main_subvol_rslts.store_result(stat_index = 0,
-                                           cut_region_index = cut_region_ind,
-                                           rslt = main_subvol_rslt)
 
         assert main_subvol_rslts.entries_stored_for_all_results() # sanity check
 
@@ -367,28 +369,30 @@ class SFWorker:
             # iterate over the positions/quantities from the adjacent subvolume
             # for each cut region
             for cut_region_index, o_pos, o_quan, o_available_points in itr:
-                # fetch the positions/quantities for the current cur region of
-                # the main subvolume
+                # fetch the positions/quantities for the current cur region
+                # of the main subvolume
                 m_pos, m_quan = main_subvol_pos_and_quan[cut_region_index]
                 m_available_points \
                     = main_subvol_available_points[cut_region_index]
 
-                if (m_available_points == 0) or (o_available_points == 0):
-                    cross_sf_rslt = {}
-                else:
-                    cross_sf_rslt = vsf_props(
-                        pos_a = m_pos, vel_a = m_quan,
-                        pos_b = o_pos, vel_b = o_quan,
-                        dist_bin_edges = dist_bin_edges,
-                        statistic = self.statistic,
-                        kwargs = self.kwargs
-                    )
+                # now actually perform the calculation
+                for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+                    
+                    if (m_available_points == 0) or (o_available_points == 0):
+                        cross_sf_rslt = {}
+                    else:
+                        cross_sf_rslt = vsf_props(
+                            pos_a = m_pos, vel_a = m_quan,
+                            pos_b = o_pos, vel_b = o_quan,
+                            dist_bin_edges = dist_bin_edges,
+                            statistic = stat_name, kwargs = kw
+                        )
 
-                cross_sf_rslts[-1].store_result(
-                    stat_index = 0,
-                    cut_region_index = cut_region_index,
-                    rslt = cross_sf_rslt
-                )
+                    cross_sf_rslts[-1].store_result(
+                        stat_index = stat_ind,
+                        cut_region_index = cut_region_index,
+                        rslt = cross_sf_rslt
+                    )
 
         # finally, consolidate cross_sf_rslts together with main_subvol_rslts
         consolidated_rslts = StatRsltContainer(
@@ -396,16 +400,20 @@ class SFWorker:
             num_cut_regions = self._get_num_cut_regions()
         )
 
-        itr = enumerate(main_subvol_rslts.cut_region_iter(stat_index = 0))
-        for cut_region_i, main_subvol_rslt in itr:
-            consolidated_rslt = consolidate_partial_vsf_results(
-                self.statistic, main_subvol_rslt,
-                *[sublist.retrieve_result(0,cut_region_i) \
-                  for sublist in cross_sf_rslts]
+        
+        for stat_ind, (stat_name, _) in enumerate(stat_kw_pairs):
+            itr = enumerate(
+                main_subvol_rslts.cut_region_iter(stat_index = stat_ind)
             )
-            consolidated_rslts.store_result(stat_index = 0,
-                                            cut_region_index = cut_region_i,
-                                            rslt = consolidated_rslt)
+            for cut_region_i, main_subvol_rslt in itr:
+                consolidated_rslt = consolidate_partial_vsf_results(
+                    stat_name, main_subvol_rslt,
+                    *[sublist.retrieve_result(stat_ind, cut_region_i) \
+                      for sublist in cross_sf_rslts]
+                )
+                consolidated_rslts.store_result(stat_index = stat_ind,
+                                                cut_region_index = cut_region_i,
+                                                rslt = consolidated_rslt)
 
         return TaskResult(subvol_index, main_subvol_available_points,
                           main_subvol_rslts, consolidated_rslts)
@@ -645,7 +653,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     elif len(statistic) != len(kwargs):
         raise ValueError("When statistic is a sequence of strings, kwargs "
                          "must be a sequence of as many dicts.")
-    elif np.unique(statistic) != len(statistic):
+    elif np.unique(statistic).size != len(statistic):
         raise ValueError("When statistic is a sequence of strings, none of "
                          "the strings are allowed to be duplicates.")
     else:
@@ -653,13 +661,12 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         kwargs_l = kwargs
         single_statistic = False
 
-    del statistic #primarily for debugging
-    del kwargs # primarily for debugging
+    del statistic, kwargs #primarily for debugging purposes
 
     worker = SFWorker(ds_initializer, subvol_decomp,
                       sf_param = structure_func_props,
-                      statistic = statistic_l[0],
-                      kwargs = kwargs_l[0],
+                      statistic_l = statistic_l,
+                      kwargs_l = kwargs_l,
                       eager_loading = eager_loading)
 
     iterable = subvol_index_batch_generator(subvol_decomp,
@@ -701,12 +708,12 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 
                     if autosf_subvolume_callback is not None:
                         main_subvol_rslt = main_subvol_rslts.retrieve_result(
-                            stat_index, cut_region_index
+                            stat_ind, cut_region_ind
                         )
                         autosf_subvolume_callback(
                             structure_func_props, subvol_decomp, subvol_index,
                             stat_ind, cut_region_ind, main_subvol_rslt,
-                            subvol_available_pts[cut_region_index]
+                            subvol_available_pts[cut_region_ind]
                         )
 
             # we only update total_num_points_arr once per task rslt
