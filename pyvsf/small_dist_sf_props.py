@@ -110,7 +110,7 @@ class SubVolumeDecomposition(BaseModel):
 
 
 
-def decompose_volume(ds, sf_params, force_single_subvol = False):
+def decompose_volume(ds, sf_params, force_subvols_per_ax = None):
     """
     Constructs an instance of SubVolumeDecomposition.
 
@@ -154,7 +154,19 @@ def decompose_volume(ds, sf_params, force_single_subvol = False):
     )
     assert (width > 0).all()
 
-    if force_single_subvol:
+    if force_subvols_per_ax is not None:
+        assert len(force_subvols_per_ax) == 3
+        if any(int(e) != e for e in force_subvols_per_ax):
+            raise ValueError(
+                "force_subvols_per_ax includes a non-integer"
+            )
+        force_subvols_per_ax = tuple(int(e) for e in force_subvols_per_ax)
+        if any(e <= 0 for e in force_subvols_per_ax):
+            raise ValueError(
+                "force_subvols_per_ax includes a non-positive integer"
+            )
+
+    if force_subvols_per_ax == (1,1,1):
         kwargs['subvols_per_ax'] = (1,1,1)
     else:
         # retrieve the root-level cell_width in units of 'code_length'
@@ -183,10 +195,22 @@ def decompose_volume(ds, sf_params, force_single_subvol = False):
 
         min_subvol_width = (max_dist_bin_edge + 2*cell_width)
 
-        kwargs['subvols_per_ax'] = tuple(map(
+        max_subvols_per_ax = tuple(map(
             lambda x: max(1, int(x)),
             np.floor((width / min_subvol_width).to('dimensionless').v)
         ))
+
+        if force_subvols_per_ax is not None:
+            for i in range(3):
+                if max_subvols_per_ax[i] < force_subvols_per_ax[i]:
+                    raise ValueError(
+                        "Based on the parameters, the max number of "
+                        f"subvols along axis {i} is {max_subvols_per_ax[i]}. "
+                        f"The user requested {force_subvols_per_ax[i]}."
+                    )
+            kwargs['subvols_per_ax'] = force_subvols_per_ax
+        else:
+            kwargs['subvols_per_ax'] = max_subvols_per_ax
 
     # TODO fix periodicity handling
     # Note: ds.periodicity doesn't store the right values for EnzoPDatasets
@@ -461,7 +485,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         geometric_selector = None,
                         statistic = 'variance', kwargs = {},
                         max_points = None, rand_seed = None,
-                        force_single_subvol = False,
+                        force_subvols_per_ax = None,
                         eager_loading = False,
                         pool = None, autosf_subvolume_callback = None):
     """
@@ -631,8 +655,11 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         geometric_selector = geometric_selector
     )
 
-    subvol_decomp = decompose_volume(ds_initializer(), structure_func_props,
-                                     force_single_subvol = force_single_subvol)
+    subvol_decomp = decompose_volume(
+        ds_initializer(), structure_func_props,
+        force_subvols_per_ax = force_subvols_per_ax
+    )
+
     logging.info(
         f"Number of subvolumes per axis: {subvol_decomp.subvols_per_ax}"
     )
