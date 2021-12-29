@@ -146,6 +146,11 @@ class Variance:
     output_keys = ('counts', 'mean', 'variance')
     commutative_consolidate = False
     operate_on_pairs = True
+    non_vsf_func = None
+
+    @classmethod
+    def get_extra_fields(cls, kwargs = {}):
+        return None
 
     @classmethod
     def consolidate_stats(cls, *rslts):

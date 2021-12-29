@@ -1,4 +1,5 @@
 
+from copy import deepcopy
 from itertools import product
 import logging
 from typing import Tuple, Sequence, Optional
@@ -328,17 +329,33 @@ class SFWorker:
         assert self.subvol_decomp.valid_subvol_index(subvol_index)
         assert self.sf_param.max_points is None
 
+        stat_kw_pairs = list(zip(self.statistic_l, self.kwargs_l))
+
+        # build the dictionary specifying the extra fields that need to be
+        # loaded
+        extra_quan_spec = {}
+        kernels = []
+        for stat_name, kw in stat_kw_pairs:
+            kernel = get_kernel(stat_name)
+            kernels.append(kernel)
+            tmp = kernel.get_extra_fields(kw)
+            if tmp is None:
+                continue
+            elif len(extra_quan_spec) != 0:
+                raise NotImplementedError("Come back to this eventually")
+            else:
+                extra_quan_spec = tmp
+
         # cut_region_itr_builder constructs iterators over cut_regions for a
         # given subvolume_index
         cut_region_itr_builder = get_cut_region_itr_builder(
             ds, self.subvol_decomp, self.sf_param, rand_generator = None,
-            eager_loader = self.eager_loading
+            eager_loader = self.eager_loading,
+            extra_quantities = extra_quan_spec
         )
 
         sf_param = self.sf_param
         dist_bin_edges = np.copy(np.array(self.sf_param.dist_bin_edges))
-
-        stat_kw_pairs = list(zip(self.statistic_l, self.kwargs_l))
 
         # define some lists that are used to store some data for the duration
         # of this method's evaluation
@@ -353,15 +370,24 @@ class SFWorker:
         print(f"{subvol_index}-auto")
         itr = cut_region_itr_builder(subvol_index, is_central = True)
 
-        for cut_region_ind, pos, quan, available_points in itr:
+        for cut_region_ind, pos, quan, extra_quan, available_points in itr:
             main_subvol_available_points.append(available_points)
             main_subvol_pos_and_quan.append((pos,quan))
 
             for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
 
-                if available_points <= 1:
-                    assert kernel_operates_on_pairs(stat_name)
+                kernel = kernels[stat_ind]
+
+                if ( (available_points == 0) or
+                     (kernel.operate_on_pairs and (available_points <= 1)) ):
                     main_subvol_rslt = {}
+                elif kernel.non_vsf_func is not None:
+                    assert stat_name == 'bulkaverage' # simple sanity check!
+                    func = kernel.non_vsf_func
+
+                    main_subvol_rslt = func(quan = quan,
+                                            extra_quantities = extra_quan,
+                                            kwargs = kw)
                 else:
                     main_subvol_rslt = vsf_props(
                         pos_a = pos, vel_a = quan,
@@ -369,6 +395,7 @@ class SFWorker:
                         dist_bin_edges = dist_bin_edges,
                         statistic = stat_name, kwargs = kw
                     )
+
                 main_subvol_rslts.store_result(
                     stat_index = stat_ind, cut_region_index = cut_region_ind,
                     rslt = main_subvol_rslt
@@ -390,21 +417,25 @@ class SFWorker:
             ))
 
             itr = cut_region_itr_builder(other_ind, is_central = False)
-            # iterate over the positions/quantities from the adjacent subvolume
-            # for each cut region
-            for cut_region_index, o_pos, o_quan, o_available_points in itr:
+            # iterate over the positions/quantities/extra_quantities from the
+            # adjacent subvolume for each cut region
+            for cut_region_i, o_pos, o_quan, o_eq, o_available_points in itr:
                 # fetch the positions/quantities for the current cur region
                 # of the main subvolume
-                m_pos, m_quan = main_subvol_pos_and_quan[cut_region_index]
+                m_pos, m_quan = main_subvol_pos_and_quan[cut_region_i]
                 m_available_points \
-                    = main_subvol_available_points[cut_region_index]
+                    = main_subvol_available_points[cut_region_i]
 
                 # now actually perform the calculation
                 for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
-                    
-                    if (m_available_points == 0) or (o_available_points == 0):
+
+                    kernel = kernels[stat_ind]
+                    if not kernel.operate_on_pairs:
+                        cross_sf_rslt = {}
+                    elif (m_available_points == 0) or (o_available_points == 0):
                         cross_sf_rslt = {}
                     else:
+                        assert kernel.non_vsf_func is None
                         cross_sf_rslt = vsf_props(
                             pos_a = m_pos, vel_a = m_quan,
                             pos_b = o_pos, vel_b = o_quan,
@@ -413,8 +444,7 @@ class SFWorker:
                         )
 
                     cross_sf_rslts[-1].store_result(
-                        stat_index = stat_ind,
-                        cut_region_index = cut_region_index,
+                        stat_index = stat_ind, cut_region_index = cut_region_i,
                         rslt = cross_sf_rslt
                     )
 
@@ -430,11 +460,14 @@ class SFWorker:
                 main_subvol_rslts.cut_region_iter(stat_index = stat_ind)
             )
             for cut_region_i, main_subvol_rslt in itr:
-                consolidated_rslt = consolidate_partial_vsf_results(
-                    stat_name, main_subvol_rslt,
-                    *[sublist.retrieve_result(stat_ind, cut_region_i) \
-                      for sublist in cross_sf_rslts]
-                )
+                if kernels[stat_ind].operate_on_pairs:
+                    consolidated_rslt = consolidate_partial_vsf_results(
+                        stat_name, main_subvol_rslt,
+                        *[sublist.retrieve_result(stat_ind, cut_region_i) \
+                          for sublist in cross_sf_rslts]
+                    )
+                else:
+                    consolidated_rslt = deepcopy(main_subvol_rslt)
                 consolidated_rslts.store_result(stat_index = stat_ind,
                                                 cut_region_index = cut_region_i,
                                                 rslt = consolidated_rslt)

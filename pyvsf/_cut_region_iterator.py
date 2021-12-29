@@ -52,10 +52,19 @@ def neighbor_ind_iter(central_subvol_ind, subvol_decomp, yield_batches = False):
         else:
             for elem in tmp: yield elem
 
-def _pos_quan_arr_generator(data_region, sf_props, rand_generator = None):
+def _pos_quan_equan_arr_generator(data_region, sf_props, rand_generator = None,
+                                  extra_quantities = {}):
     """
-    Generator that yields the cut_region_index, positions, and quantities for
-    each cut_region in data_region.
+    Generator that yields the cut_region_index, positions, quantities, and
+    extra quantities for each cut_region in data_region.
+
+    Parameters
+    ----------
+    extra_quantities: dict
+        The keys of extra_quantities should be names of fields, and the 
+        corresponding entry should be a tuple where the first element specifies
+        the desired units and the second entry is a boolean specifying if it's 
+        used for pairs of points.
     """
 
     for cut_region_index, cut_string in enumerate(sf_props.cut_regions):
@@ -73,7 +82,7 @@ def _pos_quan_arr_generator(data_region, sf_props, rand_generator = None):
         max_points = sf_props.max_points
         if npoints == 0:
             logging.warning("No points!")
-            yield cut_region_index, None, None, 0
+            yield cut_region_index, None, None, None, 0
         else:
             if max_points is not None and npoints > max_points:
                 assert rand_generator is not None
@@ -96,9 +105,14 @@ def _pos_quan_arr_generator(data_region, sf_props, rand_generator = None):
                 tmp_l.append(np.zeros_like(tmp_l[0]))
             quan_arr = np.array(tmp_l)
 
+            equan_dict = {}
+            for equan_name, (equan_units, _) in extra_quantities.items():
+                equan_dict[equan_name] = \
+                    cad[equan_name].to(equan_units).ndarray_view()
+
             cad.clear_data()
             del ipoints
-            yield cut_region_index, pos, quan_arr, npoints
+            yield cut_region_index, pos, quan_arr, equan_dict, npoints
 
     data_region.ds.index.clear_all_data()
 
@@ -243,16 +257,31 @@ class SimpleCutRegionIterBuilder:
       the number of points actually included in `pos` and `quan` may be smaller
       based on the value of `sf_props.max_points`.
 
+    Parameters
+    ----------
+    extra_quantities: dict
+        The keys of extra_quantities should be names of fields, and the 
+        corresponding entry should be a tuple where the first element specifies
+        the desired units and the second entry is a boolean specifying if it's 
+        used for pairs of points.
+
+
+    TODO: when is_central == False, avoid loading unnecessary extra_quantities
+
     """
-    def __init__(self, ds, subvol_decomp, sf_props, rand_generator = None):
+    def __init__(self, ds, subvol_decomp, sf_props, extra_quantities = {},
+                 rand_generator = None):
         self.ds = ds
         self.subvol_decomp = subvol_decomp
         self.sf_props = sf_props
+        self.extra_quantities = extra_quantities
         self.rand_generator = rand_generator
 
-    def _pos_quan_arr_iterator(self, data_region):
-        return _pos_quan_arr_generator(data_region, self.sf_props,
-                                       self.rand_generator)
+    def _pos_quan_equan_arr_iterator(self, data_region):
+        return _pos_quan_equan_arr_generator(
+            data_region, self.sf_props, self.rand_generator,
+            extra_quantities = self.extra_quantities
+        )
 
     def __call__(self, subvol_index, is_central = False):
         """
@@ -264,7 +293,7 @@ class SimpleCutRegionIterBuilder:
         _, data_region = list(subvolume_dataobjects(self.ds, [subvol_index],
                                                     self.subvol_decomp))[0]
         assert _ == subvol_index # sanity check
-        return self._pos_quan_arr_iterator(data_region)
+        return self._pos_quan_equan_arr_iterator(data_region)
 
 
 class EagerCutRegionIterBuilder(SimpleCutRegionIterBuilder):
@@ -273,13 +302,18 @@ class EagerCutRegionIterBuilder(SimpleCutRegionIterBuilder):
     data at once and caches it in memory.
 
     This definitely requires more RAM per process, but it can be used to try to
-    reduce stress on the shared file system (by aggregating reads).
+    reduce stress on the shared file system (by aggregating reads). 
+
+    It's not obvious why aggregating reads in time is better reduces stress on 
+    the file system (it's possible that there's a misunderstanding on my part)
 
     Notes
     -----
     This eagerly evaluates the iterator for the main central subvolume and each
     of it's neighbors and stores the iterators for future use. You could 
     definitely be more strategic about all of this.
+
+    TODO: avoid loading unnecessary extra_quantities
     """
 
     def __init__(self, *args, **kwargs):
@@ -322,9 +356,10 @@ class EagerCutRegionIterBuilder(SimpleCutRegionIterBuilder):
         # now preload the iterators for each quantity
         for ind, data_region in index_region_pairs:
             assert ind not in self.cached_iterators
-            # get the iterator pos_quan_arr_iterator for the current region
-            _iterator = _pos_quan_arr_generator(
-                data_region, self.sf_props, self.rand_generator
+            # get the pos_quan_equan_arr_iterator for the current region
+            _iterator = _pos_quan_equan_arr_generator(
+                data_region, self.sf_props, self.rand_generator,
+                extra_quantities = self.extra_quantities
             )
 
             # store the eagerly evaluated iterator

@@ -4,6 +4,7 @@ import yt
 
 from pyvsf import vsf_props
 from pyvsf.small_dist_sf_props import BoxSelector, small_dist_sf_props
+from pyvsf._kernels import BulkAverage
 
 
 from gascloudtool.utilities import SetupDS
@@ -38,9 +39,16 @@ component_fields = (('gas','velocity_x'),
                     ('gas','velocity_y'),
                     ('gas','velocity_z'))
 
+def _calc_bulkaverage(cad, quan, kwargs):
+    weight_field, weight_units = kwargs['weight_field']
+    d = cad[weight_field].to(weight_units).ndarray_view()
+    extra_quan = {weight_field : d}
+    func = BulkAverage.non_vsf_func
+    return func(quan = quan, extra_quantities = extra_quan, kwargs = kwargs)
 
-def _cal_ref_vsf_props(dist_bin_edges, cut_regions, geometric_selector,
-                       statistic, kwargs):
+
+def _cal_ref_props(dist_bin_edges, cut_regions, geometric_selector,
+                   statistic, kwargs):
     print('computing the vsf_props directly:')
     if not isinstance(statistic, str):
         stat_kw_pairs = list(zip(statistic,kwargs))
@@ -63,11 +71,15 @@ def _cal_ref_vsf_props(dist_bin_edges, cut_regions, geometric_selector,
                          for f in component_fields])
 
         for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
-            out[stat_ind][cr_ind] = vsf_props(pos_a = pos, vel_a = quan,
-                                              pos_b = None, vel_b = None,
-                                              dist_bin_edges = dist_bin_edges,
-                                              statistic = stat_name,
-                                              kwargs = kw)
+            if stat_name == BulkAverage.name:
+                rslt = _calc_bulkaverage(cad, quan, kwargs = kw)
+            else:
+                rslt = vsf_props(pos_a = pos, vel_a = quan,
+                                 pos_b = None, vel_b = None,
+                                 dist_bin_edges = dist_bin_edges,
+                                 statistic = stat_name, kwargs = kw)
+            out[stat_ind][cr_ind] = rslt
+
     if single_stat:
         return out[0]
     return out
@@ -88,6 +100,8 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
                 [np.finfo(np.float64).max]
             )
             kwargs_l.append({'val_bin_edges' : vel_bin_edges})
+        elif stat_name == BulkAverage.name:
+            kwargs_l.append({'weight_field' : ( ('gas', 'cell_mass'), 'g') })
         else:
             kwargs_l.append({})
 
@@ -98,8 +112,8 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
         statistic = statistic_l
         kwargs = kwargs_l
     
-    ref = _cal_ref_vsf_props(dist_bin_edges, cut_regions, geometric_selector,
-                             statistic, kwargs)
+    ref = _cal_ref_props(dist_bin_edges, cut_regions, geometric_selector,
+                         statistic, kwargs)
 
     print('computing the vsf_props from alternative approach')
     pool = None
@@ -126,10 +140,34 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
     return ref, other_rslt, points_used, subvol_decomp
 
 def _kv_pair_cmp_iter(ref, actual):
-    assert len(ref) == len(actual)
+    if len(ref) != len(actual):
+        raise AssertionError(
+            f"ref keys, {list(ref.keys())}, don't match actual keys, "
+            f"{list(actual.keys())}"
+        )
     assert all(k in actual for k in ref.keys())
     for k in ref.keys():
         yield k, ref[k], actual[k]
+
+def compare_bulkaverage(ref, actual, weight_total_rtol = 0., average_rtol = 0.,
+                        weight_total_atol = 0., average_atol = 0.):
+    for key, r_vals, a_vals in _kv_pair_cmp_iter(ref, actual):
+        if key == 'weight_total':
+            rtol,atol = weight_total_rtol, weight_total_atol
+        elif key == 'average':
+            rtol,atol = average_rtol, average_atol
+        else:
+            raise RuntimeError(f"Unrecgonized output_dict key: {key}")
+        np.testing.assert_allclose(
+            actual = a_vals,
+            desired = r_vals,
+            equal_nan = True,
+            rtol = rtol,
+            atol = atol,
+            err_msg = (f'The "{key}" entries of the output_dict are not '
+                       'equal to within the specified tolerance'),
+            verbose = True
+        )
 
 def compare_variance(ref, actual, mean_rtol = 0.0, variance_rtol = 0.0,
                      mean_atol = 0.0, variance_atol = 0.0):
@@ -155,15 +193,40 @@ def compare_variance(ref, actual, mean_rtol = 0.0, variance_rtol = 0.0,
             verbose = True
         )
 
-def perform_comparison(statistic_l, compare_func, ref, actual):
+def perform_comparison(statistic_l, compare_func, ref, actual, kwargs = {}):
     if isinstance(statistic_l, str):
-        compare_func(statistic = statistic_l, ref = ref, actual = actual)
+        compare_func(statistic = statistic_l, ref = ref, actual = actual,
+                     **kwargs)
     else:
         for i,statistic in enumerate(statistic_l):
             assert isinstance(statistic, str)
             print("Comparing: " + statistic)
             compare_func(statistic = statistic, ref = ref[i],
-                         actual = actual[i])
+                         actual = actual[i], **kwargs)
+
+def compare_rslts(statistic, ref, actual,
+                  mean_rtol=0.0,  variance_rtol = 0.0,
+                  mean_atol = 0.0, variance_atol = 0.0,
+                  weight_total_rtol = 0., baverage_rtol = 0.0,
+                  weight_total_atol = 0., baverage_atol = 0.0):
+    assert len(ref) == len(actual)
+    for i in range(len(ref)):
+        if statistic == 'histogram':
+            assert (ref[i]['2D_counts'] == actual[i]['2D_counts']).all()
+        elif statistic == 'variance':
+            compare_variance(
+                ref[i], actual[i],
+                mean_rtol = mean_rtol, variance_rtol = variance_rtol,
+                mean_atol = mean_atol, variance_atol = variance_atol,
+            )
+        elif statistic == BulkAverage.name:
+            compare_bulkaverage(ref[i], actual[i],
+                                weight_total_rtol = weight_total_rtol,
+                                average_rtol = baverage_rtol,
+                                weight_total_atol = weight_total_atol,
+                                average_atol = baverage_atol)
+        else:
+            raise RuntimeError('')
 
 def test_single_subvol(statistic):
     # first, ensure that results are consistent when you use just 1 subvolume
@@ -172,19 +235,24 @@ def test_single_subvol(statistic):
         left_edge = [-2.0,-2.0,-2.0], right_edge = [2.0,2.0,2.0],
         length_unit = 'code_length',
     )
+
+    cur_cut_regions = [f'obj["logX_K"].v < {float(bin_edges[1]):.15e}',
+                       f'(obj["logX_K"].v >= {float(bin_edges[1]):.15e}) & ' +
+                       f'(obj["logX_K"].v < {float(bin_edges[3]):.15e})']
+    
     ref, actual, points_used, subvol_decomp = compare(
-        my_dist_bin_edges, my_cut_regions, my_geometric_selector,
+        my_dist_bin_edges, cur_cut_regions, my_geometric_selector,
         statistic = statistic
     )
     assert subvol_decomp.subvols_per_ax == (1,1,1)
 
-    def compare_rslts(statistic, ref, actual):
-        if statistic == 'histogram':
-            assert (ref[0]['2D_counts'] == actual[0]['2D_counts']).all()
-        elif statistic == 'variance':
-            compare_variance(ref[0], actual[0],
-                             mean_rtol = 0.0, variance_rtol = 0.0)
-    perform_comparison(statistic, compare_rslts, ref = ref, actual = actual)
+    perform_comparison(
+        statistic, compare_rslts, ref = ref, actual = actual,
+        kwargs = {'mean_rtol' : 0.0, 'variance_rtol' : 0.0,
+                  'mean_atol' : 0.0, 'variance_atol' : 0.0,
+                  'weight_total_rtol' : 0., 'baverage_rtol' : 0.0,
+                  'weight_total_atol' : 0., 'baverage_atol' : 0.0}
+    )
 
 def test_two_subvol(statistic):
     for dim in range(3):
@@ -208,16 +276,15 @@ def test_two_subvol(statistic):
             statistic = statistic
         )
         assert subvol_decomp.subvols_per_ax == subvols_per_ax
-        def compare_rslts(statistic, ref, actual):
-            if statistic == 'histogram':
-                assert (ref[0]['2D_counts'] == actual[0]['2D_counts']).all()
-            elif statistic == 'variance':
-                compare_variance(ref[0], actual[0],
-                                 mean_rtol = 0.0,
-                                 variance_rtol = 0.0,
-                                 mean_atol = [5.e-16, 3e-16, 3e-16][dim],
-                                 variance_atol = [1e-17, 2e-17, 8e-18][dim])
-        perform_comparison(statistic, compare_rslts, ref = ref, actual = actual)
+
+        perform_comparison(
+            statistic, compare_rslts, ref = ref, actual = actual,
+            kwargs = {'mean_rtol' : 0.0, 'variance_rtol' : 0.0,
+                      'mean_atol' : [5.e-16, 3e-16, 3e-16][dim],
+                      'variance_atol' : [1e-17, 2e-17, 8e-18][dim],
+                      'weight_total_rtol' : 3e-16, 'baverage_rtol' : 0.0,
+                      'weight_total_atol' : 0., 'baverage_atol' : 2e-17}
+        )
 
 def test_four_subvol(statistic):
     for i in range(3):
@@ -241,22 +308,15 @@ def test_four_subvol(statistic):
             statistic = statistic
         )
         assert subvol_decomp.subvols_per_ax == subvols_per_ax
-        def compare_rslts(statistic, ref, actual):
-            if statistic == 'histogram':
-                if not (ref[0]['2D_counts'] == actual[0]['2D_counts']).all():
-                    raise ValueError(
-                        "Histograms don't match.\n"
-                        f"Expected {ref['2D_counts'].sum()} counts\n"
-                        f"Found {actual[0]['2D_counts'].sum()} counts\n"
-                    )
-                elif statistic == 'variance':
-                    compare_variance(ref[0], actual[0],
-                                     mean_rtol = 0.0,
-                                     variance_rtol = 0.0,
-                                     mean_atol = [5.e-16, 5e-16, 5e-16][i],
-                                     variance_atol = [9e-18, 9e-18, 2e-17][i]
-                    )
-        perform_comparison(statistic, compare_rslts, ref = ref, actual = actual)
+
+        perform_comparison(
+            statistic, compare_rslts, ref = ref, actual = actual,
+            kwargs = {'mean_rtol' : 0.0, 'variance_rtol' : 0.0,
+                      'mean_atol' : [5.e-16, 5e-16, 5e-16][i],
+                      'variance_atol' : [9e-18, 9e-18, 2e-17][i],
+                      'weight_total_rtol' : 2e-16, 'baverage_rtol' : 0.0,
+                      'weight_total_atol' : 0, 'baverage_atol' : 7.e-18}
+        )
 
 def test_64_subvol(statistic):
     my_dist_bin_edges = np.arange(step*0.5, 1.5 + step, step)
@@ -276,32 +336,30 @@ def test_64_subvol(statistic):
     )
 
     assert subvol_decomp.subvols_per_ax == subvols_per_ax
-    def compare_rslts(statistic, ref, actual):
-        if statistic == 'histogram':
-            for i in range(len(cur_cut_regions)):
-                if not (ref[i]['2D_counts'] == actual[i]['2D_counts']).all():
-                    raise ValueError(
-                        "Histograms don't match.\n"
-                        f"Expected {ref[i]['2D_counts'].sum()} counts\n"
-                        f"Found {actual[i]['2D_counts'].sum()} counts\n"
-                    )
-        elif statistic == 'variance':
-            for cut_region_i in range(len(cur_cut_regions)):
-                compare_variance(ref[cut_region_i], actual[cut_region_i],
-                                 mean_rtol = 2.1e-14, variance_rtol = 2e-14,
-                                 mean_atol = 0.0, variance_atol = 0.0)
-    perform_comparison(statistic, compare_rslts, ref = ref, actual = actual)
+    perform_comparison(
+            statistic, compare_rslts, ref = ref, actual = actual,
+            kwargs = {'mean_rtol' : 2.1e-14, 'variance_rtol' : 2e-14,
+                      'mean_atol' : 0, 'variance_atol' : 0,
+                      'weight_total_rtol' : 2e-16, 'baverage_rtol' : 0.0,
+                      'weight_total_atol' : 0, 'baverage_atol' : 2e-17}
+        )
 
 
 
 if __name__ == '__main__':
 
+    # NOTE: I think there's need to directly invoke the kernel when it comes to
+    # non-sf statistics (like bulkaverage)
+
     # perform some tests where we consider one statistic at a time
-    for stat in ['histogram', 'variance']:
+    for stat in ['histogram', 'variance', 'bulkaverage']:
+        print(stat)
         test_single_subvol(stat)
         test_two_subvol(stat)
         test_four_subvol(stat)
         test_64_subvol(stat)
 
+    print('considering multiple stats')
     # perform a test where we consider multiple statistics at the same time
-    test_64_subvol(['histogram', 'variance'])
+    test_64_subvol(['histogram', 'variance', 'bulkaverage'])
+    
