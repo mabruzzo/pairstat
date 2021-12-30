@@ -81,7 +81,7 @@ def _pos_quan_equan_arr_generator(data_region, sf_props, rand_generator = None,
         npoints = pos.shape[1]
         max_points = sf_props.max_points
         if npoints == 0:
-            logging.warning("No points!")
+            #logging.warning("No points!")
             yield cut_region_index, None, None, None, 0
         else:
             if max_points is not None and npoints > max_points:

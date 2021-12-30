@@ -1,5 +1,6 @@
 
 from copy import deepcopy
+from datetime import datetime, timedelta
 from itertools import product
 import logging
 from typing import Tuple, Sequence, Optional
@@ -21,6 +22,8 @@ from ._cut_region_iterator import (
 )
 
 from ._kernels import get_kernel, kernel_operates_on_pairs
+
+from ._perf import PerfRegions
 
 # Define some Data Objects
 
@@ -108,6 +111,8 @@ class SubVolumeDecomposition(BaseModel):
         )
 
 
+def _fmt_subvol_index(subvol_index):
+    return f'({subvol_index[0]:2d}, {subvol_index[1]:2d}, {subvol_index[2]:2d})'
 
 
 
@@ -253,6 +258,9 @@ class StatRsltContainer:
     def entries_stored_for_all_results(self):
         return all((e is not None) for e in self._arr.flat)
 
+    def purge(self):
+        self._arr[...] = None
+
 class TaskResult:
     # the fact that we allow num_statistics to be more than 1 is a little
     # premature
@@ -324,6 +332,9 @@ class SFWorker:
         return tmp
 
     def _process_index(self, subvol_index):
+        perf = PerfRegions(['all', 'calc'])
+        perf.start_region('all')
+
         ds = self.ds_initializer()
 
         assert self.subvol_decomp.valid_subvol_index(subvol_index)
@@ -367,7 +378,7 @@ class SFWorker:
         main_subvol_pos_and_quan = []
 
         # First, load in the main assigned subvolume and compute the auto-vsf
-        print(f"{subvol_index}-auto")
+        #print(f"{subvol_index}-auto")
         itr = cut_region_itr_builder(subvol_index, is_central = True)
 
         for cut_region_ind, pos, quan, extra_quan, available_points in itr:
@@ -377,24 +388,24 @@ class SFWorker:
             for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
 
                 kernel = kernels[stat_ind]
+                with perf.region('calc'):
+                    if ( (available_points == 0) or
+                         (kernel.operate_on_pairs and (available_points<=1)) ):
+                        main_subvol_rslt = {}
+                    elif kernel.non_vsf_func is not None:
+                        assert stat_name == 'bulkaverage' # simple sanity check!
+                        func = kernel.non_vsf_func
 
-                if ( (available_points == 0) or
-                     (kernel.operate_on_pairs and (available_points <= 1)) ):
-                    main_subvol_rslt = {}
-                elif kernel.non_vsf_func is not None:
-                    assert stat_name == 'bulkaverage' # simple sanity check!
-                    func = kernel.non_vsf_func
-
-                    main_subvol_rslt = func(quan = quan,
-                                            extra_quantities = extra_quan,
-                                            kwargs = kw)
-                else:
-                    main_subvol_rslt = vsf_props(
-                        pos_a = pos, vel_a = quan,
-                        pos_b = None, vel_b = None,
-                        dist_bin_edges = dist_bin_edges,
-                        statistic = stat_name, kwargs = kw
-                    )
+                        main_subvol_rslt = func(quan = quan,
+                                                extra_quantities = extra_quan,
+                                                kwargs = kw)
+                    else:
+                        main_subvol_rslt = vsf_props(
+                            pos_a = pos, vel_a = quan,
+                            pos_b = None, vel_b = None,
+                            dist_bin_edges = dist_bin_edges,
+                            statistic = stat_name, kwargs = kw
+                        )
 
                 main_subvol_rslts.store_result(
                     stat_index = stat_ind, cut_region_index = cut_region_ind,
@@ -409,7 +420,7 @@ class SFWorker:
         # cross term contributions
 
         for other_ind in neighbor_ind_iter(subvol_index, self.subvol_decomp):
-            print(f"{subvol_index}-{other_ind}")
+            #print(f"{subvol_index}-{other_ind}")
 
             cross_sf_rslts.append(StatRsltContainer(
                 num_statistics = self._get_num_statistics(),
@@ -430,18 +441,21 @@ class SFWorker:
                 for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
 
                     kernel = kernels[stat_ind]
-                    if not kernel.operate_on_pairs:
-                        cross_sf_rslt = {}
-                    elif (m_available_points == 0) or (o_available_points == 0):
-                        cross_sf_rslt = {}
-                    else:
-                        assert kernel.non_vsf_func is None
-                        cross_sf_rslt = vsf_props(
-                            pos_a = m_pos, vel_a = m_quan,
-                            pos_b = o_pos, vel_b = o_quan,
-                            dist_bin_edges = dist_bin_edges,
-                            statistic = stat_name, kwargs = kw
-                        )
+
+                    with perf.region('calc'):
+                        if not kernel.operate_on_pairs:
+                            cross_sf_rslt = {}
+                        elif ((m_available_points == 0) or
+                              (o_available_points == 0)):
+                            cross_sf_rslt = {}
+                        else:
+                            assert kernel.non_vsf_func is None
+                            cross_sf_rslt = vsf_props(
+                                pos_a = m_pos, vel_a = m_quan,
+                                pos_b = o_pos, vel_b = o_quan,
+                                dist_bin_edges = dist_bin_edges,
+                                statistic = stat_name, kwargs = kw
+                            )
 
                     cross_sf_rslts[-1].store_result(
                         stat_index = stat_ind, cut_region_index = cut_region_i,
@@ -471,6 +485,13 @@ class SFWorker:
                 consolidated_rslts.store_result(stat_index = stat_ind,
                                                 cut_region_index = cut_region_i,
                                                 rslt = consolidated_rslt)
+        perf.stop_region('all')
+
+        times = perf.times_sec()
+        print(f"{_fmt_subvol_index(subvol_index)} - " +
+              f"{len(cross_sf_rslts):2d} neigbors     " +
+              f"'all': {times['all']:>15} sec     " +
+              f"'calc': {times['calc']:>15} sec")
 
         return TaskResult(subvol_index, main_subvol_available_points,
                           main_subvol_rslts, consolidated_rslts)
@@ -619,6 +640,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             def map(self, func, iterable, callback = None):
                 tmp = map(func, iterable)
                 for elem in tmp:
+                    if callback is not None:
+                        callback(elem)
                     yield elem
         pool = Pool()
         n_workers = 1
@@ -731,12 +754,30 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 
     iterable = subvol_index_batch_generator(subvol_decomp,
                                             n_workers = n_workers)
-    result_l = [[[] for j in cut_regions] for _ in statistic_l]
+
+    subvols_per_ax = subvol_decomp.subvols_per_ax
+
+
+    tmp_result_arr = np.empty(
+        shape = (len(statistic_l), len(cut_regions), np.prod(subvols_per_ax)),
+        dtype = object
+    )
     total_num_points_arr = np.array([0 for i in cut_regions])
 
-    for batched_result in pool.map(worker, iterable):
+    accum_rslt = {}
+    for stat_ind, stat_name in enumerate(statistic_l):
+        if get_kernel(stat_name).commutative_consolidate:
+            accum_rslt[stat_ind] = [{} for _ in cut_regions]
+
+    def post_proc_callback(batched_result):
         for item in batched_result:
             subvol_index = item.subvol_index
+
+            subvol_index_1D = (
+                subvol_index[0] +
+                subvols_per_ax[0] * ( subvol_index[1] +
+                                      subvols_per_ax[1] * subvol_index[2] )
+            )
 
             # subvol_available_pts is a lists of the available points from
             # just the subvolume at subvol_index (there is an entry for each
@@ -746,11 +787,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             main_subvol_rslts = item.main_subvol_rslts
             consolidated_rslts = item.consolidated_rslts
 
-            # TODO: it may be worthwhile to consolidate statistics that are
-            # commutative (e.g. "histogram") as we receive them
-
-            for stat_ind in range(len(statistic_l)):
-                for cut_region_ind in range(len(cut_regions)):
+            for stat_ind,stat_name in enumerate(statistic_l):
+                for cut_region_i in range(len(cut_regions)):
 
                     # for the given subvol_index, stat_index, cut_region_index:
                     # - main_subvol_rslts holds the contributions from just the
@@ -762,33 +800,58 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                     #   at least those that exist) nearest neigboring
                     #   subvolumes on the right side
                     consolidated_rslt = consolidated_rslts.retrieve_result(
-                        stat_ind, cut_region_ind
+                        stat_ind, cut_region_i
                     )
-                    result_l[stat_ind][cut_region_ind].append(consolidated_rslt)
+
+                    if stat_ind in accum_rslt:
+                        # in the case, consolidation of the statistic is
+                        # commutative
+                        accum_rslt[stat_ind][cut_region_i] = \
+                            consolidate_partial_vsf_results(
+                                stat_name, accum_rslt[stat_ind][cut_region_i],
+                                consolidated_rslt
+                            )
+                    else:
+                        tmp_result_arr[stat_ind, cut_region_i,
+                                       subvol_index_1D] = consolidated_rslt
 
                     if autosf_subvolume_callback is not None:
                         main_subvol_rslt = main_subvol_rslts.retrieve_result(
-                            stat_ind, cut_region_ind
+                            stat_ind, cut_region_i
                         )
                         autosf_subvolume_callback(
                             structure_func_props, subvol_decomp, subvol_index,
-                            stat_ind, cut_region_ind, main_subvol_rslt,
-                            subvol_available_pts[cut_region_ind]
+                            stat_ind, cut_region_i, main_subvol_rslt,
+                            subvol_available_pts[cut_region_i]
                         )
 
             # we only update total_num_points_arr once per task rslt
-            total_num_points_arr += subvol_available_pts
-            print(subvol_index)
-            print('num points from subvol: ', subvol_available_pts)
-            print('total num points: ', total_num_points_arr)
+            total_num_points_arr[:] += subvol_available_pts
+
+            _str_prefix = f'Driver: {_fmt_subvol_index(subvol_index)} - '
+            print(f'{_str_prefix}num points from subvol: {subvol_available_pts}'
+                  + '\n' + len(_str_prefix)*' ' +
+                  f'total num points: {total_num_points_arr}')
+
+            item.main_subvol_rslts.purge()
+            item.consolidated_rslts.purge()
+
+    for batched_result in pool.map(worker, iterable,
+                                   callback = post_proc_callback):
+        continue # simply consume the iterator
 
     # now, let's consolidate the results together
     prop_l = []
     for stat_ind, stat_name in enumerate(statistic_l):
-        prop_l.append([
-            consolidate_partial_vsf_results(stat_name, *sublist) \
-            for sublist in result_l[stat_ind]
-        ])
+        if stat_ind in accum_rslt:
+            # the results for this stat are already consolidated
+            prop_l.append(accum_rslt[stat_ind])
+        else:
+            prop_l.append([
+                consolidate_partial_vsf_results(stat_name, *sublist) \
+                for sublist in tmp_result_arr[stat_ind]
+            ])
+
     if single_statistic:
         prop_l = prop_l[0]
     total_num_points_used_arr = np.array(total_num_points_arr)
