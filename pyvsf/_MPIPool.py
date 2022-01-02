@@ -33,6 +33,49 @@ def _import_mpi(quiet=False, use_dill=False):
     return MPI
 
 
+class _DefaultResultCommunication:
+
+    @staticmethod
+    def receive_result(comm):
+        status = MPI.Status()
+        result = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
+                           status=status)
+        worker = status.source
+        taskid = status.tag
+        return worker, taskid, result
+
+    @staticmethod
+    def send_result(comm, master_rank, tag, result):
+        comm.ssend(result, master_rank, tag)
+
+class _LargeResultCommunication:
+    """
+    Communicate results in 2 synchronous steps to avoid overwhelming the main
+    process
+
+    The first communication is a dummy message
+    The second communication holds the actual information
+    """
+
+    @staticmethod
+    def receive_result(comm):
+        status = MPI.Status()
+        dummy_result = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
+                                 status=status)
+        worker = status.source
+        taskid = status.tag
+        assert dummy_result is None
+
+        result = comm.recv(source=worker, tag=taskid, status=status)
+        return worker, taskid, result
+
+    @staticmethod
+    def send_result(comm, master_rank, tag, result):
+        # first, send the dummy message
+        comm.ssend(None, master_rank, tag)
+        # now, send the actual message
+        comm.ssend(result, master_rank, tag)
+
 class MPIPool(BasePool):
     """A processing pool that distributes tasks using MPI.
 
@@ -52,12 +95,22 @@ class MPIPool(BasePool):
     use_dill: Set `True` to use `dill` serialization. Default is `False`.
     """
 
-    def __init__(self, comm=None, use_dill=False):
+    def __init__(self, comm=None, use_dill=False,
+                 result_comm_routines = 'default'):
         MPI = _import_mpi(use_dill=use_dill)
 
         if comm is None:
             comm = MPI.COMM_WORLD
         self.comm = comm
+
+        if result_comm_routines == 'default':
+            self.result_comm_routines = _DefaultResultCommunication()
+        elif result_comm_routines == 'large':
+            self.result_comm_routines = _LargeResultCommunication()
+        else:
+            raise ValueError(
+                "result_comm_routines must be 'default' or 'large'"
+            )
 
         self.master = 0
         self.rank = self.comm.Get_rank()
@@ -105,6 +158,8 @@ class MPIPool(BasePool):
         if self.is_master():
             return
 
+        send_result = self.result_comm_routines.send_result
+
         worker = self.comm.rank
         status = MPI.Status()
         while True:
@@ -126,7 +181,8 @@ class MPIPool(BasePool):
             log.log(_VERBOSE, "Worker {0} sending answer {1} with tag {2}"
                     .format(worker, result, status.tag))
 
-            self.comm.ssend(result, self.master, status.tag)
+            send_result(comm = self.comm, master_rank = self.master,
+                        tag = status.tag, result = result)
 
         if callback is not None:
             callback()
@@ -174,6 +230,8 @@ class MPIPool(BasePool):
         resultlist = [None] * len(tasklist)
         pending = len(tasklist)
 
+        receive_result = self.result_comm_routines.receive_result
+
         log.log(_VERBOSE,
                 "Master about to start distributing work. There are " +
                 f"{len(self.workers)} workers")
@@ -206,11 +264,8 @@ class MPIPool(BasePool):
 
             # now, receive the message (this section of the loop is only
             # executed AFTER a message has been received)
-            status = MPI.Status()
-            result = self.comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
-                                    status=status)
-            worker = status.source
-            taskid = status.tag
+            worker, taskid, result = receive_result(self.comm)
+
             log.log(_VERBOSE, "Master received from worker %s with tag %s",
                     worker, taskid)
 
