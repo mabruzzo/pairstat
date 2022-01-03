@@ -139,7 +139,7 @@ public:
     noexcept
   { return {{"count", 1}}; }
 
-  void copy_flt_vals(double *out_vals) noexcept {
+  void copy_flt_vals(double *out_vals) const noexcept {
     const std::size_t num_flt_vals = Accum::flt_val_names().size();
     const std::size_t n_bins = accum_list_.size();
 
@@ -150,11 +150,13 @@ public:
     }
   }
 
-  void copy_i64_vals(int64_t *out_vals) noexcept {
+  void copy_i64_vals(int64_t *out_vals) const noexcept {
     for (std::size_t i = 0; i < accum_list_.size(); i++){
       out_vals[i] = accum_list_[i].count;
     }
   }
+
+  std::size_t n_spatial_bins() const noexcept { return accum_list_.size(); }
 
 private:
   std::vector<Accum> accum_list_;
@@ -212,14 +214,7 @@ public:
 
 
     BinSpecification* data_bins = static_cast<BinSpecification*>(other_arg);
-    //printf("n_bins = %d\n", (int)data_bins->n_bins);
-    //for (std::size_t i = 0; i < (data_bins->n_bins + 1); i++){
-    //  printf("%e, ", data_bins->bin_edges[i]);
-    //}
-    //printf("\n");
 
-    //std::size_t n_data_bins = 3;
-    //double data_bin_edges[4] = {-1.7976931348623157e+308, 1e-8, 1e-4, 1.7976931348623157e+308};
     // initialize n_data_bins_
     if (data_bins->n_bins == 0) {
       error("There must be a positive number of bins.");
@@ -279,6 +274,8 @@ public:
     }
   }
 
+  std::size_t n_spatial_bins() const noexcept { return n_spatial_bins_; }
+
 private:
   std::size_t n_spatial_bins_;
   std::size_t n_data_bins_;
@@ -291,5 +288,99 @@ private:
   std::vector<double> data_bin_edges_;
 };
 
+
+template<typename Tup, class Func, std::size_t index>
+struct for_each_tuple_entry_{
+  static inline void evaluate(Tup& tuple, Func f) noexcept{
+    for_each_tuple_entry_<Tup, Func, index-1>::evaluate(tuple, f);
+    f(std::get<index>(tuple));
+  }
+};
+
+template<typename Tup, class Func>
+struct for_each_tuple_entry_<Tup,Func,0>{
+  static inline void evaluate(Tup& tuple, Func f) noexcept{
+    f(std::get<0>(tuple));
+  }
+};
+
+template<class T, class UnaryFunction>
+constexpr inline void for_each_tuple_entry(T& tuple, UnaryFunction f){
+  for_each_tuple_entry_<T, UnaryFunction,
+                        std::tuple_size_v<T>-1>::evaluate(tuple, f);
+}
+
+struct CopyValsHelper_{
+  CopyValsHelper_(char* data_ptr, bool copy_int64)
+    : data_ptr_(data_ptr), offset_(0), copy_int64_(copy_int64)
+  { }
+
+  template<class AccumCollec>
+  void operator()(const AccumCollec& accum_collec) noexcept{
+
+    if (copy_int64_){
+      int64_t* ptr = reinterpret_cast<int64_t*>(data_ptr_);
+      accum_collec.copy_i64_vals(ptr + offset_);
+    } else {
+      double* ptr = reinterpret_cast<double*>(data_ptr_);
+      accum_collec.copy_flt_vals(ptr + offset_);
+    }
+
+    std::vector<std::pair<std::string,std::size_t>> val_props;
+    if (copy_int64_){
+      val_props = accum_collec.i64_val_props();
+    } else {
+      val_props = accum_collec.flt_val_props();
+    }
+
+    std::size_t n_spatial_bins = accum_collec.n_spatial_bins();
+    for (const auto& [quan_name,elem_per_spatial_bin] : val_props) {
+      offset_ += n_spatial_bins * elem_per_spatial_bin;
+    }
+  }
+
+  char* data_ptr_;
+  std::size_t offset_;
+  const bool copy_int64_;
+};
+
+
+template<typename AccumCollectionTuple>
+class CompoundAccumCollection{
+
+public:
+
+  static constexpr std::size_t n_accum =
+    std::tuple_size_v<AccumCollectionTuple>;
+
+  static_assert(n_accum > 1,
+                "CompoundAccumCollection must be composed of 2+ accumulators.");
+
+  CompoundAccumCollection() = delete;
+
+  CompoundAccumCollection(AccumCollectionTuple &&accum_collec_tuple) noexcept
+    : accum_collec_tuple_(accum_collec_tuple)
+  {}
+
+  inline void add_entry(std::size_t spatial_bin_index, double val) noexcept{
+    for_each_tuple_entry(accum_collec_tuple_,
+                         [=](auto e){ e.add_entry(spatial_bin_index, val); });
+  }
+
+  void copy_i64_vals(int64_t *out_vals) const noexcept {
+    for_each_tuple_entry(accum_collec_tuple_,
+                         CopyValsHelper_(reinterpret_cast<char*>(out_vals),
+                                         true));
+  }
+
+  void copy_flt_vals(double *out_vals) const noexcept {
+    for_each_tuple_entry(accum_collec_tuple_,
+                         CopyValsHelper_(reinterpret_cast<char*>(out_vals),
+                                         false));
+  }
+
+private:
+  AccumCollectionTuple accum_collec_tuple_;
+};
 
 #endif /* ACCUMULATORS_H */

@@ -342,7 +342,17 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         )
     ndist_bins = dist_bin_edges.size - 1
 
-    stat_list, rslt_container = _process_statistic_args(statistic, kwargs,
+    if isinstance(statistic, str):
+        assert isinstance(kwargs, dict)
+        statistic_l = [statistic]
+        kwargs_l = [kwargs]
+        single_stat = True
+    else:
+        statistic_l = statistic
+        kwargs_l = kwargs
+        single_stat = False
+
+    stat_list, rslt_container = _process_statistic_args(statistic_l, kwargs_l,
                                                         dist_bin_edges)
 
     # now actually call the function
@@ -356,13 +366,18 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
 
     assert success
 
-    val_dict = rslt_container.extract_statistic_dict(statistic)
-    if statistic in ['mean', 'variance']:
-        w_mask = (val_dict['counts']  == 0)
-        for k,v in val_dict.items():
-            if k == 'counts':
-                continue
-            else:
-                v[w_mask] = np.nan
-
-    return val_dict
+    out = []
+    for stat_name in statistic_l:
+        val_dict = rslt_container.extract_statistic_dict(stat_name)
+        if stat_name in ['mean', 'variance']:
+            w_mask = (val_dict['counts']  == 0)
+            for k,v in val_dict.items():
+                if k == 'counts':
+                    continue
+                else:
+                    v[w_mask] = np.nan
+        out.append(val_dict)
+    if single_stat:
+        return out[0]
+    else:
+        return out
