@@ -20,18 +20,45 @@ namespace{
 
   // intentionally include this header file within the anonymous namespace
   #include "accumulators.hpp"
-  
-  FORCE_INLINE double dist_sqr_3D(const double* arr1, std::size_t i1,
-                                  std::size_t stride1,
-                                  const double* arr2, std::size_t i2,
-                                  std::size_t stride2){
-    double dx = arr1[i1] - arr2[i2];
-    double dy = arr1[i1 + stride1] - arr2[i2 + stride2];
-    double dz = arr1[i1 + 2*stride1] - arr2[i2 + 2*stride2];
+
+  FORCE_INLINE double calc_dist_sqr(double x0, double x1,
+                                    double y0, double y1,
+                                    double z0, double z1) noexcept{
+    double dx = x0 - x1;
+    double dy = y0 - y1;
+    double dz = z0 - z1;
     return dx*dx + dy*dy + dz*dz;
   }
 
-   template<typename AccumCollection, bool duplicated_points>
+  struct dist_rslt{ double dist_sqr; double abs_vdiff; };
+
+  FORCE_INLINE dist_rslt calc_dist_rslt(double x_a, double y_a, double z_a,
+                                        double vx_a, double vy_a, double vz_a,
+                                        const double* pos_b,
+                                        const double* vel_b,
+                                        std::size_t i_b,
+                                        std::size_t n_points) noexcept
+  {
+    const double x_b = pos_b[i_b];
+    const double y_b = pos_b[i_b + n_points];
+    const double z_b = pos_b[i_b + 2*n_points];
+
+    const double vx_b = vel_b[i_b];
+    const double vy_b = vel_b[i_b + n_points];
+    const double vz_b = vel_b[i_b + 2*n_points];
+
+    double dist_sqr = calc_dist_sqr(x_a, x_b,
+                                    y_a, y_b,
+                                    z_a, z_b);
+    double abs_vdiff = std::sqrt(calc_dist_sqr(vx_a, vx_b,
+                                               vy_a, vy_b,
+                                               vz_a, vz_b));
+    return {dist_sqr, abs_vdiff};
+  };
+
+  
+
+  template<typename AccumCollection, bool duplicated_points>
   AccumCollection process_data(const PointProps points_a,
                                const PointProps points_b,
                                const double *dist_sqr_bin_edges,
@@ -50,22 +77,30 @@ namespace{
     const double *pos_b = points_b.positions;
     const double *vel_b = points_b.velocities;
 
-    
     for (std::size_t i_a = 0; i_a < n_points_a; i_a++){
       // When duplicated_points is true, points_a is the same as points_b. In
       // that case, take some care to avoid duplicating pairs
       std::size_t i_b_start = (duplicated_points) ? i_a + 1 : 0;
+
+      const double x_a = pos_a[i_a];
+      const double y_a = pos_a[i_a + n_points_a];
+      const double z_a = pos_a[i_a + 2*n_points_a];
+
+      const double vx_a = vel_a[i_a];
+      const double vy_a = vel_a[i_a + n_points_a];
+      const double vz_a = vel_a[i_a + 2*n_points_a];
+
       for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++){
 
-	double dist_sqr = dist_sqr_3D(pos_a, i_a, n_points_a,
-				      pos_b, i_b, n_points_b);
-	double abs_vdiff = std::sqrt(dist_sqr_3D(vel_a, i_a, n_points_a,
-						 vel_b, i_b, n_points_b));
-	std::size_t bin_ind = identify_bin_index(dist_sqr,
+        dist_rslt tmp = calc_dist_rslt(x_a, y_a, z_a,
+                                       vx_a, vy_a, vz_a,
+                                       pos_b, vel_b, i_b, n_points_b);
+
+	std::size_t bin_ind = identify_bin_index(tmp.dist_sqr,
                                                  dist_sqr_bin_edges,
                                                  nbins);
 	if (bin_ind < nbins){
-          accumulators.add_entry(bin_ind, abs_vdiff);
+          accumulators.add_entry(bin_ind, tmp.abs_vdiff);
 	}
       }
     }
