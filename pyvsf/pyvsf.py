@@ -1,7 +1,11 @@
+from collections import OrderedDict
 import ctypes
 import os.path
 
+
 import numpy as np
+
+from ._kernels import get_kernel
 
 # get the directory of the current file 
 _dir_of_cur_file = os.path.dirname(os.path.abspath(__file__))
@@ -62,12 +66,25 @@ class StatList:
             self._data[i].statistic = ctypes.c_char_p(None)
             self._data[i].arg_ptr = ctypes.c_void_p(None)
 
+        self._attached_objects = []
+
+    def _attach_object(self, obj):
+        """
+        Store a reference to obj.
+
+        This is a crude approach for making sure that arbitrary objects have 
+        lifetimes that are at least as long as that of self
+        """
+        if obj not in self._attached_objects:
+            self._attached_objects.append(obj)
+
     def append(self,statistic_name_ptr, arg_struct_ptr = None):
         assert (self.length + 1) <= self.capacity
         new_ind = self.length
         self.length+=1
 
         if isinstance(statistic_name_ptr, ctypes.Array):
+            self._attach_object(statistic_name_ptr) # extra safety
             self._data[new_ind].statistic = ctypes.cast(statistic_name_ptr,
                                                         ctypes.c_char_p)
         else:
@@ -132,6 +149,132 @@ def _verify_bin_edges(bin_edges):
     else:
         return True
 
+class VSFPropsRsltContainer:
+    def __init__(self, int64_quans, float64_quans):
+        duplicates = set(int64_quans.keys()).intersection(float64_quans.keys())
+        assert len(duplicates) == 0
+
+        def _parse_input_dict(input_dict):
+            total_length = 0
+            access_dict = {}
+            for key, subarr_shape in input_dict.items():
+                subarr_size = np.prod(subarr_shape)
+                subarr_idx = slice(total_length, total_length + subarr_size)
+                access_dict[key] = (subarr_idx, subarr_shape)
+                total_length += subarr_size
+            return access_dict, total_length
+
+        self.int64_access_dict,   int64_len   = _parse_input_dict(int64_quans)
+        self.float64_access_dict, float64_len = _parse_input_dict(float64_quans)
+
+        self.int64_arr   = np.empty((int64_len,),   dtype = np.int64  )
+        self.float64_arr = np.empty((float64_len,), dtype = np.float64)
+
+    @staticmethod
+    def _get(key, access_dict, arr):
+        idx, out_shape = access_dict[key]
+        out = arr[idx]
+        out.shape = out_shape # ensures we don't make a copy
+        return out
+
+    def __getitem__(self,key):
+        try:
+            return self._get(key, self.float64_access_dict, self.float64_arr)
+        except KeyError:
+            try:
+                return self._get(key, self.int64_access_dict, self.int64_arr)
+            except KeyError:
+                raise KeyError(key) from None
+
+    def extract_statistic_dict(self, statistic_name):
+        out = {}
+
+        def _extract(access_dict, arr):
+            for (stat,quan), v in access_dict.items():
+                if stat == statistic_name:
+                    out[quan] = self._get((stat,quan), access_dict, arr)
+
+        _extract(self.int64_access_dict,   self.int64_arr  )
+        _extract(self.float64_access_dict, self.float64_arr)
+
+        if len(out) == 0:
+            raise ValueError(f"there's no statistic called '{statistic_name}'")
+        return out
+
+    def get_flt_vals_arr(self):
+        return self.float64_arr
+
+    def get_i64_vals_arr(self):
+        return self.int64_arr
+
+def _process_statistic_args(statistic, kwargs, dist_bin_edges):
+    """
+    Construct the appropriate instance of StatList as well as information about
+    the output data
+    """
+    # load kernel information
+    if isinstance(statistic, str):
+        statistic = [statistic]
+        kwargs = [kwargs]
+
+    # it's important that we retain order!
+    int64_quans = OrderedDict()
+    float64_quans = OrderedDict()
+
+    stat_list = StatList()
+
+    for stat_name, stat_kw in zip(statistic, kwargs):
+        # load kernel object, which stores metadata
+        kernel = get_kernel(stat_name)
+        if kernel.non_vsf_func is not None:
+            raise ValueError(f"'{stat_name}' can't be computed by vsf_props")
+
+        # first, look at quantities associated with stat_name
+        prop_l = kernel.get_dset_props(dist_bin_edges, kwargs = stat_kw)
+        for quan_name, dtype, shape in prop_l:
+            key = (stat_name, quan_name)
+            assert (key not in int64_quans) and (key not in float64_quans)
+            if dtype == np.int64:
+                int64_quans[key] = shape
+            elif dtype == np.float64:
+                float64_quans[key] = shape
+            else:
+                raise ValueError(f"can't handle datatype: {dtype}")
+
+        # now, appropriately update StatList
+        # kernel.get_dset_props would have raised an error if stat_kw had the
+        # wrong size
+        c_stat_name_buffer = ctypes.create_string_buffer(stat_name.encode())
+        # attach c_stat_name_buffer to stat_list so it isn't garbage collected
+        # during stat_list's lifetime
+        stat_list._attach_object(c_stat_name_buffer)
+
+        if len(stat_kw) == 0:
+            stat_list.append(statistic_name_ptr = c_stat_name_buffer,
+                             arg_struct_ptr = None)
+        elif stat_name == 'histogram':
+            assert list(stat_kw) == ['val_bin_edges']
+            val_bin_edges = np.asanyarray(stat_kw['val_bin_edges'],
+                                          dtype = np.float64)
+            if not _verify_bin_edges(val_bin_edges):
+                raise ValueError(
+                    'kwargs["val_bin_edges"] must be a 1D monotonically '
+                    'increasing array with 2 or more values'
+                )
+            val_bins_struct = HISTBINS.construct(val_bin_edges)
+            val_bins_ptr = _HISTBINS_ptr(val_bins_struct)
+
+            accum_arg_ptr = ctypes.cast(val_bins_ptr, ctypes.c_void_p)
+            stat_list.append(statistic_name_ptr = c_stat_name_buffer,
+                             arg_struct_ptr = accum_arg_ptr)
+            stat_list._attach_object(val_bins_struct)
+        else:
+            raise RuntimeError(f"There's no support for adding '{stat_name}' "
+                               "to stat_list")
+
+    return stat_list, VSFPropsRsltContainer(int64_quans = int64_quans,
+                                            float64_quans = float64_quans)
+
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
               statistic = 'variance', kwargs = {}):
     """
@@ -160,8 +303,7 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         The name of the statistic to compute. Default is variance.
     kwargs: dict,optional
         Keyword arguments for computing different statistics. This should be 
-        empty for most cases. 
-
+        empty for most cases.
 
     Notes
     -----
@@ -200,73 +342,27 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         )
     ndist_bins = dist_bin_edges.size - 1
 
-    stat_list = StatList()
-
-    statistic_name = ctypes.create_string_buffer(statistic.encode())
-    accum_arg_ptr = ctypes.c_void_p(None)
-    if statistic == 'histogram':
-        assert list(kwargs.keys()) == ['val_bin_edges']
-        val_bin_edges = np.asanyarray(kwargs['val_bin_edges'],
-                                      dtype = np.float64)
-        if not _verify_bin_edges(val_bin_edges):
-            raise ValueError(
-                'kwargs["dist_bin_edges"] must be a 1D monotonically '
-                'increasing array with 2 or more values'
-            )
-        val_bins_struct = HISTBINS.construct(val_bin_edges)
-        val_bins_ptr = _HISTBINS_ptr(val_bins_struct)
-
-        accum_arg_ptr = ctypes.cast(val_bins_ptr, ctypes.c_void_p)
-        stat_list.append(statistic_name_ptr = statistic_name,
-                         arg_struct_ptr = accum_arg_ptr)
-
-        nval_bins = val_bin_edges.size - 1
-        # out_flt_vals isn't expected to have any values. but for simplicity of
-        # passing arguments through ctypes, give it a single dummy argument
-        out_flt_vals = np.empty((1,), dtype = np.float64)
-        out_i64_vals = np.empty((ndist_bins * nval_bins,),
-                                dtype = np.int64)
-    else:
-        stat_list.append(statistic_name_ptr = statistic_name,
-                         arg_struct_ptr = None)
-
-        assert len(kwargs) == 0
-        if statistic == 'mean':
-            out_flt_vals = np.empty((ndist_bins,), dtype = np.float64)
-            out_i64_vals = np.empty((ndist_bins,), dtype = np.int64)
-        elif statistic == 'variance':
-            out_flt_vals = np.empty((2*ndist_bins,), dtype = np.float64)
-            out_i64_vals = np.empty((ndist_bins,), dtype = np.int64)
-        else:
-            raise RuntimeError('Unknown statistic')
+    stat_list, rslt_container = _process_statistic_args(statistic, kwargs,
+                                                        dist_bin_edges)
 
     # now actually call the function
     success = _lib.calc_vsf_props(
         points_a, points_b,
         stat_list.get_STATLISTITEM_ptr(), len(stat_list),
         dist_bin_edges, ndist_bins,
-        out_flt_vals, out_i64_vals
+        rslt_container.get_flt_vals_arr(),
+        rslt_container.get_i64_vals_arr()
     )
 
     assert success
 
+    val_dict = rslt_container.extract_statistic_dict(statistic)
     if statistic in ['mean', 'variance']:
-        if statistic == 'mean':
-            val_dict = {'mean' : out_flt_vals[:ndist_bins]}
-        else:
-            val_dict = {'mean' : out_flt_vals[:ndist_bins],
-                        'variance' : out_flt_vals[ndist_bins:]}
-
-        val_dict['counts'] = out_i64_vals
         w_mask = (val_dict['counts']  == 0)
         for k,v in val_dict.items():
             if k == 'counts':
                 continue
             else:
                 v[w_mask] = np.nan
-
-    elif statistic == 'histogram':
-        val_dict = {'2D_counts' : out_i64_vals}
-        val_dict['2D_counts'].shape = (ndist_bins, nval_bins)
 
     return val_dict
