@@ -44,6 +44,53 @@ class POINTPROPS(ctypes.Structure):
                           n_points = n_points,
                           n_spatial_dims = n_spatial_dims)
 
+class STATLISTITEM(ctypes.Structure):
+    _fields_ = [("statistic", ctypes.c_char_p),
+                ("arg_ptr", ctypes.c_void_p)]
+
+_STATLISTITEM_ptr = ctypes.POINTER(STATLISTITEM)
+
+class StatList:
+    MAX_CAPACITY = 4
+    STATLISTITEM_ArrayType = STATLISTITEM * 4
+
+    def __init__(self):
+        self.capacity = self.MAX_CAPACITY
+        self.length = 0
+        self._data = self.STATLISTITEM_ArrayType()
+        for i in range(self.capacity):
+            self._data[i].statistic = ctypes.c_char_p(None)
+            self._data[i].arg_ptr = ctypes.c_void_p(None)
+
+    def append(self,statistic_name_ptr, arg_struct_ptr = None):
+        assert (self.length + 1) <= self.capacity
+        new_ind = self.length
+        self.length+=1
+
+        if isinstance(statistic_name_ptr, ctypes.Array):
+            self._data[new_ind].statistic = ctypes.cast(statistic_name_ptr,
+                                                        ctypes.c_char_p)
+        else:
+            self._data[new_ind].statistic = statistic_name_ptr
+
+        if arg_struct_ptr is None:
+            self._data[new_ind].arg_ptr = ctypes.c_void_p(None)
+        else:
+            self._data[new_ind].arg_ptr = arg_struct_ptr
+
+    def __len__(self):
+        return self.length
+
+    def get_STATLISTITEM_ptr(self):
+        return ctypes.cast(self._data, _STATLISTITEM_ptr)
+
+    def __str__(self):
+        elements = []
+        for i in range(self.length):
+            elements.append('{' + str(self._data[i].statistic) + ',' +
+                            str(self._data[i].arg_ptr) + '}')
+        return '[' + ','.join(elements) + ']'
+
 class HISTBINS(ctypes.Structure):
     _fields_ = [("bin_edges", _double_ptr),
                 ("n_bins", ctypes.c_size_t)]
@@ -62,11 +109,11 @@ _ptr_to_double_ptr = ctypes.POINTER(_double_ptr)
 
 # define the argument types
 _lib.calc_vsf_props.argtypes = [
-    POINTPROPS, POINTPROPS, ctypes.c_char_p,
+    POINTPROPS, POINTPROPS,
+    _STATLISTITEM_ptr, ctypes.c_size_t,
     np.ctypeslib.ndpointer(dtype = np.float64, ndim = 1,
                            flags = 'C_CONTIGUOUS'),
     ctypes.c_size_t,
-    ctypes.c_void_p,
     np.ctypeslib.ndpointer(dtype = np.float64, ndim = 1,
                            flags = ['C_CONTIGUOUS', 'WRITEABLE']),
     np.ctypeslib.ndpointer(dtype = np.int64, ndim = 1,
@@ -153,8 +200,9 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         )
     ndist_bins = dist_bin_edges.size - 1
 
-    statistic_name = ctypes.create_string_buffer(statistic.encode())
+    stat_list = StatList()
 
+    statistic_name = ctypes.create_string_buffer(statistic.encode())
     accum_arg_ptr = ctypes.c_void_p(None)
     if statistic == 'histogram':
         assert list(kwargs.keys()) == ['val_bin_edges']
@@ -168,15 +216,20 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         val_bins_struct = HISTBINS.construct(val_bin_edges)
         val_bins_ptr = _HISTBINS_ptr(val_bins_struct)
 
+        accum_arg_ptr = ctypes.cast(val_bins_ptr, ctypes.c_void_p)
+        stat_list.append(statistic_name_ptr = statistic_name,
+                         arg_struct_ptr = accum_arg_ptr)
+
         nval_bins = val_bin_edges.size - 1
         # out_flt_vals isn't expected to have any values. but for simplicity of
         # passing arguments through ctypes, give it a single dummy argument
         out_flt_vals = np.empty((1,), dtype = np.float64)
         out_i64_vals = np.empty((ndist_bins * nval_bins,),
                                 dtype = np.int64)
-
-        accum_arg_ptr = ctypes.cast(val_bins_ptr, ctypes.c_void_p)
     else:
+        stat_list.append(statistic_name_ptr = statistic_name,
+                         arg_struct_ptr = None)
+
         assert len(kwargs) == 0
         if statistic == 'mean':
             out_flt_vals = np.empty((ndist_bins,), dtype = np.float64)
@@ -188,9 +241,13 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
             raise RuntimeError('Unknown statistic')
 
     # now actually call the function
-    success = _lib.calc_vsf_props(points_a, points_b, statistic_name,
-                                  dist_bin_edges, ndist_bins, accum_arg_ptr,
-                                  out_flt_vals, out_i64_vals)
+    success = _lib.calc_vsf_props(
+        points_a, points_b,
+        stat_list.get_STATLISTITEM_ptr(), len(stat_list),
+        dist_bin_edges, ndist_bins,
+        out_flt_vals, out_i64_vals
+    )
+
     assert success
 
     if statistic in ['mean', 'variance']:

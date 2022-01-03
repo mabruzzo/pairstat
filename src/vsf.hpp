@@ -14,6 +14,17 @@ struct BinSpecification{
   std::size_t n_bins;
 };
 
+/// This is used to specify the statistics that will be computed.
+struct StatListItem{
+  /// The name of the statistic to compute.
+  const char* statistic;
+
+  /// Pointer to a struct that is designed to be passed to the construtor of
+  /// the accumulator for the specified statistic. In most cases, this should
+  /// just be a nullptr
+  void* arg_ptr;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,14 +37,13 @@ extern "C" {
 ///     In the event that the positions and velocities pointers are each
 ///     nullptrs, then pairwise distances are just computed for points_a
 ///     (without duplicating any pairs).
-/// @param[in]  statistic The name of the statistic to compute.
+/// @param[in]  stat_list Pointer to an array of 1 or more StatListItems that
+///     provide details about the statistics that will be computed.
+/// @param[in]  stat_list_len Specifies the number of entries in stat_list.
 /// @param[in]  bin_edges An array of monotonically increasing bin edges for
 ///     binning positions. This must have ``nbins + 1`` entries. The ith bin
 ///     includes the interval ``bin_edges[i] <= x < bin_edges[i]``.
 /// @param[in]  nbins The number of position bins
-/// @param[in]  accum_arg_ptr This is a pointer to a struct that is designed to
-///     be passed to the construction of some accumulators. In most cases, this
-///     should be a nullptr.
 /// @param[out] out_flt_vals Preallocated arrays to hold the output floating
 ///     point values.
 /// @param[out] out_i64_vals Preallocated array of ``nbins`` entries that are
@@ -41,9 +51,8 @@ extern "C" {
 ///
 /// @returns This returns ``true`` on success and ``false`` on failure.
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
-		    const char* statistic,
+                    const StatListItem* stat_list, std::size_t stat_list_len,
                     const double *bin_edges, std::size_t nbins,
-                    void* accum_arg_ptr,
                     double *out_flt_vals, int64_t *out_i64_vals) noexcept;
 
 #ifdef __cplusplus

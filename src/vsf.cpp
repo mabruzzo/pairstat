@@ -134,11 +134,10 @@ namespace{
 }
 
 
-bool calc_vsf_props(const PointProps points_a,
-		    const PointProps points_b,
-		    const char* statistic, const double *bin_edges,
-		    std::size_t nbins, void* accum_arg_ptr,
-		    double *out_flt_vals, int64_t *out_i64_vals) noexcept
+bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
+		    const StatListItem* stat_list, std::size_t stat_list_len,
+                    const double *bin_edges, std::size_t nbins,
+                    double *out_flt_vals, int64_t *out_i64_vals) noexcept
 {
   const bool duplicated_points = ((points_b.positions == nullptr) &&
 				  (points_b.velocities == nullptr));
@@ -169,17 +168,24 @@ bool calc_vsf_props(const PointProps points_a,
     }
   }
 
-  std::string stat_str(statistic);
+  if (stat_list_len == 0){
+    error("stat_list_len must not be 0");
+  } else if (stat_list_len != 1){
+    error("can't currently handle a stat_list_len != 1");
+  }
+
+  std::string stat_str(stat_list[0].statistic);
+  void* accum_arg_ptr = stat_list[0].arg_ptr;
 
   if (stat_str == "mean"){
     calc_vsf_props_helper_<ScalarAccumCollection<MeanAccum>>
       (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
        accum_arg_ptr, out_flt_vals, out_i64_vals, duplicated_points);
-  } else if (std::string(statistic) == "variance"){
+  } else if (stat_str == "variance"){
     calc_vsf_props_helper_<ScalarAccumCollection<VarAccum>>
       (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
        accum_arg_ptr, out_flt_vals, out_i64_vals, duplicated_points);
-  } else if (std::string(statistic) == "histogram"){
+  } else if (stat_str == "histogram"){
     calc_vsf_props_helper_<HistogramAccumCollection>
       (points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
        accum_arg_ptr, out_flt_vals, out_i64_vals, duplicated_points);
