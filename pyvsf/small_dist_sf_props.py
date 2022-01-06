@@ -317,6 +317,100 @@ class SFWorker:
     def _get_num_cut_regions(self):
         return len(self.sf_param.cut_regions)
 
+    @staticmethod
+    def process_auto_stats(cut_region_iter, stat_kw_pairs,
+                           kernels, dist_bin_edges, perf,
+                           rslt_container, available_points_arr,
+                           pos_and_quan_cache_l):
+        """
+        Computes the auto-component of stats from a single subvolume.
+
+        Parameters
+        ----------
+        cut_region_iter
+            Holds the data being iterated over
+        rslt_container: StatRsltContainer
+            Object where the statistic results are stored
+        available_points_arr: 1D np.ndarray
+            Array that will be updated with the number of available points per
+            cut region
+        pos_and_quan_cache_l
+            list where tuples of the positions and quantities for each subregion
+            will be cached (so they can be reused for computing cross-terms).
+        """
+        for tmp in cut_region_iter:
+            cut_region_ind, pos, quan, extra_quan, available_points = tmp
+
+            available_points_arr[cut_region_ind] = available_points
+            pos_and_quan_cache_l.append((pos,quan))
+
+            for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+
+                kernel = kernels[stat_ind]
+                with perf.region('calc'):
+                    if ( (available_points == 0) or
+                         (kernel.operate_on_pairs and (available_points<=1)) ):
+                        main_subvol_rslt = {}
+                    elif kernel.non_vsf_func is not None:
+                        assert stat_name == 'bulkaverage' # simple sanity check!
+                        func = kernel.non_vsf_func
+
+                        main_subvol_rslt = func(quan = quan,
+                                                extra_quantities = extra_quan,
+                                                kwargs = kw)
+                    else:
+                        main_subvol_rslt = vsf_props(
+                            pos_a = pos, vel_a = quan,
+                            pos_b = None, vel_b = None,
+                            dist_bin_edges = dist_bin_edges,
+                            stat_kw_pairs = [(stat_name, kw)]
+                        )[0]
+
+                rslt_container.store_result(
+                    stat_index = stat_ind, cut_region_index = cut_region_ind,
+                    rslt = main_subvol_rslt
+                )
+
+    @staticmethod
+    def process_cross_stats(cut_region_iter, main_subvol_pos_and_quan,
+                            main_subvol_available_points, stat_kw_pairs,
+                            kernels, dist_bin_edges, perf,
+                            rslt_container):
+        # iterate over the positions/quantities/extra_quantities from the
+        # adjacent subvolume for each cut region
+        for tmp in cut_region_iter:
+            cut_region_i, o_pos, o_quan, o_eq, o_available_points = tmp
+
+            # fetch the positions/quantities for the current cur region
+            # of the main subvolume
+            m_pos, m_quan = main_subvol_pos_and_quan[cut_region_i]
+            m_available_points = main_subvol_available_points[cut_region_i]
+
+            # now actually perform the calculation
+            for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+
+                kernel = kernels[stat_ind]
+
+                with perf.region('calc'):
+                    if not kernel.operate_on_pairs:
+                        cross_sf_rslt = {}
+                    elif ((m_available_points == 0) or
+                          (o_available_points == 0)):
+                        cross_sf_rslt = {}
+                    else:
+                        assert kernel.non_vsf_func is None
+                        cross_sf_rslt = vsf_props(
+                            pos_a = m_pos, vel_a = m_quan,
+                            pos_b = o_pos, vel_b = o_quan,
+                            dist_bin_edges = dist_bin_edges,
+                            stat_kw_pairs = [(stat_name, kw)]
+                        )[0]
+
+                rslt_container.store_result(
+                    stat_index = stat_ind, cut_region_index = cut_region_i,
+                    rslt = cross_sf_rslt
+                )
+
     def __call__(self, subvol_indices):
         tmp = []
         for subvol_index in subvol_indices:
@@ -370,54 +464,31 @@ class SFWorker:
 
         # define some lists that are used to store some data for the duration
         # of this method's evaluation
-        main_subvol_available_points = []
         main_subvol_rslts = StatRsltContainer(
             num_statistics = self._get_num_statistics(),
             num_cut_regions = self._get_num_cut_regions()
         )
+        main_subvol_available_points = np.zeros((self._get_num_cut_regions(),),
+                                                dtype = np.int64)
         main_subvol_pos_and_quan = []
 
         # First, load in the main assigned subvolume and compute the auto-vsf
+        # terms and terms of other statistics (that don't operate on pairs)
         #print(f"{subvol_index}-auto")
-        itr = cut_region_itr_builder(subvol_index, is_central = True)
-
-        for cut_region_ind, pos, quan, extra_quan, available_points in itr:
-            main_subvol_available_points.append(available_points)
-            main_subvol_pos_and_quan.append((pos,quan))
-
-            for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
-
-                kernel = kernels[stat_ind]
-                with perf.region('calc'):
-                    if ( (available_points == 0) or
-                         (kernel.operate_on_pairs and (available_points<=1)) ):
-                        main_subvol_rslt = {}
-                    elif kernel.non_vsf_func is not None:
-                        assert stat_name == 'bulkaverage' # simple sanity check!
-                        func = kernel.non_vsf_func
-
-                        main_subvol_rslt = func(quan = quan,
-                                                extra_quantities = extra_quan,
-                                                kwargs = kw)
-                    else:
-                        main_subvol_rslt = vsf_props(
-                            pos_a = pos, vel_a = quan,
-                            pos_b = None, vel_b = None,
-                            dist_bin_edges = dist_bin_edges,
-                            stat_kw_pairs = [(stat_name, kw)]
-                        )[0]
-
-                main_subvol_rslts.store_result(
-                    stat_index = stat_ind, cut_region_index = cut_region_ind,
-                    rslt = main_subvol_rslt
-                )
+        SFWorker.process_auto_stats(
+            cut_region_itr_builder(subvol_index, is_central = True),
+            stat_kw_pairs, kernels, dist_bin_edges, perf,
+            rslt_container = main_subvol_rslts,
+            available_points_arr = main_subvol_available_points,
+            pos_and_quan_cache_l = main_subvol_pos_and_quan
+        )
 
         assert main_subvol_rslts.entries_stored_for_all_results() # sanity check
 
         cross_sf_rslts = []
 
         # Next, load the adjacent subvolumes (on the right side) and compute
-        # cross term contributions
+        # the cross term for the vsf (and any other stats)
 
         for other_ind in neighbor_ind_iter(subvol_index, self.subvol_decomp):
             #print(f"{subvol_index}-{other_ind}")
@@ -427,40 +498,12 @@ class SFWorker:
                 num_cut_regions = self._get_num_cut_regions()
             ))
 
-            itr = cut_region_itr_builder(other_ind, is_central = False)
-            # iterate over the positions/quantities/extra_quantities from the
-            # adjacent subvolume for each cut region
-            for cut_region_i, o_pos, o_quan, o_eq, o_available_points in itr:
-                # fetch the positions/quantities for the current cur region
-                # of the main subvolume
-                m_pos, m_quan = main_subvol_pos_and_quan[cut_region_i]
-                m_available_points \
-                    = main_subvol_available_points[cut_region_i]
-
-                # now actually perform the calculation
-                for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
-
-                    kernel = kernels[stat_ind]
-
-                    with perf.region('calc'):
-                        if not kernel.operate_on_pairs:
-                            cross_sf_rslt = {}
-                        elif ((m_available_points == 0) or
-                              (o_available_points == 0)):
-                            cross_sf_rslt = {}
-                        else:
-                            assert kernel.non_vsf_func is None
-                            cross_sf_rslt = vsf_props(
-                                pos_a = m_pos, vel_a = m_quan,
-                                pos_b = o_pos, vel_b = o_quan,
-                                dist_bin_edges = dist_bin_edges,
-                                stat_kw_pairs = [(stat_name, kw)]
-                            )[0]
-
-                    cross_sf_rslts[-1].store_result(
-                        stat_index = stat_ind, cut_region_index = cut_region_i,
-                        rslt = cross_sf_rslt
-                    )
+            SFWorker.process_cross_stats(
+                cut_region_itr_builder(other_ind, is_central = False),
+                main_subvol_pos_and_quan, main_subvol_available_points,
+                stat_kw_pairs, kernels, dist_bin_edges, perf,
+                rslt_container = cross_sf_rslts[-1]
+            )
 
         # finally, consolidate cross_sf_rslts together with main_subvol_rslts
         consolidated_rslts = StatRsltContainer(
