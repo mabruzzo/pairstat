@@ -5,6 +5,7 @@ from itertools import product
 import logging
 from typing import Tuple, Sequence, Optional
 
+from more_itertools import always_iterable, zip_equal
 import numpy as np
 from pydantic import (
     BaseModel,
@@ -285,10 +286,6 @@ class TaskResult:
                 consolidated_rslts.num_cut_regions)
         self.consolidated_rslts = consolidated_rslts
 
-    
-
-
-
 def consolidate_partial_vsf_results(statistic, *rslts):
     """
     This function is used to consolidate the partial results from multiple 
@@ -340,7 +337,10 @@ class SFWorker:
         assert self.subvol_decomp.valid_subvol_index(subvol_index)
         assert self.sf_param.max_points is None
 
-        stat_kw_pairs = list(zip(self.statistic_l, self.kwargs_l))
+        stat_kw_pairs = list(
+            zip_equal(always_iterable(self.statistic_l, base_type = str),
+                      always_iterable(self.kwargs_l, base_type = dict))
+        )
 
         # build the dictionary specifying the extra fields that need to be
         # loaded
@@ -404,8 +404,8 @@ class SFWorker:
                             pos_a = pos, vel_a = quan,
                             pos_b = None, vel_b = None,
                             dist_bin_edges = dist_bin_edges,
-                            statistic = stat_name, kwargs = kw
-                        )
+                            stat_kw_pairs = [(stat_name, kw)]
+                        )[0]
 
                 main_subvol_rslts.store_result(
                     stat_index = stat_ind, cut_region_index = cut_region_ind,
@@ -454,8 +454,8 @@ class SFWorker:
                                 pos_a = m_pos, vel_a = m_quan,
                                 pos_b = o_pos, vel_b = o_quan,
                                 dist_bin_edges = dist_bin_edges,
-                                statistic = stat_name, kwargs = kw
-                            )
+                                stat_kw_pairs = [(stat_name, kw)]
+                            )[0]
 
                     cross_sf_rslts[-1].store_result(
                         stat_index = stat_ind, cut_region_index = cut_region_i,

@@ -18,12 +18,8 @@ _vsf_scalar_python_dict = {
 }
 
 def _vsf_props_python(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
-                      statistic = 'variance', kwargs = {}):
+                      stat_kw_pairs = [('variance', {})]):
 
-    return_list = not isinstance(statistic, str)
-
-    stat_kw_pairs = list(zip_equal(always_iterable(statistic, base_type = str),
-                                   always_iterable(kwargs, base_type = dict)))
     if len(stat_kw_pairs) == 0:
         raise ValueError("At least one statistic must be specified")
 
@@ -73,10 +69,7 @@ def _vsf_props_python(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
             w = (bin_indices == (i+1))
             _process_spatial_bin(spatial_bin_index = i,
                                  selected_vdiffs = vdiffs[w])
-    if return_list:
-        return out
-    else:
-        return out[0]
+    return out
 
 
 def _prep_tol_dict(key_set, tol_arg, tol_arg_name):
@@ -172,20 +165,20 @@ def compare_vsf_implementations(pos_a, pos_b, vel_a, vel_b, statistic,
 
     print(statistic)
 
-    alt_rslt = _vsf_props_python(
+    stat_kw_pairs = list(zip_equal(always_iterable(statistic, base_type = str),
+                                   always_iterable(kwargs, base_type = dict)))
+
+    alt_rslt_l = _vsf_props_python(
         pos_a = pos_a, pos_b = pos_b, vel_a = vel_a, vel_b = vel_b,
-        dist_bin_edges = dist_bin_edges, statistic = statistic,
-        kwargs = kwargs
+        dist_bin_edges = dist_bin_edges,
+        stat_kw_pairs = stat_kw_pairs
     )
 
-    actual_rslt = pyvsf.vsf_props(
+    actual_rslt_l = pyvsf.vsf_props(
         pos_a = pos_a, pos_b = pos_b, vel_a = vel_a, vel_b = vel_b,
-        dist_bin_edges = dist_bin_edges, statistic = statistic,
-        kwargs = kwargs
+        dist_bin_edges = dist_bin_edges,
+        stat_kw_pairs = stat_kw_pairs
     )
-
-    alt_rslt_l = list(always_iterable(alt_rslt, base_type = dict))
-    actual_rslt_l = list(always_iterable(actual_rslt, base_type = dict))
 
     def get_cur_tol(tol, index):
         if isinstance(tol, Sequence) and not isinstance(tol, dict):
@@ -347,8 +340,8 @@ def benchmark(shape_a, shape_b = None, seed = 156, skip_python_version = False,
 
     # first, benchmark pyvsf.vsf_props
     pyvsf.vsf_props(pos_a = pos_a, pos_b = pos_b,
-                      vel_a = vel_a, vel_b = vel_b,
-                      **kwargs)
+                    vel_a = vel_a, vel_b = vel_b,
+                    **kwargs)
     t0 = time.perf_counter()
     pyvsf.vsf_props(pos_a = pos_a, pos_b = pos_b,
                     vel_a = vel_a, vel_b = vel_b,
@@ -391,7 +384,6 @@ if __name__ == '__main__':
     val_bin_edges[0] = 0.0
     val_bin_edges[-1] = np.finfo(np.float64).max
     benchmark((3,20000), shape_b = None, seed = 156,
-              statistic = 'histogram',
               dist_bin_edges = np.arange(101.0)/100,
-              kwargs = {'val_bin_edges' : val_bin_edges},
+              stat_kw_pairs = [('histogram', {'val_bin_edges':val_bin_edges})],
               skip_python_version = True)

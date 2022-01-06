@@ -1,6 +1,6 @@
 import numpy as np
 
-from pyvsf._kernels_cy import _Variance
+from pyvsf._kernels_cy import Variance as _Variance
 
 def _prep_entries(vals, add_empty_entries = True):
     l = []

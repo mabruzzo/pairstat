@@ -77,7 +77,7 @@ def _cal_ref_props(dist_bin_edges, cut_regions, geometric_selector,
                 rslt = vsf_props(pos_a = pos, vel_a = quan,
                                  pos_b = None, vel_b = None,
                                  dist_bin_edges = dist_bin_edges,
-                                 statistic = stat_name, kwargs = kw)
+                                 stat_kw_pairs = [(stat_name, kw)])[0]
             out[stat_ind][cr_ind] = rslt
 
     if single_stat:

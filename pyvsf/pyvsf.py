@@ -1,10 +1,10 @@
 from collections import OrderedDict
+from collections.abc import Sequence
 import ctypes
 import os.path
 
 
 import numpy as np
-from more_itertools import zip_equal
 
 from ._kernels import get_kernel
 
@@ -208,7 +208,7 @@ class VSFPropsRsltContainer:
     def get_i64_vals_arr(self):
         return self.int64_arr
 
-def _process_statistic_args(statistic_l, kwargs_l, dist_bin_edges):
+def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
     """
     Construct the appropriate instance of StatList as well as information about
     the output data
@@ -220,13 +220,10 @@ def _process_statistic_args(statistic_l, kwargs_l, dist_bin_edges):
 
     stat_list = StatList()
 
-    stat_kw_pairs = list(zip_equal(statistic_l, kwargs_l))
-
-    # it's important that the statistics_l are ordered in alphabetical order
-    # so that the stat_list is initialized in alphabetical order
-    stat_kw_pairs.sort(key = lambda pair: pair[0])
-
-    for stat_name, stat_kw in stat_kw_pairs:
+    # it's important that we consider the entries of stat_kw_pairs in
+    # alphabetical order of the statistic names so that the stat_list entries
+    # are also initialized in alphabetical order
+    for stat_name, stat_kw in sorted(stat_kw_pairs, key = lambda pair: pair[0]):
         # load kernel object, which stores metadata
         kernel = get_kernel(stat_name)
         if kernel.non_vsf_func is not None:
@@ -278,8 +275,20 @@ def _process_statistic_args(statistic_l, kwargs_l, dist_bin_edges):
     return stat_list, VSFPropsRsltContainer(int64_quans = int64_quans,
                                             float64_quans = float64_quans)
 
+def _validate_stat_kw_pairs(arg):
+    if not isinstance(arg, Sequence):
+        raise ValueError("stat_kw_pairs must be a sequence")
+    for elem in arg:
+        if len(elem) != 2:
+            raise ValueError("Each element in stat_kw_pairs must hold 2"
+                             "elements")
+        first, second = elem
+        if (not isinstance(first, str)) or (not isinstance(second, dict)):
+            raise ValueError("Each element in stat_kw_pairs must hold a "
+                             "string paired with a dict")
+
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
-              statistic = 'variance', kwargs = {}):
+              stat_kw_pairs = [('variance', {})]):
     """
     Calculates properties pertaining to the velocity structure function for 
     pairs of points.
@@ -302,23 +311,25 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         1D array of monotonically increasing values that represent edges for 
         distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
         interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
-    statistic: string, optional
-        The name of the statistic to compute. Default is variance.
-    kwargs: dict,optional
-        Keyword arguments for computing different statistics. This should be 
-        empty for most cases.
+    stat_kw_pairs: sequence of (str, dict) tuples
+        Each entry is a tuple holding the name of a statistic to compute and a
+        dictionary of kwargs needed to compute that statistic. A list of valid
+        statistics are described below. Unless we explicitly state otherwise,
+        an empty dict should be passed for the kwargs.
 
     Notes
     -----
-    Currently allowed values for statistic include: 'mean', 'variance', and
-    'histogram'.
-
-    When statistic == 'histogram', this constructs a 2D histogram. The bin 
-    edges along axis 0 are given by the dist_bin_edges argument. The velocity
-    differences are binned along axis 1. This function checks the 
-    'val_bin_edges' entry from kwargs for a 1D monotonic array that specifies 
-    the bin edges along axis 1.
+    Currently recognized statistic names include:
+        - 'mean': calculate the 1st order VSF.
+        - 'variance': calculate the 1st and 2nd order VSFs
+        - 'histogram': this constructs a 2D histogram. The bin edges along axis
+          0 are given by the `dist_bin_edges` argument. The magnitudes of the 
+          velocity differences are binned along axis 1. The 'val_bin_edges'
+          keyword must be specified alongside this statistic. It should be
+          associated with a 1D monotonic array that specifies the bin edges
+          along axis 1.
     """
+    _validate_stat_kw_pairs(stat_kw_pairs)
 
     points_a = POINTPROPS.construct(pos_a, vel_a, dtype = np.float64,
                                     allow_null_pair = False)
@@ -345,17 +356,7 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         )
     ndist_bins = dist_bin_edges.size - 1
 
-    if isinstance(statistic, str):
-        assert isinstance(kwargs, dict)
-        statistic_l = [statistic]
-        kwargs_l = [kwargs]
-        single_stat = True
-    else:
-        statistic_l = statistic
-        kwargs_l = kwargs
-        single_stat = False
-
-    stat_list, rslt_container = _process_statistic_args(statistic_l, kwargs_l,
+    stat_list, rslt_container = _process_statistic_args(stat_kw_pairs,
                                                         dist_bin_edges)
 
     # now actually call the function
@@ -370,7 +371,7 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     assert success
 
     out = []
-    for stat_name in statistic_l:
+    for stat_name, _ in stat_kw_pairs:
         val_dict = rslt_container.extract_statistic_dict(stat_name)
         if stat_name in ['mean', 'variance']:
             w_mask = (val_dict['counts']  == 0)
@@ -380,7 +381,5 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
                 else:
                     v[w_mask] = np.nan
         out.append(val_dict)
-    if single_stat:
-        return out[0]
-    else:
-        return out
+
+    return out
