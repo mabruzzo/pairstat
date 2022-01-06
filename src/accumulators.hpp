@@ -26,6 +26,9 @@
 struct MeanAccum{
 
 public: // interface
+  /// Returns the name of the stat computed by the accumulator
+  static std::string stat_name() noexcept { return "mean"; }
+
   static std::vector<std::string> flt_val_names() noexcept{
     return {"mean"};
   }
@@ -56,7 +59,11 @@ public: // attributes
 
 struct VarAccum {
 
-  public: // interface
+public: // interface
+
+  /// Returns the name of the stat computed by the accumulator
+  static std::string stat_name() noexcept { return "variance"; }
+
   static std::vector<std::string> flt_val_names() noexcept{
     return {"mean", "variance"};
   }
@@ -97,6 +104,9 @@ template<typename Accum>
 class ScalarAccumCollection{
 
 public:
+
+  /// Returns the name of the stat computed by the accumulator
+  static std::string stat_name() noexcept { return Accum::stat_name(); }
 
   ScalarAccumCollection() noexcept : accum_list_() {}
 
@@ -195,6 +205,9 @@ std::size_t identify_bin_index(T x, const T *bin_edges, std::size_t nbins)
 class HistogramAccumCollection{
 public:
 
+  /// Returns the name of the stat computed by the accumulator
+  static std::string stat_name() noexcept { return "histogram"; }
+
   HistogramAccumCollection() noexcept
     : n_spatial_bins_(),
       n_data_bins_(),
@@ -270,6 +283,8 @@ public:
 
   void copy_i64_vals(int64_t *out_vals) const noexcept {
     for (std::size_t i = 0; i < bin_counts_.size(); i++){
+      //printf("(%zu, %ld)%s", i, bin_counts_[i],
+      //       ((i+1) == bin_counts_.size()) ? "\n" : ", " );
       out_vals[i] = bin_counts_[i];
     }
   }
@@ -286,101 +301,6 @@ private:
   std::vector<int64_t> bin_counts_;
 
   std::vector<double> data_bin_edges_;
-};
-
-
-template<typename Tup, class Func, std::size_t index>
-struct for_each_tuple_entry_{
-  static inline void evaluate(Tup& tuple, Func f) noexcept{
-    for_each_tuple_entry_<Tup, Func, index-1>::evaluate(tuple, f);
-    f(std::get<index>(tuple));
-  }
-};
-
-template<typename Tup, class Func>
-struct for_each_tuple_entry_<Tup,Func,0>{
-  static inline void evaluate(Tup& tuple, Func f) noexcept{
-    f(std::get<0>(tuple));
-  }
-};
-
-template<class T, class UnaryFunction>
-constexpr inline void for_each_tuple_entry(T& tuple, UnaryFunction f){
-  for_each_tuple_entry_<T, UnaryFunction,
-                        std::tuple_size_v<T>-1>::evaluate(tuple, f);
-}
-
-struct CopyValsHelper_{
-  CopyValsHelper_(char* data_ptr, bool copy_int64)
-    : data_ptr_(data_ptr), offset_(0), copy_int64_(copy_int64)
-  { }
-
-  template<class AccumCollec>
-  void operator()(const AccumCollec& accum_collec) noexcept{
-
-    if (copy_int64_){
-      int64_t* ptr = reinterpret_cast<int64_t*>(data_ptr_);
-      accum_collec.copy_i64_vals(ptr + offset_);
-    } else {
-      double* ptr = reinterpret_cast<double*>(data_ptr_);
-      accum_collec.copy_flt_vals(ptr + offset_);
-    }
-
-    std::vector<std::pair<std::string,std::size_t>> val_props;
-    if (copy_int64_){
-      val_props = accum_collec.i64_val_props();
-    } else {
-      val_props = accum_collec.flt_val_props();
-    }
-
-    std::size_t n_spatial_bins = accum_collec.n_spatial_bins();
-    for (const auto& [quan_name,elem_per_spatial_bin] : val_props) {
-      offset_ += n_spatial_bins * elem_per_spatial_bin;
-    }
-  }
-
-  char* data_ptr_;
-  std::size_t offset_;
-  const bool copy_int64_;
-};
-
-
-template<typename AccumCollectionTuple>
-class CompoundAccumCollection{
-
-public:
-
-  static constexpr std::size_t n_accum =
-    std::tuple_size_v<AccumCollectionTuple>;
-
-  static_assert(n_accum > 1,
-                "CompoundAccumCollection must be composed of 2+ accumulators.");
-
-  CompoundAccumCollection() = delete;
-
-  CompoundAccumCollection(AccumCollectionTuple &&accum_collec_tuple) noexcept
-    : accum_collec_tuple_(accum_collec_tuple)
-  {}
-
-  inline void add_entry(std::size_t spatial_bin_index, double val) noexcept{
-    for_each_tuple_entry(accum_collec_tuple_,
-                         [=](auto e){ e.add_entry(spatial_bin_index, val); });
-  }
-
-  void copy_i64_vals(int64_t *out_vals) const noexcept {
-    for_each_tuple_entry(accum_collec_tuple_,
-                         CopyValsHelper_(reinterpret_cast<char*>(out_vals),
-                                         true));
-  }
-
-  void copy_flt_vals(double *out_vals) const noexcept {
-    for_each_tuple_entry(accum_collec_tuple_,
-                         CopyValsHelper_(reinterpret_cast<char*>(out_vals),
-                                         false));
-  }
-
-private:
-  AccumCollectionTuple accum_collec_tuple_;
 };
 
 #endif /* ACCUMULATORS_H */

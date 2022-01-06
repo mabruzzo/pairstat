@@ -8,7 +8,7 @@ LIBS=-lm
 
 all: libvsf.so
 
-libvsf.so: src/vsf.hpp src/vsf.cpp src/accumulators.hpp
+libvsf.so: src/vsf.hpp src/vsf.cpp src/accumulators.hpp src/compound_accumulator.hpp
 	$(CC) $(CFLAGS) $(LIBS) -shared src/vsf.cpp -o src/libvsf.so
 
 clean: src/libvsf.so

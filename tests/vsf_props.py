@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-import functools
+from functools import partial
 
 from more_itertools import always_iterable, zip_equal
 import numpy as np
@@ -14,7 +14,7 @@ import pyvsf
 _vsf_scalar_python_dict = {
     'mean' : [('mean', np.mean)],
     'variance' : [('mean', np.mean),
-                  ('variance', functools.partial(np.var, ddof =1))],
+                  ('variance', partial(np.var, ddof =1))],
 }
 
 def _vsf_props_python(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
@@ -70,6 +70,20 @@ def _vsf_props_python(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
             _process_spatial_bin(spatial_bin_index = i,
                                  selected_vdiffs = vdiffs[w])
     return out
+
+def _call_separately_for_each_stat_pair(func, *args,
+                                        stat_kw_pairs = [('variance', {})],
+                                        **kwargs):
+    return [func(*args, stat_kw_pairs = [pair], **kwargs)[0] \
+            for pair in stat_kw_pairs]
+
+VSF_PROPS_IMPL_REGISTRY = {
+    'actual' : (pyvsf.vsf_props,   'pyvsf.vsf_props'),
+    'individual-stats' : (partial(_call_separately_for_each_stat_pair,
+                                 func = pyvsf.vsf_props),
+                         'the individual-stats modified version'),
+    'python'  : (_vsf_props_python, 'the python implementation')
+}
 
 
 def _prep_tol_dict(key_set, tol_arg, tol_arg_name):
@@ -157,18 +171,25 @@ def _compare_vsf_implementation_single_rslt(alt_val_dict, actual_val_dict,
                 f"{actual_vals.dtype}"
             )
 
-def compare_vsf_implementations(pos_a, pos_b, vel_a, vel_b, statistic,
-                                dist_bin_edges, kwargs = {},
-                                atol = 0.0, rtol = 0.0):
-    # the way to specify multiple atol and rtol values is currently sort of
-    # dumb
+def compare_vsf_implementations(pos_a, pos_b, vel_a, vel_b,
+                                dist_bin_edges, stat_kw_pairs,
+                                atol = 0.0, rtol = 0.0,
+                                alt_implementation_key = 'python'):
+    # TODO: improve specification of separate atol and rtol values for
+    # different stat_kw_pairs. The current approach is kind of dumb
+    # - you need to provide a list with an element for each pair in
+    #   stat_kw_pairs. If a 'scalar value' is provided that will apply to all
+    #   statistics
+    # - A 'scalar value' can be a number or a dict that associates tolerance
+    #   values with the names of different quantities associated with the
+    #   statisitic
 
-    print(statistic)
+    assert alt_implementation_key != 'actual'
+    alt_impl_func, alt_impl_name = (
+        VSF_PROPS_IMPL_REGISTRY[alt_implementation_key]
+    )
 
-    stat_kw_pairs = list(zip_equal(always_iterable(statistic, base_type = str),
-                                   always_iterable(kwargs, base_type = dict)))
-
-    alt_rslt_l = _vsf_props_python(
+    alt_rslt_l = alt_impl_func(
         pos_a = pos_a, pos_b = pos_b, vel_a = vel_a, vel_b = vel_b,
         dist_bin_edges = dist_bin_edges,
         stat_kw_pairs = stat_kw_pairs
@@ -186,15 +207,13 @@ def compare_vsf_implementations(pos_a, pos_b, vel_a, vel_b, statistic,
             return tol[index]
         return tol
 
-    iter_tup = zip_equal(always_iterable(statistic, base_type = str),
-                         alt_rslt_l, actual_rslt_l)
-
-    for i, (stat_name, alt_rslt, actual_rslt) in enumerate(iter_tup):
+    iter_tup = zip_equal(stat_kw_pairs, alt_rslt_l, actual_rslt_l)
+    for i, ((stat_name, _), alt_rslt, actual_rslt) in enumerate(iter_tup):
 
         _compare_vsf_implementation_single_rslt(
             alt_rslt, actual_rslt,
             atol = get_cur_tol(atol, i), rtol = get_cur_tol(rtol, i),
-            alt_impl_name = 'the python implementation',
+            alt_impl_name = alt_impl_name,
             actual_impl_name = 'pyvsf.vsf_props'
         )
 
@@ -233,24 +252,24 @@ def test_vsf_two_collections():
             ('histogram', {"val_bin_edges" : val_bin_edges}, 0.0, 0.0)
         ]
 
+        # check the calculation of individual statistics
         for statistic, kwargs, atol, rtol in _stat_quadruple:
             compare_vsf_implementations(pos_a = x_a, pos_b = x_b,
                                         vel_a = vel_a, vel_b = vel_b,
-                                        statistic = statistic,
                                         dist_bin_edges = bin_edges,
-                                        kwargs = kwargs,
-                                        atol = atol,
-                                        rtol = rtol)
+                                        stat_kw_pairs = [(statistic,kwargs)],
+                                        atol = atol, rtol = rtol)
 
-        stat_l, kwargs_l, atol_l, rtol_l = zip(*_stat_quadruple)
+        # now, check the calculation of all statistics at once
+        stat_l, kw_l, atol_l, rtol_l = zip(*_stat_quadruple)
+        stat_kw_pairs = list(zip(stat_l, kw_l))
         compare_vsf_implementations(pos_a = x_a, pos_b = x_b,
                                     vel_a = vel_a, vel_b = vel_b,
-                                    statistic = stat_l,
                                     dist_bin_edges = bin_edges,
-                                    kwargs = kwargs_l,
+                                    stat_kw_pairs = stat_kw_pairs,
                                     atol = atol_l, rtol = rtol_l)
 
-    if False: # complex case:
+    if True: # complex case:
         MY_SEED  = 156
         generator = np.random.RandomState(seed = MY_SEED)
 
@@ -266,19 +285,17 @@ def test_vsf_two_collections():
         for statistic, kwargs, atol, rtol in _stat_quadruple:
             compare_vsf_implementations(pos_a = x_a, pos_b = x_b,
                                         vel_a = vel_a, vel_b = vel_b,
-                                        statistic = statistic,
                                         dist_bin_edges = bin_edges,
-                                        kwargs = kwargs,
-                                        atol = atol,
-                                        rtol = rtol)
+                                        stat_kw_pairs = [(statistic,kwargs)],
+                                        atol = atol, rtol = rtol)
 
         # now, check the calculation of all statistics at once
-        stat_l, kwargs_l, atol_l, rtol_l = zip(*_stat_quadruple)
+        stat_l, kw_l, atol_l, rtol_l = zip(*_stat_quadruple)
+        stat_kw_pairs = list(zip(stat_l, kw_l))
         compare_vsf_implementations(pos_a = x_a, pos_b = x_b,
                                     vel_a = vel_a, vel_b = vel_b,
-                                    statistic = stat_l,
                                     dist_bin_edges = bin_edges,
-                                    kwargs = kwargs_l,
+                                    stat_kw_pairs = stat_kw_pairs,
                                     atol = atol_l, rtol = rtol_l)
 
 def test_vsf_single_collection():
@@ -296,14 +313,23 @@ def test_vsf_single_collection():
             ('histogram', {"val_bin_edges" : val_bin_edges}, 0.0, 0.0)
         ]
 
+        # check the calculation of individual statistics
         for statistic, kwargs, atol, rtol in _stat_quadruple:
             compare_vsf_implementations(pos_a = x_a, pos_b = None,
                                         vel_a = vel_a, vel_b = None,
-                                        statistic = statistic,
                                         dist_bin_edges = bin_edges,
-                                        kwargs = kwargs,
-                                        atol = atol,
-                                        rtol = rtol)
+                                        stat_kw_pairs = [(statistic,kwargs)],
+                                        atol = atol, rtol = rtol)
+
+        # now, check the calculation of all statistics at once
+        stat_l, kw_l, atol_l, rtol_l = zip(*_stat_quadruple)
+        stat_kw_pairs = list(zip(stat_l, kw_l))
+        compare_vsf_implementations(pos_a = x_a, pos_b = None,
+                                    vel_a = vel_a, vel_b = None,
+                                    dist_bin_edges = bin_edges,
+                                    stat_kw_pairs = stat_kw_pairs,
+                                    atol = atol_l, rtol = rtol_l)
+
     if True: # complex case:
         MY_SEED  = 156
         generator = np.random.RandomState(seed = MY_SEED)
@@ -316,16 +342,62 @@ def test_vsf_single_collection():
             ('histogram', {"val_bin_edges" : val_bin_edges}, 0.0, 0.0)
         ]
 
+        # check the calculation of individual statistics
         for statistic, kwargs, atol, rtol in _stat_quadruple:
-        
             compare_vsf_implementations(pos_a = x_a, pos_b = None,
                                         vel_a = vel_a, vel_b = None,
-                                        statistic = statistic,
                                         dist_bin_edges = bin_edges,
-                                        kwargs = kwargs,
+                                        stat_kw_pairs = [(statistic,kwargs)],
                                         atol = atol,
                                         rtol = rtol)
 
+        # now, check the calculation of all statistics at once
+        stat_l, kw_l, atol_l, rtol_l = zip(*_stat_quadruple)
+        stat_kw_pairs = list(zip(stat_l, kw_l))
+        compare_vsf_implementations(pos_a = x_a, pos_b = None,
+                                    vel_a = vel_a, vel_b = None,
+                                    dist_bin_edges = bin_edges,
+                                    stat_kw_pairs = stat_kw_pairs,
+                                    atol = atol_l, rtol = rtol_l)
+
+def extra_multiple_stats_test():
+
+    # a few extra tests to verify that there is no difference in the result
+    # (this is some very simplistic, crude fuzzing)
+
+    val_bin_edges = np.array([0] + np.geomspace(start = 1e-16, stop = 100,
+                                                num = 100).tolist())
+    for seed in [4162,2354,7468,3563,88567]:
+
+        generator = np.random.RandomState(seed = seed)
+
+        x_a, vel_a = _generate_vals((3,1000), generator)
+        x_b, vel_b = _generate_vals((3,2000), generator)
+        bin_edges = np.arange(11.0)/10
+        _stat_quadruple = [
+            ('variance', {}, 0.0, {'mean' : 2e-14, 'variance' : 3e-14}),
+            ('histogram', {"val_bin_edges" : val_bin_edges}, 0.0, 0.0)
+        ]
+
+        # auto-structure-function
+        compare_vsf_implementations(
+            pos_a = x_a, pos_b = None, vel_a = vel_a, vel_b = None,
+            dist_bin_edges = bin_edges,
+            stat_kw_pairs = [('variance', {}),
+                             ('histogram', {"val_bin_edges" : val_bin_edges})],
+            atol = 0.0, rtol = 0.0,
+            alt_implementation_key = 'individual-stats'
+        )
+
+        # cross-structure-function
+        compare_vsf_implementations(
+            pos_a = x_a, pos_b = x_b, vel_a = vel_a, vel_b = vel_b,
+            dist_bin_edges = bin_edges,
+            stat_kw_pairs = [('variance', {}),
+                             ('histogram', {"val_bin_edges" : val_bin_edges})],
+            atol = 0.0, rtol = 0.0,
+            alt_implementation_key = 'individual-stats'
+        )
 
 import time
 def benchmark(shape_a, shape_b = None, seed = 156, skip_python_version = False,
@@ -364,8 +436,12 @@ def benchmark(shape_a, shape_b = None, seed = 156, skip_python_version = False,
         print(f"Scipy/Numpy version: {dt} seconds")
 
 if __name__ == '__main__':
+    print('running tests against python implementation')
     test_vsf_single_collection()
     test_vsf_two_collections()
+
+    print('running extra tests to check for problems with bundling stats')
+    extra_multiple_stats_test()
 
     #benchmark((3,10000), shape_b = None, seed = 156,
     #          dist_bin_edges = np.arange(101.0)/100)
@@ -379,11 +455,13 @@ if __name__ == '__main__':
     #benchmark((3,50000), shape_b = None, seed = 156,
     #          dist_bin_edges = np.arange(101.0)/100)
 
+    print('running a short benchmark. This takes ~20 s')
     val_bin_edges = np.geomspace(start = 1e-16, stop = 2.0, num = 100,
                                  dtype = np.float64)
     val_bin_edges[0] = 0.0
     val_bin_edges[-1] = np.finfo(np.float64).max
     benchmark((3,20000), shape_b = None, seed = 156,
               dist_bin_edges = np.arange(101.0)/100,
-              stat_kw_pairs = [('histogram', {'val_bin_edges':val_bin_edges})],
+              stat_kw_pairs = [('histogram', {'val_bin_edges':val_bin_edges}),
+                               ('variance', {})],
               skip_python_version = True)

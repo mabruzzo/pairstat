@@ -20,6 +20,7 @@ namespace{
 
   // intentionally include this header file within the anonymous namespace
   #include "accumulators.hpp"
+  #include "compound_accumulator.hpp"
 
   FORCE_INLINE double calc_dist_sqr(double x0, double x1,
                                     double y0, double y1,
