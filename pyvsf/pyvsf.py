@@ -4,6 +4,7 @@ import os.path
 
 
 import numpy as np
+from more_itertools import zip_equal
 
 from ._kernels import get_kernel
 
@@ -207,15 +208,11 @@ class VSFPropsRsltContainer:
     def get_i64_vals_arr(self):
         return self.int64_arr
 
-def _process_statistic_args(statistic, kwargs, dist_bin_edges):
+def _process_statistic_args(statistic_l, kwargs_l, dist_bin_edges):
     """
     Construct the appropriate instance of StatList as well as information about
     the output data
     """
-    # load kernel information
-    if isinstance(statistic, str):
-        statistic = [statistic]
-        kwargs = [kwargs]
 
     # it's important that we retain order!
     int64_quans = OrderedDict()
@@ -223,7 +220,13 @@ def _process_statistic_args(statistic, kwargs, dist_bin_edges):
 
     stat_list = StatList()
 
-    for stat_name, stat_kw in zip(statistic, kwargs):
+    stat_kw_pairs = list(zip_equal(statistic_l, kwargs_l))
+
+    # it's important that the statistics_l are ordered in alphabetical order
+    # so that the stat_list is initialized in alphabetical order
+    stat_kw_pairs.sort(key = lambda pair: pair[0])
+
+    for stat_name, stat_kw in stat_kw_pairs:
         # load kernel object, which stores metadata
         kernel = get_kernel(stat_name)
         if kernel.non_vsf_func is not None:
