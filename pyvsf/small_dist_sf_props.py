@@ -5,7 +5,6 @@ from itertools import product
 import logging
 from typing import Tuple, Sequence, Optional, NamedTuple, Dict, Any
 
-from more_itertools import always_iterable, zip_equal
 import numpy as np
 from pydantic import (
     BaseModel,
@@ -270,8 +269,6 @@ class StatRsltContainer:
         self._arr[...] = None
 
 class TaskResult:
-    # the fact that we allow num_statistics to be more than 1 is a little
-    # premature
 
     def __init__(self, subvol_index, main_subvol_available_points,
                  main_subvol_rslts, consolidated_rslts):
@@ -317,19 +314,18 @@ class SFWorker:
     """
     Computes the structure function properties for different subvolumes
     """
-    def __init__(self, ds_initializer, subvol_decomp, sf_param, statistic_l,
-                 kwargs_l, eager_loading = False):
+    def __init__(self, ds_initializer, subvol_decomp, sf_param, stat_kw_pairs,
+                 eager_loading = False):
         self.ds_initializer = ds_initializer
         self.subvol_decomp = subvol_decomp
         if any(subvol_decomp.periodicity):
             raise RuntimeError("Can't currently handle periodic boundaries")
         self.sf_param = sf_param
-        self.statistic_l = statistic_l
-        self.kwargs_l = kwargs_l
+        self.stat_kw_pairs = stat_kw_pairs
         self.eager_loading = eager_loading
 
     def _get_num_statistics(self):
-        return len(self.statistic_l)
+        return len(self.stat_kw_pairs)
 
     def _get_num_cut_regions(self):
         return len(self.sf_param.cut_regions)
@@ -461,41 +457,34 @@ class SFWorker:
         assert self.subvol_decomp.valid_subvol_index(subvol_index)
         assert self.sf_param.max_points is None
 
-        stat_kw_pairs = list(
-            zip_equal(always_iterable(self.statistic_l, base_type = str),
-                      always_iterable(self.kwargs_l, base_type = dict))
-        )
-
-        # build the dictionary specifying the extra fields that need to be
-        # loaded
-        extra_quan_spec = {}
+        # Handle some stuff related to the choice of statistics:
+        # 1. load the appropriate kernel object
+        # 2. build dictionary specifying extra fields that need to be loaded
+        # 3. group the statistics based on whether they're related to structure
+        #    functions, since its MUCH faster to compute multiple structure
+        #    function statistics at once (especially for large problems)
         kernels = []
-        for stat_name, kw in stat_kw_pairs:
-            kernel = get_kernel(stat_name)
-            kernels.append(kernel)
-            tmp = kernel.get_extra_fields(kw)
-            if tmp is None:
-                continue
-            elif len(extra_quan_spec) != 0:
-                raise NotImplementedError("Come back to this eventually")
-            else:
-                extra_quan_spec = tmp
-
-
-        # group the statistics based on whether they're related to structure
-        # functions, since its MUCH faster to compute multiple structure
-        # function statistics at once (especially for large problems)
+        extra_quan_spec = {}
         stat_details = StatDetails(name_index_map = {},
                                    sf_stat_kw_pairs = [],
                                    nonsf_kernel_kw_pairs = [])
-        for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+        for stat_ind, (stat_name, kw) in enumerate(self.stat_kw_pairs):
+            # 1. load the kernel
+            kernels.append(get_kernel(stat_name))
+            # 2. update extra_quan_spec (if necesary)
+            tmp = kernels[stat_ind].get_extra_fields(kw)
+            if (tmp is not None) and (len(extra_quan_spec) == 0):
+                extra_quan_spec = tmp
+            elif tmp is not None:
+                raise NotImplementedError("Come back to this eventually")
+
+            # 3. update stat_details
             stat_details.name_index_map[stat_name] = stat_ind
             if kernels[stat_ind].non_vsf_func is None:
                 stat_details.sf_stat_kw_pairs.append( (stat_name, kw) )
             else:
                 stat_details.nonsf_kernel_kw_pairs.append( (kernels[stat_ind],
                                                             kw) )
-
         # cut_region_itr_builder constructs iterators over cut_regions for a
         # given subvolume_index
         cut_region_itr_builder = get_cut_region_itr_builder(
@@ -557,7 +546,7 @@ class SFWorker:
         )
 
         
-        for stat_ind, (stat_name, _) in enumerate(stat_kw_pairs):
+        for stat_ind, (stat_name, _) in enumerate(self.stat_kw_pairs):
             itr = enumerate(
                 main_subvol_rslts.cut_region_iter(stat_index = stat_ind)
             )
@@ -811,8 +800,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     if isinstance(statistic, str):
         if not isinstance(kwargs, dict):
             raise ValueError("kwargs must be a dict when statistic is a string")
-        statistic_l = (statistic,)
-        kwargs_l = (kwargs,)
+        stat_kw_pairs = [(statistic, kwargs)]
         single_statistic = True
     elif len(statistic) == 0:
         raise ValueError("statistic can't be an empty sequence")
@@ -828,16 +816,14 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         raise ValueError("When statistic is a sequence of strings, none of "
                          "the strings are allowed to be duplicates.")
     else:
-        statistic_l = statistic
-        kwargs_l = kwargs
+        stat_kw_pairs = list(zip(statistic, kwargs))
         single_statistic = False
 
-    del statistic, kwargs #primarily for debugging purposes
+    del statistic, kwargs # deleted for debugging purposes
 
     worker = SFWorker(ds_initializer, subvol_decomp,
                       sf_param = structure_func_props,
-                      statistic_l = statistic_l,
-                      kwargs_l = kwargs_l,
+                      stat_kw_pairs = stat_kw_pairs,
                       eager_loading = eager_loading)
 
     iterable = subvol_index_batch_generator(subvol_decomp,
@@ -847,13 +833,13 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 
 
     tmp_result_arr = np.empty(
-        shape = (len(statistic_l), len(cut_regions), np.prod(subvols_per_ax)),
+        shape = (len(stat_kw_pairs), len(cut_regions), np.prod(subvols_per_ax)),
         dtype = object
     )
     total_num_points_arr = np.array([0 for i in cut_regions])
 
     accum_rslt = {}
-    for stat_ind, stat_name in enumerate(statistic_l):
+    for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
         if get_kernel(stat_name).commutative_consolidate:
             accum_rslt[stat_ind] = [{} for _ in cut_regions]
 
@@ -875,7 +861,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             main_subvol_rslts = item.main_subvol_rslts
             consolidated_rslts = item.consolidated_rslts
 
-            for stat_ind,stat_name in enumerate(statistic_l):
+            for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
                 for cut_region_i in range(len(cut_regions)):
 
                     # for the given subvol_index, stat_index, cut_region_index:
@@ -930,7 +916,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 
     # now, let's consolidate the results together
     prop_l = []
-    for stat_ind, stat_name in enumerate(statistic_l):
+    for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
         if stat_ind in accum_rslt:
             # the results for this stat are already consolidated
             prop_l.append(accum_rslt[stat_ind])
