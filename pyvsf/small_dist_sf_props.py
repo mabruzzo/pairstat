@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from itertools import product
 import logging
-from typing import Tuple, Sequence, Optional
+from typing import Tuple, Sequence, Optional, NamedTuple, Dict, Any
 
 from more_itertools import always_iterable, zip_equal
 import numpy as np
@@ -237,9 +237,16 @@ class StatRsltContainer:
                              f"stat_index = {stat_index}, "
                              f"cut_region_index = {cut_region_index}")
         elif rslt is None:
-            raise ValueError("main_subvol_rslt can't be None")
+            raise ValueError("a result can't be None")
         else:
             self._arr[stat_index, cut_region_index] = rslt
+
+    def store_all_empty_cut_region(self, cut_region_index):
+        if any((e is not None) for e in self._arr[:, cut_region_index]):
+            raise RuntimeError("At least one result in cut_region_index has "
+                               "already been set")
+        for i in range(self.num_statistics):
+            self._arr[i, cut_region_index] = {}
 
     def rslt_exists(self, stat_index, cut_region_index):
         return self._arr[stat_index, cut_region_index] is not None
@@ -296,6 +303,16 @@ def consolidate_partial_vsf_results(statistic, *rslts):
     kernel = get_kernel(statistic)
     return kernel.consolidate_stats(*rslts)
 
+class StatDetails(NamedTuple):
+    # lightweight class used internally by SFWorker
+
+    # maps names of stats to the corresponding index:
+    name_index_map: Dict[str, int]
+    # stat_kw_pairs for all structure function statistics:
+    sf_stat_kw_pairs: Sequence[Tuple[str, Dict[str,Any]]]
+    # pairs of kernels and kwargs for non-structure function statistics:
+    nonsf_kernel_kw_pairs: Sequence[Tuple[Any, Dict[str,Any]]]
+
 class SFWorker:
     """
     Computes the structure function properties for different subvolumes
@@ -318,8 +335,7 @@ class SFWorker:
         return len(self.sf_param.cut_regions)
 
     @staticmethod
-    def process_auto_stats(cut_region_iter, stat_kw_pairs,
-                           kernels, dist_bin_edges, perf,
+    def process_auto_stats(cut_region_iter, stat_details, dist_bin_edges, perf,
                            rslt_container, available_points_arr,
                            pos_and_quan_cache_l):
         """
@@ -339,77 +355,91 @@ class SFWorker:
             will be cached (so they can be reused for computing cross-terms).
         """
         for tmp in cut_region_iter:
-            cut_region_ind, pos, quan, extra_quan, available_points = tmp
+            cr_index, pos, quan, extra_quan, available_points = tmp
 
-            available_points_arr[cut_region_ind] = available_points
+            available_points_arr[cr_index] = available_points
             pos_and_quan_cache_l.append((pos,quan))
 
-            for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+            with perf.region('calc'):
 
-                kernel = kernels[stat_ind]
-                with perf.region('calc'):
-                    if ( (available_points == 0) or
-                         (kernel.operate_on_pairs and (available_points<=1)) ):
-                        main_subvol_rslt = {}
-                    elif kernel.non_vsf_func is not None:
-                        assert stat_name == 'bulkaverage' # simple sanity check!
-                        func = kernel.non_vsf_func
-
-                        main_subvol_rslt = func(quan = quan,
-                                                extra_quantities = extra_quan,
-                                                kwargs = kw)
+                # compute the structure-function statistics
+                if len(stat_details.sf_stat_kw_pairs) != 0:
+                    if (available_points <= 1):
+                        rslts = [{} for _ in stat_details.sf_stat_kw_pairs]
                     else:
-                        main_subvol_rslt = vsf_props(
+                        rslts = vsf_props(
                             pos_a = pos, vel_a = quan,
                             pos_b = None, vel_b = None,
                             dist_bin_edges = dist_bin_edges,
-                            stat_kw_pairs = [(stat_name, kw)]
-                        )[0]
+                            stat_kw_pairs = stat_details.sf_stat_kw_pairs
+                        )
 
-                rslt_container.store_result(
-                    stat_index = stat_ind, cut_region_index = cut_region_ind,
-                    rslt = main_subvol_rslt
-                )
+                    itr = zip(rslts, stat_details.sf_stat_kw_pairs)
+                    for rslt, (stat_name, _) in itr:
+                        rslt_container.store_result(
+                            stat_index = stat_details.name_index_map[stat_name],
+                            cut_region_index = cr_index, rslt = rslt
+                        )
+
+                # compute the non-structure function statistics
+                for kernel, kw in stat_details.nonsf_kernel_kw_pairs:
+                    stat_index = stat_details.name_index_map[kernel.name]
+                    if ( (available_points == 0) or
+                         (kernel.operate_on_pairs and (available_points<=1)) ):
+                        rslt = {}
+                    else:
+                        func = kernel.non_vsf_func
+                        rslt = func(quan = quan, extra_quantities = extra_quan,
+                                    kwargs = kw)
+                    rslt_container.store_result(stat_index = stat_index,
+                                                cut_region_index = cr_index,
+                                                rslt = rslt)
 
     @staticmethod
     def process_cross_stats(cut_region_iter, main_subvol_pos_and_quan,
-                            main_subvol_available_points, stat_kw_pairs,
-                            kernels, dist_bin_edges, perf,
-                            rslt_container):
+                            main_subvol_available_points, stat_details,
+                            dist_bin_edges, perf, rslt_container):
+
         # iterate over the positions/quantities/extra_quantities from the
         # adjacent subvolume for each cut region
-        for tmp in cut_region_iter:
-            cut_region_i, o_pos, o_quan, o_eq, o_available_points = tmp
+        for cr_index,o_pos,o_quan,o_eq,o_available_points in cut_region_iter:
 
-            # fetch the positions/quantities for the current cur region
+            # fetch the cached positions/quantities for the current cut_region
             # of the main subvolume
-            m_pos, m_quan = main_subvol_pos_and_quan[cut_region_i]
-            m_available_points = main_subvol_available_points[cut_region_i]
+            m_pos, m_quan = main_subvol_pos_and_quan[cr_index]
+            m_available_points = main_subvol_available_points[cr_index]
 
-            # now actually perform the calculation
-            for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+            with perf.region('calc'):
 
-                kernel = kernels[stat_ind]
+                if (m_available_points == 0) or (o_available_points == 0):
+                    rslt_container.store_all_empty_cut_region(cr_index)
+                    continue
 
-                with perf.region('calc'):
+                # perform the structure function calculation
+                if len(stat_details.sf_stat_kw_pairs) != 0:
+                    rslts = vsf_props(
+                        pos_a = m_pos, vel_a = m_quan,
+                        pos_b = o_pos, vel_b = o_quan,
+                        dist_bin_edges = dist_bin_edges,
+                        stat_kw_pairs = stat_details.sf_stat_kw_pairs
+                    )
+
+                    itr = zip(rslts, stat_details.sf_stat_kw_pairs)
+                    for rslt, (stat_name, _) in itr:
+                        rslt_container.store_result(
+                            stat_index = stat_details.name_index_map[stat_name],
+                            cut_region_index = cr_index, rslt = rslt
+                        )
+
+                # compute the nonsf statistics
+                for kernel, kw in stat_details.nonsf_kernel_kw_pairs:
+                    stat_index = stat_details.name_index_map[kernel.name]
                     if not kernel.operate_on_pairs:
-                        cross_sf_rslt = {}
-                    elif ((m_available_points == 0) or
-                          (o_available_points == 0)):
-                        cross_sf_rslt = {}
+                        rslt_container.store_result(stat_index = stat_index,
+                                                    cut_region_index = cr_index,
+                                                    rslt = {})
                     else:
-                        assert kernel.non_vsf_func is None
-                        cross_sf_rslt = vsf_props(
-                            pos_a = m_pos, vel_a = m_quan,
-                            pos_b = o_pos, vel_b = o_quan,
-                            dist_bin_edges = dist_bin_edges,
-                            stat_kw_pairs = [(stat_name, kw)]
-                        )[0]
-
-                rslt_container.store_result(
-                    stat_index = stat_ind, cut_region_index = cut_region_i,
-                    rslt = cross_sf_rslt
-                )
+                        raise NotImplementedError()
 
     def __call__(self, subvol_indices):
         tmp = []
@@ -451,6 +481,21 @@ class SFWorker:
             else:
                 extra_quan_spec = tmp
 
+
+        # group the statistics based on whether they're related to structure
+        # functions, since its MUCH faster to compute multiple structure
+        # function statistics at once (especially for large problems)
+        stat_details = StatDetails(name_index_map = {},
+                                   sf_stat_kw_pairs = [],
+                                   nonsf_kernel_kw_pairs = [])
+        for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
+            stat_details.name_index_map[stat_name] = stat_ind
+            if kernels[stat_ind].non_vsf_func is None:
+                stat_details.sf_stat_kw_pairs.append( (stat_name, kw) )
+            else:
+                stat_details.nonsf_kernel_kw_pairs.append( (kernels[stat_ind],
+                                                            kw) )
+
         # cut_region_itr_builder constructs iterators over cut_regions for a
         # given subvolume_index
         cut_region_itr_builder = get_cut_region_itr_builder(
@@ -477,7 +522,7 @@ class SFWorker:
         #print(f"{subvol_index}-auto")
         SFWorker.process_auto_stats(
             cut_region_itr_builder(subvol_index, is_central = True),
-            stat_kw_pairs, kernels, dist_bin_edges, perf,
+            stat_details, dist_bin_edges, perf,
             rslt_container = main_subvol_rslts,
             available_points_arr = main_subvol_available_points,
             pos_and_quan_cache_l = main_subvol_pos_and_quan
@@ -501,7 +546,7 @@ class SFWorker:
             SFWorker.process_cross_stats(
                 cut_region_itr_builder(other_ind, is_central = False),
                 main_subvol_pos_and_quan, main_subvol_available_points,
-                stat_kw_pairs, kernels, dist_bin_edges, perf,
+                stat_details, dist_bin_edges, perf,
                 rslt_container = cross_sf_rslts[-1]
             )
 
