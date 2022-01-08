@@ -1,32 +1,20 @@
-import matplotlib.pyplot as plt
+from functools import partial
+
 import numpy as np
 import yt
 
 from pyvsf import vsf_props
 from pyvsf.small_dist_sf_props import BoxSelector, small_dist_sf_props
-from pyvsf._kernels import BulkAverage
+from pyvsf._kernels import BulkAverage, BulkVariance
 
-
-from gascloudtool.utilities import SetupDS
-
-config_fname = 'X1000_M1.5_HD_CDdftFloor_R864.7_logP3.ini'
-suffix = 'R8_X1000Floor'
-step = 1/8.
-_tmp_prefix = '/home/mabruzzo/Dropbox/research/turb_cloud/analysis/'
-path = ('/media/mabruzzo/Elements/turb_cloud/cloud_runs/'
-        'X1000_M1.5_HD_CDdftCstr_R864.7_logP3_Res8/cloud_07.5000/'
-        'cloud_07.5000.block_list')
-#path = ('/home/mabruzzo/research/turb_cloud/cloud_runs/'
-#        'X1000_M1.5_HD_CDdftFloor_R864.7_logP3_Res8/cloud_07.5000/'
-#        'cloud_07.5000.block_list')
-
-setup_func = SetupDS(
-    fname = f'{_tmp_prefix}/cloud_configs/{config_fname}',
-    env_fname = f'{_tmp_prefix}/cloud_env'
+from bulk_statistics import (
+    compare_bulkstat, _kv_pair_cmp_iter, setup_ds
 )
-ds = yt.load(path)
-setup_func(ds)
 
+
+
+ds = setup_ds()
+step = 1/8.
 bin_edges = np.array([0.2777777777777778, 0.5555555555555556,
                       0.8333333333333334, 1.1111111111111112,
                       1.3888888888888888])
@@ -35,20 +23,25 @@ my_cut_regions = [f'obj["logX_K"].v < {float(bin_edges[1]):.15e}',
                   #f'(obj["logX_K"].v < {float(bin_edges[3]):.15e})']
                   ]
 
-component_fields = (('gas','velocity_x'),
-                    ('gas','velocity_y'),
-                    ('gas','velocity_z'))
 
-def _calc_bulkaverage(cad, quan, kwargs):
+# come up with the functions that can be manually invoked for a single
+# subvolume
+
+def _calc_bulkstat(cad, quan, kwargs, kernel):
     weight_field, weight_units = kwargs['weight_field']
     d = cad[weight_field].to(weight_units).ndarray_view()
     extra_quan = {weight_field : d}
-    func = BulkAverage.non_vsf_func
+    func = kernel.non_vsf_func
     return func(quan = quan, extra_quantities = extra_quan, kwargs = kwargs)
 
+_equiv_bulk_kernels = {
+    BulkAverage.name  : partial(_calc_bulkstat, kernel = BulkAverage),
+    BulkVariance.name : partial(_calc_bulkstat, kernel = BulkVariance)
+}
 
-def _cal_ref_props(dist_bin_edges, cut_regions, geometric_selector,
-                   statistic, kwargs):
+
+def _cal_ref_props(dist_bin_edges, component_fields, cut_regions,
+                   geometric_selector, statistic, kwargs):
     print('computing the vsf_props directly:')
     if not isinstance(statistic, str):
         stat_kw_pairs = list(zip(statistic,kwargs))
@@ -71,8 +64,9 @@ def _cal_ref_props(dist_bin_edges, cut_regions, geometric_selector,
                          for f in component_fields])
 
         for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
-            if stat_name == BulkAverage.name:
-                rslt = _calc_bulkaverage(cad, quan, kwargs = kw)
+            func = _equiv_bulk_kernels.get(stat_name, None)
+            if func is not None:
+                rslt = func(cad, quan, kwargs = kw)
             else:
                 rslt = vsf_props(pos_a = pos, vel_a = quan,
                                  pos_b = None, vel_b = None,
@@ -86,6 +80,10 @@ def _cal_ref_props(dist_bin_edges, cut_regions, geometric_selector,
 
 def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
             statistic = 'histogram'):
+
+    component_fields = (('gas','velocity_x'),
+                        ('gas','velocity_y'),
+                        ('gas','velocity_z'))
 
     if not isinstance(statistic, str):
         statistic_l = statistic
@@ -102,6 +100,8 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
             kwargs_l.append({'val_bin_edges' : vel_bin_edges})
         elif stat_name == BulkAverage.name:
             kwargs_l.append({'weight_field' : ( ('gas', 'cell_mass'), 'g') })
+        elif stat_name == BulkVariance.name:
+            kwargs_l.append({'weight_field' : ( ('gas', 'cell_mass'), 'g') })
         else:
             kwargs_l.append({})
 
@@ -112,8 +112,8 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
         statistic = statistic_l
         kwargs = kwargs_l
     
-    ref = _cal_ref_props(dist_bin_edges, cut_regions, geometric_selector,
-                         statistic, kwargs)
+    ref = _cal_ref_props(dist_bin_edges, component_fields, cut_regions,
+                         geometric_selector, statistic, kwargs)
 
     print('computing the vsf_props from alternative approach')
     pool = None
@@ -138,36 +138,6 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
     points_used = tmp[1]
     subvol_decomp = tmp[3]
     return ref, other_rslt, points_used, subvol_decomp
-
-def _kv_pair_cmp_iter(ref, actual):
-    if len(ref) != len(actual):
-        raise AssertionError(
-            f"ref keys, {list(ref.keys())}, don't match actual keys, "
-            f"{list(actual.keys())}"
-        )
-    assert all(k in actual for k in ref.keys())
-    for k in ref.keys():
-        yield k, ref[k], actual[k]
-
-def compare_bulkaverage(ref, actual, weight_total_rtol = 0., average_rtol = 0.,
-                        weight_total_atol = 0., average_atol = 0.):
-    for key, r_vals, a_vals in _kv_pair_cmp_iter(ref, actual):
-        if key == 'weight_total':
-            rtol,atol = weight_total_rtol, weight_total_atol
-        elif key == 'average':
-            rtol,atol = average_rtol, average_atol
-        else:
-            raise RuntimeError(f"Unrecgonized output_dict key: {key}")
-        np.testing.assert_allclose(
-            actual = a_vals,
-            desired = r_vals,
-            equal_nan = True,
-            rtol = rtol,
-            atol = atol,
-            err_msg = (f'The "{key}" entries of the output_dict are not '
-                       'equal to within the specified tolerance'),
-            verbose = True
-        )
 
 def compare_variance(ref, actual, mean_rtol = 0.0, variance_rtol = 0.0,
                      mean_atol = 0.0, variance_atol = 0.0):
@@ -207,8 +177,9 @@ def perform_comparison(statistic_l, compare_func, ref, actual, kwargs = {}):
 def compare_rslts(statistic, ref, actual,
                   mean_rtol=0.0,  variance_rtol = 0.0,
                   mean_atol = 0.0, variance_atol = 0.0,
-                  weight_total_rtol = 0., baverage_rtol = 0.0,
-                  weight_total_atol = 0., baverage_atol = 0.0):
+                  weight_total_rtol = 0., weight_total_atol = 0.,
+                  baverage_rtol = 0.0, baverage_atol = 0.0,
+                  bvariance_rtol = 0.0, bvariance_atol = 0.0):
     assert len(ref) == len(actual)
     for i in range(len(ref)):
         if statistic == 'histogram':
@@ -220,11 +191,22 @@ def compare_rslts(statistic, ref, actual,
                 mean_atol = mean_atol, variance_atol = variance_atol,
             )
         elif statistic == BulkAverage.name:
-            compare_bulkaverage(ref[i], actual[i],
-                                weight_total_rtol = weight_total_rtol,
-                                average_rtol = baverage_rtol,
-                                weight_total_atol = weight_total_atol,
-                                average_atol = baverage_atol)
+            compare_bulkstat(
+                ref[i], actual[i],
+                weight_total_rtol = weight_total_rtol,
+                weight_total_atol = weight_total_atol,
+                average_atol = baverage_atol, average_rtol = baverage_rtol,
+                bulkvariance_cmp = False
+            )
+        elif statistic == BulkVariance.name:
+            compare_bulkstat(
+                ref[i], actual[i],
+                weight_total_rtol = weight_total_rtol,
+                weight_total_atol = weight_total_atol,
+                average_rtol = baverage_rtol, average_atol = baverage_atol,
+                variance_rtol = bvariance_rtol, variance_atol = bvariance_atol, 
+                bulkvariance_cmp = True
+            )
         else:
             raise RuntimeError('')
 
@@ -282,8 +264,9 @@ def test_two_subvol(statistic):
             kwargs = {'mean_rtol' : 0.0, 'variance_rtol' : 0.0,
                       'mean_atol' : [5.e-16, 3e-16, 3e-16][dim],
                       'variance_atol' : [1e-17, 2e-17, 8e-18][dim],
-                      'weight_total_rtol' : 3e-16, 'baverage_rtol' : 0.0,
-                      'weight_total_atol' : 0., 'baverage_atol' : 2e-17}
+                      'weight_total_rtol' : 3e-16, 'weight_total_atol' : 0.,
+                      'baverage_rtol' : 0.0, 'baverage_atol' : 2e-17,
+                      'bvariance_rtol' : 0.0, 'bvariance_atol' : 1e-18}
         )
 
 def test_four_subvol(statistic):
@@ -314,8 +297,9 @@ def test_four_subvol(statistic):
             kwargs = {'mean_rtol' : 0.0, 'variance_rtol' : 0.0,
                       'mean_atol' : [5.e-16, 5e-16, 5e-16][i],
                       'variance_atol' : [9e-18, 9e-18, 2e-17][i],
-                      'weight_total_rtol' : 2e-16, 'baverage_rtol' : 0.0,
-                      'weight_total_atol' : 0, 'baverage_atol' : 7.e-18}
+                      'weight_total_rtol' : 2e-16, 'weight_total_atol' : 0,
+                      'baverage_rtol' : 0.0, 'baverage_atol' : 7.e-18,
+                      'bvariance_rtol' : 0.0, 'bvariance_atol' : 1.e-18 }
         )
 
 def test_64_subvol(statistic):
@@ -340,8 +324,10 @@ def test_64_subvol(statistic):
             statistic, compare_rslts, ref = ref, actual = actual,
             kwargs = {'mean_rtol' : 2.1e-14, 'variance_rtol' : 2e-14,
                       'mean_atol' : 0, 'variance_atol' : 0,
-                      'weight_total_rtol' : 2e-16, 'baverage_rtol' : 0.0,
-                      'weight_total_atol' : 0, 'baverage_atol' : 2e-17}
+                      'weight_total_rtol' : 2e-16, 'weight_total_atol' : 0,
+                      'baverage_rtol' : 0.0, 'baverage_atol' : 2e-17,
+                      'bvariance_rtol' : 0.0, 'bvariance_atol' : 1e-18,
+            }
         )
 
 
@@ -352,14 +338,14 @@ if __name__ == '__main__':
     # non-sf statistics (like bulkaverage)
 
     # perform some tests where we consider one statistic at a time
-    for stat in ['histogram', 'variance', 'bulkaverage']:
-        print(stat)
+    for stat in ['histogram', 'variance', 'bulkvariance']:
+        print(f'\n{stat}')
         test_single_subvol(stat)
         test_two_subvol(stat)
         test_four_subvol(stat)
         test_64_subvol(stat)
 
-    print('considering multiple stats')
+    print('\nconsidering multiple stats')
     # perform a test where we consider multiple statistics at the same time
-    test_64_subvol(['histogram', 'variance', 'bulkaverage'])
+    test_64_subvol(['histogram', 'variance', 'bulkvariance'])
     
