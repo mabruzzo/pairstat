@@ -295,8 +295,6 @@ def compute_bulk_variance(quan, extra_quantities, kwargs):
     averages = np.empty_like(variance)
     weight_total = np.empty((n_weight_fields, 1), dtype = np.float64)
 
-    assert n_weight_fields == 1
-
     for i, weights in enumerate(weight_l):
 
         # axis = 1 seems counter-intuitive, but I've confirmed it's correct
@@ -400,19 +398,16 @@ class BulkVariance:
     @classmethod
     def get_extra_fields(cls, kwargs = {}):
         weight_unit_pairs = _extract_weight_unit_pairs(kwargs)
-        if len(weight_unit_pairs) != 1:
-            raise ValueError("Currently only 1 weight field is supported.")
 
-        weight_field_name, weight_field_units = weight_unit_pairs[0]
-        return {weight_field_name : (weight_field_units, cls.operate_on_pairs)}
+        out = {}
+        for weight_field_name, weight_field_units in weight_unit_pairs:
+            out[weight_field_name] = (weight_field_units, cls.operate_on_pairs)
+        return out
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges, kwargs = {}):
         weight_unit_pairs = _extract_weight_unit_pairs(kwargs)
-
-        n_weight_unit_pairs = len(weight_unit_pairs)
-        if n_weight_unit_pairs != 1:
-            raise ValueError("Currently only 1 weight field is supported.")
+        n_weight_fields = len(weight_unit_pairs)
 
         return [('weight_total',  np.float64, (n_weight_fields, 1)),
                 ('average',       np.float64, (n_weight_fields, 3)),
@@ -440,7 +435,8 @@ class BulkVariance:
         all_variances = np.empty((n_rslts,) + sample['variance'].shape,
                                  dtype = np.float64)
 
-        assert all_weight_totals.shape == (n_rslts,1,1) # may change in future
+        assert all_weight_totals.shape[:-1] == all_means.shape[:-1]
+        assert all_weight_totals.shape[-1] == 1
         assert all_means.shape == all_variances.shape
 
         for i, rslt in enumerate(rslts):

@@ -102,7 +102,10 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
         elif stat_name == BulkAverage.name:
             kwargs_l.append({'weight_field' : [( ('gas', 'cell_mass'), 'g')] })
         elif stat_name == BulkVariance.name:
-            kwargs_l.append({'weight_field' : [( ('gas', 'cell_mass'), 'g')] })
+            kwargs_l.append(
+                {'weight_field' : [( ('gas',   'cell_mass'), 'g'),
+                                   ( ('index', 'ones'),      'dimensionless')]}
+            )
         else:
             kwargs_l.append({})
 
@@ -267,7 +270,7 @@ def test_two_subvol(statistic):
                       'variance_atol' : [1e-17, 2e-17, 8e-18][dim],
                       'weight_total_rtol' : 3e-16, 'weight_total_atol' : 0.,
                       'baverage_rtol' : 0.0, 'baverage_atol' : 2e-17,
-                      'bvariance_rtol' : 0.0, 'bvariance_atol' : 1e-18}
+                      'bvariance_rtol' : 0.0, 'bvariance_atol' : 2e-18}
         )
 
 def test_four_subvol(statistic):

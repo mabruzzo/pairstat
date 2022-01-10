@@ -78,29 +78,35 @@ def _yt_calc_bulkstat(fields, ds, geometric_selector, cut_regions,
         cad = ad.cut_region(cut_region)
         assert cad['index','ones'].size != 0
 
-        assert len(kw['weight_field']) == 1
+        n_weight_fields = len(kw['weight_field'])
         weight_field, weight_units = kw['weight_field'][0]
 
-        rslt = {}
-        rslt['weight_total'] = np.array(
-            [[cad.quantities.total_quantity(weight_field).to(weight_units).v]]
-        )
+        rslt = {'weight_total' : np.empty((n_weight_fields, 1),
+                                          dtype = np.float64),
+                'average' : np.empty((n_weight_fields, len(fields)),
+                                     dtype = np.float64)}
+        if stat_name == BulkVariance.name:
+            rslt['variance'] = np.empty_like(rslt['average'])
 
-        if stat_name == BulkAverage.name:
-            tmp = cad.quantities.weighted_average_quantity(list(fields),
-                                                           weight_field)
-            rslt['average'] = np.empty((1,len(fields)), dtype = np.float64)
-            for i in range(len(fields)):
-                rslt['average'][0][i] = tmp[i].to(quantity_units).v
-        else:
-            tmp = cad.quantities.weighted_variance(list(fields), weight_field)
-            rslt['variance'] = np.empty((1,len(fields)), dtype = np.float64)
-            rslt['average']  = np.empty((1,len(fields)), dtype = np.float64)
-            for i in range(len(fields)):
-                # technically, tmp[i][0] holds standard deviation (instead of
-                # the variance)
-                rslt['variance'][0][i] = (tmp[i][0].to(quantity_units).v)**2
-                rslt['average'][0][i]  = tmp[i][1].to(quantity_units).v
+        for j, (weight_field, weight_units) in enumerate(kw['weight_field']):
+
+            weight_total = cad.quantities.total_quantity(weight_field)
+            rslt['weight_total'][j,0] = weight_total.to(weight_units).v
+
+            if stat_name == BulkAverage.name:
+                tmp = cad.quantities.weighted_average_quantity(list(fields),
+                                                               weight_field)
+                for i in range(len(fields)):
+                    rslt['average'][j][i] = tmp[i].to(quantity_units).v
+            else:
+                tmp = cad.quantities.weighted_variance(list(fields),
+                                                       weight_field)
+                for i in range(len(fields)):
+                    # technically, tmp[i][0] holds standard deviation (instead
+                    # of the variance)
+                    rslt['variance'][j][i] = (tmp[i][0].to(quantity_units).v)**2
+                    rslt['average'][j][i]  = tmp[i][1].to(quantity_units).v
+
         out[0][cr_ind] = rslt
 
     return out
@@ -164,24 +170,34 @@ if __name__ == '__main__':
     )
 
 
-    compare_bulk_stat(
-        ('bulkvariance', {
-            'weight_field' : [( ('index', 'ones'), 'dimensionless')]
-        }),
-         ds, force_subvols_per_ax = (1,1,1),
-        weight_total_rtol = 2e-16,
-        variance_rtol = 4e-16,
-        average_rtol = 4e-16
-    )
+    it = [
+        ( (('gas',   'cell_mass'),   'g'),             (2e-16, 3e-16, 4e-16) ),
+        ( (('index', 'ones'),        'dimensionless'), (2e-16, 4e-16, 4e-16) ),
+        ( (('index', 'cell_volume'), 'cm**3'),         (5e-16, 6e-16, 9e-16) )
+    ]
+
+    for weight_unit_pair, rtol_triple in it[-1:]:
+        print(weight_unit_pair)
+        weight_total_rtol, variance_rtol, average_rtol = rtol_triple
+
+        compare_bulk_stat(
+            ('bulkvariance', {'weight_field' : [weight_unit_pair]}),
+            ds, force_subvols_per_ax = (1,1,1),
+            weight_total_rtol = weight_total_rtol,
+            variance_rtol = variance_rtol,
+            average_rtol = average_rtol
+        )
 
 
     compare_bulk_stat(
         ('bulkvariance', {
-            'weight_field' : [( ('gas', 'cell_mass'), 'g')]
+            'weight_field' : [( ('gas', 'cell_mass'), 'g'),
+                              ( ('index', 'ones'), 'dimensionless'),
+                              ( ('index', 'cell_volume'), 'cm**3')]
         }),
          ds, force_subvols_per_ax = (1,1,1),
-        weight_total_rtol = 2e-16,
-        variance_rtol = 3e-16,
-        average_rtol = 4e-16
+        weight_total_rtol = 5e-16,
+        variance_rtol = 6e-16,
+        average_rtol = 9e-16
     )
 
