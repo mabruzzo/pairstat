@@ -11,29 +11,71 @@ from ._kernels_cy import (
     _allocate_unintialized_rslt_dict
 )
 
-def _generic_kernel_handle_args(quan, extra_quantities, kwargs):
+def is_field_type(arg):
+    try:
+        n_elem = len(arg)
+    except TypeError:
+        return False
+    if n_elem != 2:
+        return False
+    return all(isinstance(e,str) for e in arg)
+
+def _extract_weight_unit_pairs(kwargs, skip_checks = False):
+    """
+    Reads the kwargs dict and extract a list of pairs of were the first entry
+    of each pair is the name of a weight_field and the second entry is the
+    unit for that field
+    """
+
+    if not skip_checks:
+        if len(kwargs) != 1:
+            raise ValueError("kwargs should be a dictionary holding 1 element")
+        assert 'weight_field' in kwargs
+
+        pair_l = kwargs['weight_field']
+        n_pairs = len(pair_l)
+        if n_pairs == 0:
+            raise ValueError("kwargs['weight_field'] must hold 1+ entries")
+        elif ((n_pairs == 2) and is_field_type(pair_l[0]) and
+              isinstance(pair_l[1], str)):
+            raise ValueError(
+                "kwargs['weight_field'] should be set to a list of pairs of "
+                "(field_name, field_units). It seems that the user may have "
+                "forgotten to enclose a single pair in a list"
+            )
+
+        for pair in pair_l:
+            assert len(pair) == 2
+            assert is_field_type(pair[0])
+            assert isinstance(pair[1], str)
+
+    return kwargs['weight_field']
+
+
+def _generic_kernel_handle_args(quan, extra_quantities, kwargs,
+                                list_of_weight_fields = False):
     """
     Helper function that factors out some features for use in the main 
     functions used to compute non-structure function statistics.
+
+    This returns a list of the appropriate weight_fields (take from
+    extra_quantities) in the expected order
     """
-    if len(kwargs) != 1:
-        raise ValueError("kwargs should be a dictionary holding 1 element")
-    elif len(kwargs['weight_field']) != 2:
-        raise ValueError(
-            "kwargs['weight_field'] should hold the weight field's name and "
-            "its expected units"
-        )
-    weight_field_name, weight_field_units = kwargs['weight_field']
-    weights = extra_quantities[weight_field_name]
     if quan.size == 0:
         return {}
     elif np.ndim(quan) != 2:
         raise ValueError("quan must be a 2D array")
     assert quan.shape[0] == 3
 
-    assert np.ndim(weights) == 1
-    assert quan.shape[1] == weights.shape[0]
-    return weights
+    out = []
+    pairs = _extract_weight_unit_pairs(kwargs, skip_checks = True)
+    for weight_field_name, _ in pairs:
+        assert weight_field_name in extra_quantities
+        weights = extra_quantities[weight_field_name]
+        assert np.ndim(weights) == 1
+        assert quan.shape[1] == weights.shape[0]
+        out.append(weights)
+    return out
 
 def compute_bulkaverage(quan, extra_quantities, kwargs):
     """
@@ -52,12 +94,16 @@ def compute_bulkaverage(quan, extra_quantities, kwargs):
         of the weight field and the second element specifies the expected units.
 
     """
-    weights = _generic_kernel_handle_args(quan, extra_quantities, kwargs)
+    weight_l = _generic_kernel_handle_args(quan, extra_quantities, kwargs)
+    assert len(weight_l) == 1
+    weights = weight_l[0]
 
     # axis = 1 seems counter-intuitive, but I've confirmed it's correct
     averages, sum_of_weights = np.average(quan, axis = 1,
                                           weights = weights,
                                           returned = True)
+
+    assert averages.ndim == sum_of_weights.ndim == 1 # sanity check!
 
     # since sum_of_weights is 1D and has a length equal to quan.shape[1], all 3
     # entires are identical
@@ -65,7 +111,10 @@ def compute_bulkaverage(quan, extra_quantities, kwargs):
     assert sum_of_weights[0] != 0.0 # we may want to revisit return vals if
                                     # untrue
 
-    return {'average' : averages, 'weight_total' : sum_of_weights[:1]}
+    weight_total = np.array([[sum_of_weights[0]]], dtype= sum_of_weights.dtype)
+    averages.shape = (1, averages.shape[0])
+
+    return {'average' : averages, 'weight_total' : weight_total}
 
 class BulkAverage:
     """
@@ -84,16 +133,21 @@ class BulkAverage:
 
     @classmethod
     def get_extra_fields(cls, kwargs = {}):
-        assert len(kwargs) == 1
-        assert len(kwargs['weight_field']) == 2
-        weight_field_name, weight_field_units = kwargs['weight_field']
+        weight_unit_pairs = _extract_weight_unit_pairs(kwargs)
+        if len(weight_unit_pairs) != 1:
+            raise ValueError("Currently only 1 weight field is supported.")
+
+        weight_field_name, weight_field_units = weight_unit_pairs[0]
         return {weight_field_name : (weight_field_units, cls.operate_on_pairs)}
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        assert (len(kwargs) == 1) and ('weight_field' in kwargs)
-        return [('weight_total',  np.float64, (1,)),
-                ('average',       np.float64, (3,))]
+        weight_unit_pairs = _extract_weight_unit_pairs(kwargs)
+        n_weight_fields = len(weight_unit_pairs)
+        if n_weight_fields != 1:
+            raise ValueError("Currently only 1 weight field is supported.")
+        return [('weight_total',  np.float64, (n_weight_fields, 1,)),
+                ('average',       np.float64, (n_weight_fields, 3,))]
 
     @classmethod
     def consolidate_stats(cls, *rslts):
@@ -116,9 +170,9 @@ class BulkAverage:
                 first_filled_rslt = rslt
 
             assert len(rslt) == 2 # check the keys
-            
-            cur_weight = rslt['weight_total']
-            cur_product = cur_weight*rslt['average']
+
+            cur_weight = rslt['weight_total'][0,:]
+            cur_product = cur_weight*rslt['average'][0,:]
 
             # first, accumulate weight
             cur_elem = cur_weight - c_wsum
@@ -134,11 +188,13 @@ class BulkAverage:
 
         if first_filled_rslt is None:
             return {}
-        elif (accum_wsum == first_filled_rslt['weight_total']).all():
+        elif (accum_wsum[0] == first_filled_rslt['weight_total'][0,0]).all():
             return {'weight_total' : first_filled_rslt['weight_total'].copy(),
                     'average'      : first_filled_rslt['average'].copy()}
         else:
             weight_total, weight_times_avg  = accum_wsum, accum_prodsum
+            weight_total.shape = (1,1)
+            weight_times_avg.shape = (1,3)
             return {'weight_total' : weight_total,
                     'average' : weight_times_avg / weight_total}
 
@@ -232,23 +288,36 @@ def compute_bulk_variance(quan, extra_quantities, kwargs):
         of the weight field and the second element specifies the expected units.
 
     """
-    weights = _generic_kernel_handle_args(quan, extra_quantities, kwargs)
+    weight_l = _generic_kernel_handle_args(quan, extra_quantities, kwargs)
+    n_weight_fields = len(weight_l)
 
-    # axis = 1 seems counter-intuitive, but I've confirmed it's correct
-    variance, averages, sum_of_weights = _weighted_variance(quan, axis = 1,
-                                                            weights = weights,
-                                                            returned = True)
+    variance = np.empty((n_weight_fields, quan.shape[0]), dtype = np.float64)
+    averages = np.empty_like(variance)
+    weight_total = np.empty((n_weight_fields, 1), dtype = np.float64)
 
-    # since sum_of_weights is 1D and has a length equal to quan.shape[1], all 3
-    # entires are identical
-    assert (sum_of_weights[0] == sum_of_weights).all()
-    assert sum_of_weights[0] != 0.0 # we may want to revisit return vals if
-                                    # untrue
+    assert n_weight_fields == 1
 
-    out = {'variance' : variance, 'average' : averages,
-           'weight_total' : sum_of_weights[:1]}
-    return out
-    
+    for i, weights in enumerate(weight_l):
+
+        # axis = 1 seems counter-intuitive, but I've confirmed it's correct
+        cur_vars, cur_avgs, cur_sum_of_weights = _weighted_variance(
+            quan, axis = 1, weights = weights, returned = True
+        )
+
+        # since weights is 1D and has a length equal to quan.shape[1], all 3
+        # entires of cur_sum_of_weights are identical
+        assert (cur_sum_of_weights[0] == cur_sum_of_weights).all()
+
+        assert cur_sum_of_weights[0] != 0.0 # we may want to revisit return
+                                            # vals if untrue
+
+        weight_total[i,0] = cur_sum_of_weights[0]
+        averages[i,:] = cur_avgs
+        variance[i,:] = cur_vars
+
+    return {'variance' : variance, 'average' : averages,
+            'weight_total' : weight_total}
+
 
 class BulkVariance:
     """
@@ -330,17 +399,24 @@ class BulkVariance:
 
     @classmethod
     def get_extra_fields(cls, kwargs = {}):
-        assert len(kwargs) == 1
-        assert len(kwargs['weight_field']) == 2
-        weight_field_name, weight_field_units = kwargs['weight_field']
+        weight_unit_pairs = _extract_weight_unit_pairs(kwargs)
+        if len(weight_unit_pairs) != 1:
+            raise ValueError("Currently only 1 weight field is supported.")
+
+        weight_field_name, weight_field_units = weight_unit_pairs[0]
         return {weight_field_name : (weight_field_units, cls.operate_on_pairs)}
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        assert (len(kwargs) == 1) and ('weight_field' in kwargs)
-        return [('weight_total',  np.float64, (1,)),
-                ('average',       np.float64, (3,)),
-                ('variance',      np.float64, (3,))]
+        weight_unit_pairs = _extract_weight_unit_pairs(kwargs)
+
+        n_weight_unit_pairs = len(weight_unit_pairs)
+        if n_weight_unit_pairs != 1:
+            raise ValueError("Currently only 1 weight field is supported.")
+
+        return [('weight_total',  np.float64, (n_weight_fields, 1)),
+                ('average',       np.float64, (n_weight_fields, 3)),
+                ('variance',      np.float64, (n_weight_fields, 3))]
 
     @classmethod
     def consolidate_stats(cls, *rslts):
@@ -364,18 +440,26 @@ class BulkVariance:
         all_variances = np.empty((n_rslts,) + sample['variance'].shape,
                                  dtype = np.float64)
 
-        assert all_weight_totals.shape == (n_rslts,1) # may change in future
+        assert all_weight_totals.shape == (n_rslts,1,1) # may change in future
         assert all_means.shape == all_variances.shape
 
         for i, rslt in enumerate(rslts):
-            if rslt == {} or (rslt['weight_total'][0] == 0.0):
-                all_weight_totals[i] = 0.0
-                all_means[i] = 0.0
-                all_variances[i] = 0.0
+            if rslt == {}:
+                all_weight_totals[i,...] = 0.0
+                # fill in the rest after the loop
             else:
-                all_weight_totals[i,0] = rslt['weight_total'][0]
+                all_weight_totals[i,...] = rslt['weight_total']
                 all_means[i,...] = rslt['average']
                 all_variances[i,...] = rslt['variance']
+
+        # for each location in all_weight_totals that is 0, make sure that
+        # corresponding location in all_means and all_variances are also 0
+        # (we want to make sure they're NOT NaNs) 
+        _mask = (all_weight_totals == 0.0)
+        assert (_mask.shape[-1] == 1) and (_mask.ndim == all_means.ndim)
+        _mask.shape = _mask.shape[:-1]
+        all_means[_mask] = 0.0
+        all_variances[_mask] = 0.0
 
         def func(local_weight_tots, local_means, local_vars):
             # this borrows heavily from the yt-project!
@@ -398,23 +482,30 @@ class BulkVariance:
 
             return global_var, global_mean, global_weight_total
 
-        assert all_variances.ndim == 2 # may change in the future
-        for i in range(all_variances.shape[1]):
-            global_var, global_mean, global_weight_total = func(
-                all_weight_totals[:,0], all_means[:,i], all_variances[:,i]
-            )
-            if i == 0:
-                out['weight_total'][0] = global_weight_total
-            else:
-                # sanity check:
-                assert out['weight_total'][0] == global_weight_total
-            out['average'][i] = global_mean
-            out['variance'][i] = global_var
+        assert all_variances.ndim == 3
 
-        if out['weight_total'][0] == 0.0:
+        # outer loop indices correspond to calculations that used different
+        # weight fields
+        for weight_ind in range(all_variances.shape[-2]):
+            # inner loop all used the same weight field
+            for i in range(all_variances.shape[-1]):
+                global_var, global_mean, global_weight_total = func(
+                    all_weight_totals[:,weight_ind,0],
+                    all_means[:,weight_ind, i],
+                    all_variances[:,weight_ind, i]
+                )
+                if i == 0:
+                    out['weight_total'][weight_ind, 0] = global_weight_total
+                else:
+                    assert (out['weight_total'][weight_ind,0]
+                             == global_weight_total) # sanity check
+                out['average'][weight_ind, i] = global_mean
+                out['variance'][weight_ind, i] = global_var
+
+        if (out['weight_total'] == 0.0).any():
             raise RuntimeError(
-                "weight_total should never be 0. If it is, then we should be "
-                "returning an empty dict instead"
+                "Encountered weight_total == 0. We may want to reconsider "
+                "some things."
             )
 
         return out

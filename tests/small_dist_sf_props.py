@@ -28,9 +28,10 @@ my_cut_regions = [f'obj["logX_K"].v < {float(bin_edges[1]):.15e}',
 # subvolume
 
 def _calc_bulkstat(cad, quan, kwargs, kernel):
-    weight_field, weight_units = kwargs['weight_field']
-    d = cad[weight_field].to(weight_units).ndarray_view()
-    extra_quan = {weight_field : d}
+    extra_quan = {}
+    for weight_field, weight_units in kwargs['weight_field']:
+        d = cad[weight_field].to(weight_units).ndarray_view()
+        extra_quan[weight_field] = d
     func = kernel.non_vsf_func
     return func(quan = quan, extra_quantities = extra_quan, kwargs = kwargs)
 
@@ -99,9 +100,9 @@ def compare(dist_bin_edges, cut_regions, geometric_selector, nproc = 1,
             )
             kwargs_l.append({'val_bin_edges' : vel_bin_edges})
         elif stat_name == BulkAverage.name:
-            kwargs_l.append({'weight_field' : ( ('gas', 'cell_mass'), 'g') })
+            kwargs_l.append({'weight_field' : [( ('gas', 'cell_mass'), 'g')] })
         elif stat_name == BulkVariance.name:
-            kwargs_l.append({'weight_field' : ( ('gas', 'cell_mass'), 'g') })
+            kwargs_l.append({'weight_field' : [( ('gas', 'cell_mass'), 'g')] })
         else:
             kwargs_l.append({})
 

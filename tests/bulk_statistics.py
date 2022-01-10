@@ -78,28 +78,29 @@ def _yt_calc_bulkstat(fields, ds, geometric_selector, cut_regions,
         cad = ad.cut_region(cut_region)
         assert cad['index','ones'].size != 0
 
-        weight_field, weight_units = kw['weight_field']
+        assert len(kw['weight_field']) == 1
+        weight_field, weight_units = kw['weight_field'][0]
 
         rslt = {}
         rslt['weight_total'] = np.array(
-            [cad.quantities.total_quantity(weight_field).to(weight_units).v]
+            [[cad.quantities.total_quantity(weight_field).to(weight_units).v]]
         )
 
         if stat_name == BulkAverage.name:
             tmp = cad.quantities.weighted_average_quantity(list(fields),
                                                            weight_field)
-            rslt['average'] = np.empty((len(fields),), dtype = np.float64)
+            rslt['average'] = np.empty((1,len(fields)), dtype = np.float64)
             for i in range(len(fields)):
-                rslt['average'][i] = tmp[i].to(quantity_units).v
+                rslt['average'][0][i] = tmp[i].to(quantity_units).v
         else:
             tmp = cad.quantities.weighted_variance(list(fields), weight_field)
-            rslt['variance'] = np.empty((len(fields),), dtype = np.float64)
-            rslt['average'] = np.empty((len(fields),), dtype = np.float64)
+            rslt['variance'] = np.empty((1,len(fields)), dtype = np.float64)
+            rslt['average']  = np.empty((1,len(fields)), dtype = np.float64)
             for i in range(len(fields)):
-                # technically, tmp[i][0] holds standard deviation, NOT the
-                # variance
-                rslt['variance'][i] = (tmp[i][0].to(quantity_units).v)**2
-                rslt['average'][i] = tmp[i][1].to(quantity_units).v
+                # technically, tmp[i][0] holds standard deviation (instead of
+                # the variance)
+                rslt['variance'][0][i] = (tmp[i][0].to(quantity_units).v)**2
+                rslt['average'][0][i]  = tmp[i][1].to(quantity_units).v
         out[0][cr_ind] = rslt
 
     return out
@@ -152,24 +153,32 @@ def compare_bulk_stat(stat_kw_pair, ds, force_subvols_per_ax = (1,1,1),
 
 if __name__ == '__main__':
     ds = setup_ds()
-    
+
     compare_bulk_stat(
-        ('bulkaverage', {'weight_field' : ( ('gas', 'cell_mass'), 'g')}),
+        ('bulkaverage', {
+            'weight_field' : [( ('gas', 'cell_mass'), 'g')]
+        }),
          ds, force_subvols_per_ax = (1,1,1),
         weight_total_rtol = 2e-16,
         average_rtol = 4e-16
     )
 
+
     compare_bulk_stat(
-        ('bulkvariance', {'weight_field' : ( ('index', 'ones'), 'dimensionless')}),
+        ('bulkvariance', {
+            'weight_field' : [( ('index', 'ones'), 'dimensionless')]
+        }),
          ds, force_subvols_per_ax = (1,1,1),
         weight_total_rtol = 2e-16,
         variance_rtol = 4e-16,
         average_rtol = 4e-16
     )
 
+
     compare_bulk_stat(
-        ('bulkvariance', {'weight_field' : ( ('gas', 'cell_mass'), 'g')}),
+        ('bulkvariance', {
+            'weight_field' : [( ('gas', 'cell_mass'), 'g')]
+        }),
          ds, force_subvols_per_ax = (1,1,1),
         weight_total_rtol = 2e-16,
         variance_rtol = 3e-16,
