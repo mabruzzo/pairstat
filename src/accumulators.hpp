@@ -2,6 +2,7 @@
 #define ACCUMULATORS_H
 
 #include <utility> // std::pair
+#include <string>
 
 [[noreturn]] void error(const char* message){
   if (message == nullptr){

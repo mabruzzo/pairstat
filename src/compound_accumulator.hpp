@@ -1,8 +1,11 @@
 #ifndef COMPOUND_ACCUMULATOR_H
 #define COMPOUND_ACCUMULATOR_H
 
+#include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility> // std::pair
+#include <vector>
 
 namespace detail{
 
