@@ -1,5 +1,9 @@
+# This was taken from Schwimmbad and modified to try to address some
+# cluster-specific problems
+
 # Standard library
 import atexit
+import pickle
 import sys
 import traceback
 
@@ -7,6 +11,8 @@ import traceback
 # it only when an MPI Pool is explicitly created.
 # Still make it a global to avoid messing up other things.
 MPI = None
+
+import numpy as np
 
 # Project
 from schwimmbad import log, _VERBOSE
@@ -48,33 +54,144 @@ class _DefaultResultCommunication:
     def send_result(comm, master_rank, tag, result):
         comm.ssend(result, master_rank, tag)
 
-class _LargeResultCommunication:
+class LargeResultCommunication:
     """
-    Communicate results in 2 synchronous steps to avoid overwhelming the main
-    process
+    Communicate results in 2+ synchronous steps to avoid overwhelming the main
+    process.
 
-    The first communication is a dummy message
-    The second communication holds the actual information
+    Some combination of: many messages and large message sizes seem to 
+    introduce problems
+
+    Parameters
+    ----------
+    max_message_size: int, optional
+        Specify the max number of bytes of the pickle representation to
+        communicate in each message
+
+    Notes
+    -----
+    When max_message_size is specified, data is transmitted in 2+ stages,
+    The first communication holds the size of the pickle buffer. This combined
+    with max_message_size dictates the number of subsequent communications.
+
+    When max_message_size isn't specified, data is transmitted in 2 stages,
+    The first communication is a dummy message and the second communication 
+    holds the actual information
+
     """
+    def __init__(self, max_message_size = None):
+        if max_message_size is None:
+            self.max_message_size = None
+            self.pickle_protocol = None
+        else:
+            assert max_message_size > 0
+            assert max_message_size == int(max_message_size)
+            self.max_message_size = int(max_message_size)
 
-    @staticmethod
-    def receive_result(comm):
-        status = MPI.Status()
-        dummy_result = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
-                                 status=status)
-        worker = status.source
-        taskid = status.tag
-        assert dummy_result is None
+            # I don't know much about Pickle Protocol 5 except that it does
+            # some clever stuff with Buffers. I'm a little worried about
+            # getting alignment requirements correct, so we won't use it for
+            # now
+            self.pickle_protocol = max(pickle.HIGHEST_PROTOCOL,4)
 
-        result = comm.recv(source=worker, tag=taskid, status=status)
+    def _throttled_transfer(self, comm, master_rank = None, tag = None,
+                            result = None):
+        assert (master_rank is None) == (tag is None) == (result is None)
+
+        is_worker = (tag is not None)
+
+        # first, construct the buffer to hold the pickled data and communicate
+        # the size of the buffer that is need to hold the data
+        pickle_buffer_len = np.array(0, dtype = np.uint64)
+        if is_worker:
+            pickle_buffer = pickle.dumps(result,
+                                         protocol = self.pickle_protocol)
+            assert len(pickle_buffer) <= np.iinfo(np.uint64).max
+            pickle_buffer_len[...] = len(pickle_buffer)
+            comm.Ssend(pickle_buffer_len, master_rank, tag)
+            worker, taskid = comm.rank, tag
+        else:
+            status = MPI.Status()
+            comm.Recv(pickle_buffer_len, source = MPI.ANY_SOURCE,
+                      tag = MPI.ANY_TAG, status = status)
+            assert pickle_buffer_len > 0 # sanity check
+            pickle_buffer = bytearray(int(pickle_buffer_len))
+            worker, taskid = status.source, status.tag
+
+        pickle_buffer_len = int(pickle_buffer_len)
+        
+        # now determine the number of messages that are needed to transmit the
+        # contents of the pickle_buffer
+        num_messages = ((pickle_buffer_len // self.max_message_size) +
+                        ((pickle_buffer_len % self.max_message_size) != 0))
+
+        #if not is_worker:
+        #    print(f"Nominal pickle buffer length: {pickle_buffer_len}, "
+        #          f"Split into {num_messages} msgs")
+
+        # now actually receive the messages
+        for i in range(num_messages):
+            start_ind = i*self.max_message_size
+            stop_ind = min(start_ind + self.max_message_size, pickle_buffer_len)
+            view = np.frombuffer(pickle_buffer, dtype = np.byte,
+                                 offset = start_ind,
+                                 count = stop_ind - start_ind)
+
+            # come up with a unique tag (probably unnecessary)
+            cur_tag = i + (i >= taskid)
+
+            # use communication methods for buffer-like objects (since
+            # bytearray supports the PEP 3118 buffer protocol)
+            if is_worker:
+                comm.Ssend(view, master_rank, cur_tag)
+            else:
+                comm.Recv(view, source=worker, tag=cur_tag)
+
+        #if True: # DEBUG: transmit the entire object
+        #    if is_worker:
+        #        comm.ssend(result, master_rank, cur_tag)
+        #    else:
+        #        ref_result = comm.recv(source=worker, tag=cur_tag)
+        #        ref_buffer = pickle.dumps(ref_result,
+        #                                  protocol = self.pickle_protocol)
+        #        assert (np.frombuffer(pickle_buffer, dtype = np.byte) ==
+        #                np.frombuffer(ref_buffer, dtype = np.byte)).all()
+
+        if not is_worker:
+            
+            # reconstruct the result from the pickled object
+            result = pickle.loads(pickle_buffer)
         return worker, taskid, result
 
-    @staticmethod
-    def send_result(comm, master_rank, tag, result):
-        # first, send the dummy message
-        comm.ssend(None, master_rank, tag)
-        # now, send the actual message
-        comm.ssend(result, master_rank, tag)
+    def receive_result(self, comm):
+
+        if self.max_message_size is None:
+            # first receive the dummy message (openning line for further
+            # communication with a given rank)
+            status = MPI.Status()
+            dummy_result = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
+                                     status=status)
+            worker = status.source
+            taskid = status.tag
+            assert dummy_result is None
+
+            # now receive the actual result
+            result = comm.recv(source=worker, tag=taskid, status=status)
+            return worker, taskid, result
+        else:
+            return self._throttled_transfer(comm, master_rank = None,
+                                            tag = None, result = None)
+
+    def send_result(self, comm, master_rank, tag, result):
+        if self.max_message_size is None:
+            # first, send the dummy message
+            comm.ssend(None, master_rank, tag)
+
+            # now, send the actual message
+            comm.ssend(result, master_rank, tag)
+        else:
+            self._throttled_transfer(comm, master_rank = master_rank,
+                                     tag = tag, result = result)
 
 class MPIPool(BasePool):
     """A processing pool that distributes tasks using MPI.
@@ -93,24 +210,21 @@ class MPIPool(BasePool):
         An MPI communicator to distribute tasks with. If ``None``, this uses
         ``MPI.COMM_WORLD`` by default.
     use_dill: Set `True` to use `dill` serialization. Default is `False`.
+    result
     """
 
     def __init__(self, comm=None, use_dill=False,
-                 result_comm_routines = 'default'):
+                 result_comm_routines = None):
         MPI = _import_mpi(use_dill=use_dill)
 
         if comm is None:
             comm = MPI.COMM_WORLD
         self.comm = comm
 
-        if result_comm_routines == 'default':
+        if result_comm_routines is None:
             self.result_comm_routines = _DefaultResultCommunication()
-        elif result_comm_routines == 'large':
-            self.result_comm_routines = _LargeResultCommunication()
         else:
-            raise ValueError(
-                "result_comm_routines must be 'default' or 'large'"
-            )
+            self.result_comm_routines = result_comm_routines
 
         self.master = 0
         self.rank = self.comm.Get_rank()
