@@ -167,6 +167,16 @@ public:
     }
   }
 
+  void copy_flt_from_ptr(const double *in_vals) noexcept {
+    error("Not Implemented Yet");
+  }
+
+  void copy_i64_from_ptr(const int64_t *in_vals) noexcept {
+    for (std::size_t i = 0; i < accum_list_.size(); i++){
+      accum_list_[i].count = in_vals[i];
+    }
+  }
+
   std::size_t n_spatial_bins() const noexcept { return accum_list_.size(); }
 
 private:
@@ -284,9 +294,15 @@ public:
 
   void copy_i64_vals(int64_t *out_vals) const noexcept {
     for (std::size_t i = 0; i < bin_counts_.size(); i++){
-      //printf("(%zu, %ld)%s", i, bin_counts_[i],
-      //       ((i+1) == bin_counts_.size()) ? "\n" : ", " );
       out_vals[i] = bin_counts_[i];
+    }
+  }
+
+  void copy_flt_from_ptr(const double *in_vals) noexcept { }
+
+  void copy_i64_from_ptr(const int64_t *in_vals) noexcept {
+    for (std::size_t i = 0; i < bin_counts_.size(); i++){
+      bin_counts_[i] = in_vals[i];
     }
   }
 

@@ -14,9 +14,10 @@
 #define FORCE_INLINE inline
 #endif
 
-// intentionally include this header file within the anonymous namespace
 #include "accumulators.hpp"
 #include "compound_accumulator.hpp"
+#include "accum_col_variant.hpp"
+
 
 // the anonymous namespace informs the compiler that the contents are only used
 // in the local compilation unit (facillitating more optimizations)
@@ -166,64 +167,22 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
     }
   }
 
-  if (stat_list_len == 0){
-    error("stat_list_len must not be 0");
-  } else if (stat_list_len == 1){
+  // construct accumulators (they're stored in a std::variant for convenience)
+  AccumColVariant accumulators = build_accum_collection(stat_list,
+                                                        stat_list_len,
+                                                        nbins);
 
-    std::string stat_str(stat_list[0].statistic);
-    void* accum_arg_ptr = stat_list[0].arg_ptr;
-
-    if (stat_str == "mean"){
-      ScalarAccumCollection<MeanAccum> accumulators(nbins, accum_arg_ptr);
+  // now actually use the accumulators to compute that statistics
+  auto func = [=](auto& accumulators)
+    {
       calc_vsf_props_helper_(points_a, my_points_b,
                              dist_sqr_bin_edges_vec.data(), nbins,
                              accumulators,
                              out_flt_vals, out_i64_vals,
                              duplicated_points);
-    } else if (stat_str == "variance"){
-      ScalarAccumCollection<VarAccum> accumulators(nbins, accum_arg_ptr);
-      calc_vsf_props_helper_(points_a, my_points_b,
-                             dist_sqr_bin_edges_vec.data(), nbins,
-                             accumulators,
-                             out_flt_vals, out_i64_vals,
-                             duplicated_points);
-    } else if (stat_str == "histogram"){
-      HistogramAccumCollection accumulators(nbins, accum_arg_ptr);
-      calc_vsf_props_helper_(points_a, my_points_b,
-                             dist_sqr_bin_edges_vec.data(), nbins,
-                             accumulators,
-                             out_flt_vals, out_i64_vals,
-                             duplicated_points);
-    } else {
-      return false;
-    }
-  } else if (stat_list_len == 2){
+    };
 
-    std::string stat_str_a(stat_list[0].statistic);
-    void* accum_arg_ptr_a = stat_list[0].arg_ptr;
-
-    std::string stat_str_b(stat_list[1].statistic);
-    void* accum_arg_ptr_b = stat_list[1].arg_ptr;
-
-    if ((stat_str_a == "histogram") && (stat_str_b == "variance")){
-      using tup_accum = std::tuple<HistogramAccumCollection,
-                                   ScalarAccumCollection<VarAccum>>;
-      tup_accum tmp =
-        std::make_tuple(HistogramAccumCollection(nbins, accum_arg_ptr_a),
-                        ScalarAccumCollection<VarAccum>(nbins,accum_arg_ptr_b));
-      CompoundAccumCollection<tup_accum> accumulators(std::move(tmp));
-      calc_vsf_props_helper_(points_a, my_points_b,
-                             dist_sqr_bin_edges_vec.data(), nbins,
-                             accumulators,
-                             out_flt_vals, out_i64_vals,
-                             duplicated_points);
-    } else {
-      error("unrecognized stat combination.");
-    }
-
-  } else {
-    error("stat_list_len must be 1 or 2");
-  }
+  std::visit(func, accumulators);
 
   return true;
 }
