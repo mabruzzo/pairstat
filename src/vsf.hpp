@@ -1,17 +1,25 @@
 #ifndef VSF_H
 #define VSF_H
 
+#ifdef __cplusplus
+#include <cstddef>
+#include <cstdint>
+#else
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#endif
 
 struct PointProps{
   const double * positions;
   const double * velocities;
-  std::size_t n_points;
-  std::size_t n_spatial_dims;
+  size_t n_points;
+  size_t n_spatial_dims;
 };
 
 struct BinSpecification{
   const double * bin_edges;
-  std::size_t n_bins;
+  size_t n_bins;
 };
 
 /// This is used to specify the statistics that will be computed.
@@ -46,13 +54,13 @@ extern "C" {
 /// @param[in]  nbins The number of position bins
 /// @param[out] out_flt_vals Preallocated arrays to hold the output floating
 ///     point values.
-/// @param[out] out_i64_vals Preallocated array of ``nbins`` entries that are
-///     used to store the number of pairs of points in each bin.
+/// @param[out] out_i64_vals Preallocated array to store the output int64_t
+///     values. 
 ///
 /// @returns This returns ``true`` on success and ``false`` on failure.
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
-                    const StatListItem* stat_list, std::size_t stat_list_len,
-                    const double *bin_edges, std::size_t nbins,
+                    const StatListItem* stat_list, size_t stat_list_len,
+                    const double *bin_edges, size_t nbins,
                     double *out_flt_vals, int64_t *out_i64_vals) noexcept;
 
 #ifdef __cplusplus

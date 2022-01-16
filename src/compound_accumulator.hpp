@@ -81,6 +81,11 @@ struct CopyValsHelper_{
 template<typename AccumCollectionTuple>
 class CompoundAccumCollection{
 
+  /// @class    CompoundAccumCollection
+  ///
+  /// @brief Supports multiple accumulators at the same time. This is something
+  ///    of a stopgap solution.
+
 public:
 
   static constexpr std::size_t n_accum =
@@ -91,6 +96,8 @@ public:
 
   CompoundAccumCollection() = delete;
 
+  CompoundAccumCollection(const CompoundAccumCollection&) = default;
+
   CompoundAccumCollection(AccumCollectionTuple &&accum_collec_tuple) noexcept
     : accum_collec_tuple_(accum_collec_tuple)
   {}
@@ -100,13 +107,37 @@ public:
                          [=](auto& e){ e.add_entry(spatial_bin_index, val); });
   }
 
+  /// Updates the values of `*this` to include the values from `other`
+  inline void consolidate_with_other(const CompoundAccumCollection& other)
+    noexcept
+  { error("Not Implemented Yet"); }
+
+  /// Copies the int64_t values of each accumulator to an external buffer
   void copy_i64_vals(int64_t *out_vals) noexcept {
     for_each_tuple_entry(accum_collec_tuple_, CopyValsHelper_(out_vals));
   }
 
+  /// Copies the floating point values of each accumulator to an external buffer
   void copy_flt_vals(double *out_vals) noexcept {
     for_each_tuple_entry(accum_collec_tuple_, CopyValsHelper_(out_vals));
   }
+
+  /// Dummy method that needs to be defined to match interface
+  static std::vector<std::pair<std::string,std::size_t>> flt_val_props()
+    noexcept
+  { error("Not Implemented"); }
+
+  /// Dummy method that needs to be defined to match interface
+  std::vector<std::pair<std::string,std::size_t>> i64_val_props() noexcept
+  { error("Not Implemented"); }
+
+  /// Dummy method that needs to be defined to match interface
+  void import_flt_vals(const double *in_vals) noexcept
+  { error("Not Implemented"); }
+
+  /// Dummy method that needs to be defined to match interface
+  void import_i64_vals(const int64_t *in_vals) noexcept
+  { error("Not Implemented"); }
 
 private:
   AccumCollectionTuple accum_collec_tuple_;

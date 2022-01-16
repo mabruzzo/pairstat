@@ -22,6 +22,7 @@ from ._cut_region_iterator import (
 )
 
 from ._kernels import get_kernel, kernel_operates_on_pairs
+from ._kernels_cy import build_consolidater
 
 from ._perf import PerfRegions
 
@@ -290,7 +291,8 @@ class TaskResult:
                 consolidated_rslts.num_cut_regions)
         self.consolidated_rslts = consolidated_rslts
 
-def consolidate_partial_vsf_results(statistic, *rslts):
+def consolidate_partial_vsf_results(statistic, *rslts,
+                                    stat_kw = {}, dist_bin_edges = None):
     """
     This function is used to consolidate the partial results from multiple 
     executions of pyvsf's `vsf_props` function.
@@ -298,7 +300,11 @@ def consolidate_partial_vsf_results(statistic, *rslts):
     if len(rslts) == 0:
         raise RuntimeError()
     kernel = get_kernel(statistic)
-    return kernel.consolidate_stats(*rslts)
+    if dist_bin_edges is None:
+        return kernel.consolidate_stats(*rslts)
+    else:
+        consolidator = build_consolidater(dist_bin_edges, kernel, stat_kw)
+        return consolidator.consolidate(*rslts)
 
 class StatDetails(NamedTuple):
     # lightweight class used internally by SFWorker
@@ -546,7 +552,7 @@ class SFWorker:
         )
 
         
-        for stat_ind, (stat_name, _) in enumerate(self.stat_kw_pairs):
+        for stat_ind, (stat_name, stat_kw) in enumerate(self.stat_kw_pairs):
             itr = enumerate(
                 main_subvol_rslts.cut_region_iter(stat_index = stat_ind)
             )
@@ -555,7 +561,8 @@ class SFWorker:
                     consolidated_rslt = consolidate_partial_vsf_results(
                         stat_name, main_subvol_rslt,
                         *[sublist.retrieve_result(stat_ind, cut_region_i) \
-                          for sublist in cross_sf_rslts]
+                          for sublist in cross_sf_rslts],
+                        stat_kw = stat_kw, dist_bin_edges = dist_bin_edges
                     )
                 else:
                     consolidated_rslt = deepcopy(main_subvol_rslt)
@@ -861,7 +868,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             main_subvol_rslts = item.main_subvol_rslts
             consolidated_rslts = item.consolidated_rslts
 
-            for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
+            for stat_ind, (stat_name, stat_kw) in enumerate(stat_kw_pairs):
                 for cut_region_i in range(len(cut_regions)):
 
                     # for the given subvol_index, stat_index, cut_region_index:
@@ -883,7 +890,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         accum_rslt[stat_ind][cut_region_i] = \
                             consolidate_partial_vsf_results(
                                 stat_name, accum_rslt[stat_ind][cut_region_i],
-                                consolidated_rslt
+                                consolidated_rslt, stat_kw = stat_kw,
+                                dist_bin_edges = dist_bin_edges
                             )
                     else:
                         tmp_result_arr[stat_ind, cut_region_i,

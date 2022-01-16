@@ -1,10 +1,14 @@
 #ifndef ACCUMULATORS_H
 #define ACCUMULATORS_H
 
-#include <utility> // std::pair
+#include <cstdint> // std::int64_t
 #include <string>
+#include <utility> // std::pair
+#include <vector>
 
-[[noreturn]] void error(const char* message){
+
+
+[[noreturn]] inline void error(const char* message){
   if (message == nullptr){
     printf("ERROR\n");
   } else {
@@ -122,6 +126,11 @@ public:
     accum_list_[spatial_bin_index].add_entry(val);
   }
 
+  /// Updates the values of `*this` to include the values from `other`
+  inline void consolidate_with_other(const ScalarAccumCollection& other)
+    noexcept
+  { error("Not Implemented Yet"); }
+
   /// Return the Floating Point Value Properties
   ///
   /// This is a vector holding pairs of the value name and the number of value
@@ -150,6 +159,9 @@ public:
     noexcept
   { return {{"count", 1}}; }
 
+
+  /// Copies the floating point values of each scalar accumulator to a
+  /// pre-allocatd buffer
   void copy_flt_vals(double *out_vals) const noexcept {
     const std::size_t num_flt_vals = Accum::flt_val_names().size();
     const std::size_t n_bins = accum_list_.size();
@@ -161,17 +173,29 @@ public:
     }
   }
 
+  /// Copies the int64_t values of each scalar accumulator to a pre-allocatd
+  /// buffer
   void copy_i64_vals(int64_t *out_vals) const noexcept {
     for (std::size_t i = 0; i < accum_list_.size(); i++){
       out_vals[i] = accum_list_[i].count;
     }
   }
 
-  void copy_flt_from_ptr(const double *in_vals) noexcept {
+  /// Overwrites the floating point values within each scalar accumulator using
+  /// data from an external buffer.
+  ///
+  /// This is primarily meant to be passed an external buffer whose values were
+  /// initialized by the copy_flt_vals method.
+  void import_flt_vals(const double *in_vals) noexcept {
     error("Not Implemented Yet");
   }
 
-  void copy_i64_from_ptr(const int64_t *in_vals) noexcept {
+  /// Overwrites the int64_t values within each scalar accumulator using data
+  /// from an external buffer
+  ///
+  /// This is primarily meant to be passed an external buffer whose values were
+  /// initialized by the copy_i64_vals method.
+  void import_i64_vals(const int64_t *in_vals) noexcept {
     for (std::size_t i = 0; i < accum_list_.size(); i++){
       accum_list_[i].count = in_vals[i];
     }
@@ -267,12 +291,24 @@ public:
     }
   }
 
-  /// Return the Floating Point Value Properties
-  ///
-  /// This is a vector holding pairs of the value name and the number of value
-  /// entries per spatial bin.
-  ///
-  /// For Scalar Accumulators, each value only stores 1 entry per spatial bin
+  /// Updates the values of `*this` to include the values from `other`
+  inline void consolidate_with_other(const HistogramAccumCollection& other)
+    noexcept
+  {
+    if ((other.n_spatial_bins_ != n_spatial_bins_) ||
+        (other.n_data_bins_ != n_data_bins_)){
+      error("There seemed to be a mismatch during consolidation");
+    }
+    // going to simply assume that contents of data_bin_edges_ are consistent
+
+    const std::size_t stop = bin_counts_.size();
+
+    for (std::size_t i = 0; i < stop; i++){
+      bin_counts_[i] += other.bin_counts_[i];
+    }
+  }
+
+  /// Return the Floating Point Value Properties (if any)
   static std::vector<std::pair<std::string,std::size_t>> flt_val_props()
     noexcept
   {
@@ -284,23 +320,31 @@ public:
   ///
   /// This is a vector holding pairs of the integer value name and the number
   /// of value entries per spatial bin.
-  ///
-  /// This is currently the same for all scalar accumulators
   std::vector<std::pair<std::string,std::size_t>> i64_val_props() const
     noexcept
   { return {{"bin_counts_", n_data_bins_}}; }
 
+  /// Copies the floating point values of the accumulator (if any) to a
+  /// pre-allocated buffer
   void copy_flt_vals(double *out_vals) const noexcept { }
 
+  /// Copies the int64_t values of the accumulator to a pre-allocatd buffer
   void copy_i64_vals(int64_t *out_vals) const noexcept {
     for (std::size_t i = 0; i < bin_counts_.size(); i++){
       out_vals[i] = bin_counts_[i];
     }
   }
 
-  void copy_flt_from_ptr(const double *in_vals) noexcept { }
 
-  void copy_i64_from_ptr(const int64_t *in_vals) noexcept {
+  /// Dummy method that needs to be defined to match interface
+  void import_flt_vals(const double *in_vals) noexcept { }
+
+  /// Overwrites the accumulator's int64_t values using data from an external
+  /// buffer
+  ///
+  /// This is primarily meant to be passed an external buffer whose values were
+  /// initialized by the copy_i64_vals method.
+  void import_i64_vals(const int64_t *in_vals) noexcept {
     for (std::size_t i = 0; i < bin_counts_.size(); i++){
       bin_counts_[i] = in_vals[i];
     }

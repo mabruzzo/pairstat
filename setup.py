@@ -1,3 +1,4 @@
+import os
 from setuptools import setup
 from setuptools.extension import Extension
 from setuptools.command.build_ext import build_ext as _build_ext
@@ -13,9 +14,19 @@ class build_ext(_build_ext):
         import numpy
         self.include_dirs.append(numpy.get_include())
 
+_PYVSF_ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
+_PYVSF_CPP_SRC_DIR = os.path.join(_PYVSF_ROOT_DIR,'src')
+print(_PYVSF_CPP_SRC_DIR)
+
 ext_modules = [
-    Extension('pyvsf._kernels_cy',
-              ['pyvsf/_kernels_cy.pyx']),
+    Extension('pyvsf._ArrayDict_cy', ['pyvsf/_ArrayDict_cy.pyx'],
+              language="c++"),
+    Extension('pyvsf._kernels_cy', ['pyvsf/_kernels_cy.pyx'],
+              include_dirs = [_PYVSF_CPP_SRC_DIR],
+              library_dirs = [_PYVSF_CPP_SRC_DIR],
+              runtime_library_dirs=[_PYVSF_CPP_SRC_DIR],
+              libraries = ['vsf'],
+              language="c++"),
 ]
 
 # on some platforms, we need to apply the language level directive before setup

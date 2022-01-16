@@ -7,6 +7,7 @@ import os.path
 import numpy as np
 
 from ._kernels import get_kernel
+from ._kernels_cy import _verify_bin_edges
 
 # get the directory of the current file 
 _dir_of_cur_file = os.path.dirname(os.path.abspath(__file__))
@@ -139,16 +140,6 @@ _lib.calc_vsf_props.argtypes = [
 ]
 _lib.calc_vsf_props.restype = ctypes.c_bool
 
-def _verify_bin_edges(bin_edges):
-    nbins = bin_edges.size - 1
-    if bin_edges.ndim != 1:
-        return False
-    elif nbins <= 0:
-        return False
-    elif not (bin_edges[1:] > bin_edges[:-1]).all():
-        return False
-    else:
-        return True
 
 class VSFPropsRsltContainer:
     def __init__(self, int64_quans, float64_quans):
