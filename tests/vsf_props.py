@@ -79,6 +79,12 @@ def _call_separately_for_each_stat_pair(func, *args,
 
 VSF_PROPS_IMPL_REGISTRY = {
     'actual' : (pyvsf.vsf_props,   'pyvsf.vsf_props'),
+    'actual-3proc-seq' : (partial(pyvsf.vsf_props, nproc = 3,
+                                  force_sequential = True),
+                          'pyvsf.vsf_props(nproc=3, force_sequential = True)'),
+    'actual-3proc' : (partial(pyvsf.vsf_props, nproc = 3,
+                              force_sequential = False),
+                      'pyvsf.vsf_props(nproc=3, force_sequential = False)'),
     'individual-stats' : (partial(_call_separately_for_each_stat_pair,
                                  func = pyvsf.vsf_props),
                          'the individual-stats modified version'),
@@ -360,13 +366,20 @@ def test_vsf_single_collection():
                                     stat_kw_pairs = stat_kw_pairs,
                                     atol = atol_l, rtol = rtol_l)
 
-def extra_multiple_stats_test():
+def extra_multiple_stats_test(alt_implementation_key = 'individual-stats',
+                              skip_variance = False, skip_auto_sf = False):
 
     # a few extra tests to verify that there is no difference in the result
     # (this is some very simplistic, crude fuzzing)
 
     val_bin_edges = np.array([0] + np.geomspace(start = 1e-16, stop = 100,
                                                 num = 100).tolist())
+    stat_kw_pairs = [('variance', {}),
+                     ('histogram', {"val_bin_edges" : val_bin_edges})]
+    if skip_variance:
+        stat_kw_pairs = stat_kw_pairs[1:]
+
+    
     for seed in [4162,2354,7468,3563,88567]:
 
         generator = np.random.RandomState(seed = seed)
@@ -380,28 +393,27 @@ def extra_multiple_stats_test():
         ]
 
         # auto-structure-function
-        compare_vsf_implementations(
-            pos_a = x_a, pos_b = None, vel_a = vel_a, vel_b = None,
-            dist_bin_edges = bin_edges,
-            stat_kw_pairs = [('variance', {}),
-                             ('histogram', {"val_bin_edges" : val_bin_edges})],
-            atol = 0.0, rtol = 0.0,
-            alt_implementation_key = 'individual-stats'
-        )
+        if not skip_auto_sf:
+            compare_vsf_implementations(
+                pos_a = x_a, pos_b = None, vel_a = vel_a, vel_b = None,
+                dist_bin_edges = bin_edges,
+                stat_kw_pairs = stat_kw_pairs,
+                atol = 0.0, rtol = 0.0,
+                alt_implementation_key = alt_implementation_key
+            )
 
         # cross-structure-function
         compare_vsf_implementations(
             pos_a = x_a, pos_b = x_b, vel_a = vel_a, vel_b = vel_b,
             dist_bin_edges = bin_edges,
-            stat_kw_pairs = [('variance', {}),
-                             ('histogram', {"val_bin_edges" : val_bin_edges})],
+            stat_kw_pairs = stat_kw_pairs,
             atol = 0.0, rtol = 0.0,
-            alt_implementation_key = 'individual-stats'
+            alt_implementation_key = alt_implementation_key
         )
 
 import time
 def benchmark(shape_a, shape_b = None, seed = 156, skip_python_version = False,
-              **kwargs):
+              nproc = 1, **kwargs):
     generator = np.random.RandomState(seed = seed)
 
     pos_a, vel_a = _generate_vals(shape_a, generator)
@@ -413,11 +425,11 @@ def benchmark(shape_a, shape_b = None, seed = 156, skip_python_version = False,
     # first, benchmark pyvsf.vsf_props
     pyvsf.vsf_props(pos_a = pos_a, pos_b = pos_b,
                     vel_a = vel_a, vel_b = vel_b,
-                    **kwargs)
+                    nproc = nproc, **kwargs)
     t0 = time.perf_counter()
     pyvsf.vsf_props(pos_a = pos_a, pos_b = pos_b,
                     vel_a = vel_a, vel_b = vel_b,
-                    **kwargs)
+                    nproc = nproc, **kwargs)
     t1 = time.perf_counter()
     dt = t1 - t0
     print(f"pyvsf.vsf_props version: {dt} seconds")
@@ -443,6 +455,20 @@ if __name__ == '__main__':
     print('running extra tests to check for problems with bundling stats')
     extra_multiple_stats_test()
 
+
+    print('checking partitioning for shared-memory multiprocessing')
+    extra_multiple_stats_test(
+        alt_implementation_key = 'actual-3proc-seq',
+        skip_variance = True,
+        skip_auto_sf = True
+    )
+    extra_multiple_stats_test(
+        alt_implementation_key = 'actual-3proc',
+        skip_variance = True,
+        skip_auto_sf = True
+    )
+
+
     #benchmark((3,10000), shape_b = None, seed = 156,
     #          dist_bin_edges = np.arange(101.0)/100)
 
@@ -464,4 +490,12 @@ if __name__ == '__main__':
               dist_bin_edges = np.arange(101.0)/100,
               stat_kw_pairs = [('histogram', {'val_bin_edges':val_bin_edges}),
                                ('variance', {})],
+              skip_python_version = True)
+
+    print('running a short benchmark. This takes ~10 s')
+    benchmark((3,20000), shape_b = (3,20000), seed = 156,
+              dist_bin_edges = np.arange(101.0)/100,
+              stat_kw_pairs = [('histogram', {'val_bin_edges':val_bin_edges}),
+                               ('variance', {})][:1],
+              nproc = 4,
               skip_python_version = True)

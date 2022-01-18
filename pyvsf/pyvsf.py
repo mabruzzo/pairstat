@@ -27,12 +27,15 @@ class POINTPROPS(ctypes.Structure):
     _fields_ = [("positions", _double_ptr),
                 ("velocities", _double_ptr),
                 ("n_points", ctypes.c_size_t),
-                ("n_spatial_dims", ctypes.c_size_t)]
+                ("n_spatial_dims", ctypes.c_size_t),
+                ("spatial_dim_stride", ctypes.c_size_t),
+    ]
 
     @staticmethod
     def construct(pos, vel, dtype = np.float64, allow_null_pair = False):
         if allow_null_pair and (pos is None) and (vel is None):
-            return POINTPROPS(None, None, n_points = 0, n_spatial_dims = 0)
+            return POINTPROPS(None, None, n_points = 0, n_spatial_dims = 0,
+                              spatial_dim_stride = 0)
         elif (pos is None) or (vel is None):
             raise ValueError("pos and vel must not be None")
 
@@ -41,14 +44,25 @@ class POINTPROPS(ctypes.Structure):
         assert pos_arr.ndim == 2
         assert vel_arr.ndim == 2
 
+        # I believe this is a redundant check:
+        assert pos_arr.strides[1] == pos_arr.itemsize
+        assert vel_arr.strides[1] == vel_arr.itemsize
+
         assert pos_arr.shape == vel_arr.shape
         n_spatial_dims = int(pos_arr.shape[0])
         n_points = int(pos_arr.shape[1])
 
+        # in the future, consider relaxing the following condition (to
+        # facillitate better data alignment)
+        assert pos_arr.strides[0] == (n_points * pos_arr.itemsize)
+        assert vel_arr.strides[0] == (n_points * vel_arr.itemsize)
+        spatial_dim_stride = int(n_points)
+
         return POINTPROPS(positions = pos_arr.ctypes.data_as(_double_ptr),
                           velocities = vel_arr.ctypes.data_as(_double_ptr),
                           n_points = n_points,
-                          n_spatial_dims = n_spatial_dims)
+                          n_spatial_dims = n_spatial_dims,
+                          spatial_dim_stride = spatial_dim_stride)
 
 class STATLISTITEM(ctypes.Structure):
     _fields_ = [("statistic", ctypes.c_char_p),
@@ -124,6 +138,10 @@ class HISTBINS(ctypes.Structure):
                         n_bins = n_bins)
 _HISTBINS_ptr = ctypes.POINTER(HISTBINS)
 
+class PARALLELSPEC(ctypes.Structure):
+    _fields_ = [("nproc", ctypes.c_size_t),
+                ("force_sequential", ctypes.c_bool)]
+
 _ptr_to_double_ptr = ctypes.POINTER(_double_ptr)
 
 # define the argument types
@@ -133,6 +151,7 @@ _lib.calc_vsf_props.argtypes = [
     np.ctypeslib.ndpointer(dtype = np.float64, ndim = 1,
                            flags = 'C_CONTIGUOUS'),
     ctypes.c_size_t,
+    PARALLELSPEC,
     np.ctypeslib.ndpointer(dtype = np.float64, ndim = 1,
                            flags = ['C_CONTIGUOUS', 'WRITEABLE']),
     np.ctypeslib.ndpointer(dtype = np.int64, ndim = 1,
@@ -279,7 +298,8 @@ def _validate_stat_kw_pairs(arg):
                              "string paired with a dict")
 
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
-              stat_kw_pairs = [('variance', {})]):
+              stat_kw_pairs = [('variance', {})],
+              nproc = 1, force_sequential = False):
     """
     Calculates properties pertaining to the velocity structure function for 
     pairs of points.
@@ -307,6 +327,10 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         dictionary of kwargs needed to compute that statistic. A list of valid
         statistics are described below. Unless we explicitly state otherwise,
         an empty dict should be passed for the kwargs.
+    nproc : int, optional
+        Number of processes to use for parallelizing this calculation. Default
+        is 1. If the problem is small enough, the program may ignore this
+        argument and use fewer processes.
 
     Notes
     -----
@@ -350,11 +374,15 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     stat_list, rslt_container = _process_statistic_args(stat_kw_pairs,
                                                         dist_bin_edges)
 
+    parallel_spec = PARALLELSPEC(nproc = nproc,
+                                 force_sequential = force_sequential)
+
     # now actually call the function
     success = _lib.calc_vsf_props(
         points_a, points_b,
         stat_list.get_STATLISTITEM_ptr(), len(stat_list),
         dist_bin_edges, ndist_bins,
+        parallel_spec,
         rslt_container.get_flt_vals_arr(),
         rslt_container.get_i64_vals_arr()
     )

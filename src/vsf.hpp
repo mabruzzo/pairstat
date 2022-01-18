@@ -11,15 +11,24 @@
 #endif
 
 struct PointProps{
+  // ith component of jth point (for positions and velocities) is located at
+  // an index of `j + i*spatial_dim_stride`
   const double * positions;
   const double * velocities;
   size_t n_points;
   size_t n_spatial_dims;
+  size_t spatial_dim_stride;
 };
 
 struct BinSpecification{
   const double * bin_edges;
   size_t n_bins;
+};
+
+struct ParallelSpec{
+  size_t nproc; // a value of 0 should probably fall back to OMP_NUM_THREADS
+  bool force_sequential; // when true, only 1 process is used, but it should
+                         // partition the problem as though there were nproc
 };
 
 /// This is used to specify the statistics that will be computed.
@@ -52,6 +61,7 @@ extern "C" {
 ///     binning positions. This must have ``nbins + 1`` entries. The ith bin
 ///     includes the interval ``bin_edges[i] <= x < bin_edges[i]``.
 /// @param[in]  nbins The number of position bins
+/// @param[in]  parallel_spec Specifies the parallelism arguments.
 /// @param[out] out_flt_vals Preallocated arrays to hold the output floating
 ///     point values.
 /// @param[out] out_i64_vals Preallocated array to store the output int64_t
@@ -61,6 +71,7 @@ extern "C" {
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
                     const StatListItem* stat_list, size_t stat_list_len,
                     const double *bin_edges, size_t nbins,
+                    const ParallelSpec parallel_spec,
                     double *out_flt_vals, int64_t *out_i64_vals) noexcept;
 
 #ifdef __cplusplus

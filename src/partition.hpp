@@ -1,5 +1,6 @@
 // routines to assist with partitioning structure function calculations
 
+#include <algorithm> // std::min
 #include <array>
 #include <cstdint>
 #include <limits>       // std::numeric_limits
@@ -404,6 +405,10 @@ public:
   std::uint64_t n_partitions() const noexcept {
     return std::visit([](const auto& strat){return strat.n_partitions();},
                       partition_strat_);
+  }
+
+  std::size_t effective_nproc() const noexcept {
+    return std::min(nproc_, safe_cast<std::size_t>(n_partitions()));
   }
 
   /// Constructs the TaskIt for the given process id
