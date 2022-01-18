@@ -27,6 +27,10 @@ ext_modules = [
               runtime_library_dirs=[_PYVSF_CPP_SRC_DIR],
               libraries = ['vsf'],
               language="c++"),
+    Extension('pyvsf._partition_cy', ['pyvsf/_partition_cy.pyx'],
+              include_dirs = [_PYVSF_CPP_SRC_DIR],
+              extra_compile_args = ['--std=c++17'],
+              language="c++"),
 ]
 
 # on some platforms, we need to apply the language level directive before setup

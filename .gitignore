@@ -1,2 +1,15 @@
+# emacs backup files:
 *~
+# shared libraries
 *.so
+
+# artifacts produced in cython builds
+pyvsf/**.cpp
+pyvsf/**.c
+
+# .pyc repository directories
+**/__pycache__
+
+# artifacts produced by python builds
+/pyvsf.egg-info
+/build

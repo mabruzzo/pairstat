@@ -6,16 +6,9 @@
 #include <utility> // std::pair
 #include <vector>
 
+#include "utils.hpp" // error
 
 
-[[noreturn]] inline void error(const char* message){
-  if (message == nullptr){
-    printf("ERROR\n");
-  } else {
-    printf("ERROR: %s\n", message);
-  }
-  exit(1);
-}
 
 // The accumulator structs must all satisfy the following properties:
 // - static method called ``flt_val_names`` that returns the names of each

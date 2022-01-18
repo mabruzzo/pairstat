@@ -6,10 +6,24 @@ CFLAGS = -g -O2 -Wall -fPIC -fno-math-errno --std=c++17
 
 LIBS=-lm
 
+DEPS = src/vsf.hpp src/vsf.cpp \
+src/accum_handle.hpp src/accum_handle.cpp \
+src/accum_col_variant.hpp \
+src/accumulators.hpp \
+src/compound_accumulator.hpp \
+src/partition.hpp \
+src/utils.hpp
+
 all: libvsf.so
 
-libvsf.so: src/vsf.hpp src/vsf.cpp src/accumulators.hpp src/compound_accumulator.hpp src/accum_col_variant.hpp
+libvsf.so: $(DEPS)
 	$(CC) $(CFLAGS) $(LIBS) -shared src/accum_handle.cpp src/vsf.cpp -o src/libvsf.so
 
 clean: src/libvsf.so
 	rm src/libvsf.so
+
+clean_cython:
+	rm -rf build
+	rm -rf pyvsf.egg-info
+	rm -rf pyvsf/*.cpp
+	rm -rf pyvsf/*.so
