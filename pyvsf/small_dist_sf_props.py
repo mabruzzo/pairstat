@@ -272,7 +272,8 @@ class StatRsltContainer:
 class TaskResult:
 
     def __init__(self, subvol_index, main_subvol_available_points,
-                 main_subvol_rslts, consolidated_rslts):
+                 main_subvol_rslts, consolidated_rslts,
+                 num_neighboring_subvols = None, perf_region = None):
         self.subvol_index = subvol_index
         tmp = np.array(main_subvol_available_points)
         if tmp.shape != (main_subvol_rslts.num_cut_regions,):
@@ -290,6 +291,11 @@ class TaskResult:
         assert (main_subvol_rslts.num_cut_regions ==
                 consolidated_rslts.num_cut_regions)
         self.consolidated_rslts = consolidated_rslts
+
+        # the following are not strictly necessary, but provide useful status
+        # information
+        self.num_neighboring_subvols = num_neighboring_subvols
+        self.perf_region = perf_region
 
 def consolidate_partial_vsf_results(statistic, *rslts,
                                     stat_kw = {}, dist_bin_edges = None):
@@ -315,6 +321,9 @@ class StatDetails(NamedTuple):
     sf_stat_kw_pairs: Sequence[Tuple[str, Dict[str,Any]]]
     # pairs of kernels and kwargs for non-structure function statistics:
     nonsf_kernel_kw_pairs: Sequence[Tuple[Any, Dict[str,Any]]]
+
+
+_PERF_REGION_NAMES = ('all', 'auto-sf', 'auto-other', 'cross-sf', 'cross-other')
 
 class SFWorker:
     """
@@ -362,9 +371,8 @@ class SFWorker:
             available_points_arr[cr_index] = available_points
             pos_and_quan_cache_l.append((pos,quan))
 
-            with perf.region('calc'):
+            with perf.region('auto-sf'): # calc structure-func stats
 
-                # compute the structure-function statistics
                 if len(stat_details.sf_stat_kw_pairs) != 0:
                     if (available_points <= 1):
                         rslts = [{} for _ in stat_details.sf_stat_kw_pairs]
@@ -383,7 +391,8 @@ class SFWorker:
                             cut_region_index = cr_index, rslt = rslt
                         )
 
-                # compute the non-structure function statistics
+            with perf.region('auto-other'): # calc non structure-func stats
+
                 for kernel, kw in stat_details.nonsf_kernel_kw_pairs:
                     stat_index = stat_details.name_index_map[kernel.name]
                     if ( (available_points == 0) or
@@ -411,13 +420,11 @@ class SFWorker:
             m_pos, m_quan = main_subvol_pos_and_quan[cr_index]
             m_available_points = main_subvol_available_points[cr_index]
 
-            with perf.region('calc'):
+            if (m_available_points == 0) or (o_available_points == 0):
+                rslt_container.store_all_empty_cut_region(cr_index)
+                continue
 
-                if (m_available_points == 0) or (o_available_points == 0):
-                    rslt_container.store_all_empty_cut_region(cr_index)
-                    continue
-
-                # perform the structure function calculation
+            with perf.region('cross-sf'): # calc structure-func stats
                 if len(stat_details.sf_stat_kw_pairs) != 0:
                     rslts = vsf_props(
                         pos_a = m_pos, vel_a = m_quan,
@@ -433,7 +440,7 @@ class SFWorker:
                             cut_region_index = cr_index, rslt = rslt
                         )
 
-                # compute the nonsf statistics
+            with perf.region('cross-other'): # calc non structure-func stats
                 for kernel, kw in stat_details.nonsf_kernel_kw_pairs:
                     stat_index = stat_details.name_index_map[kernel.name]
                     if not kernel.operate_on_pairs:
@@ -455,7 +462,7 @@ class SFWorker:
         return tmp
 
     def _process_index(self, subvol_index):
-        perf = PerfRegions(['all', 'calc'])
+        perf = PerfRegions(_PERF_REGION_NAMES)
         perf.start_region('all')
 
         ds = self.ds_initializer()
@@ -571,14 +578,10 @@ class SFWorker:
                                                 rslt = consolidated_rslt)
         perf.stop_region('all')
 
-        times = perf.times_sec()
-        print(f"{_fmt_subvol_index(subvol_index)} - " +
-              f"{len(cross_sf_rslts):2d} neigbors     " +
-              f"'all': {times['all']:>15} sec     " +
-              f"'calc': {times['calc']:>15} sec")
-
         return TaskResult(subvol_index, main_subvol_available_points,
-                          main_subvol_rslts, consolidated_rslts)
+                          main_subvol_rslts, consolidated_rslts,
+                          num_neighboring_subvols = len(cross_sf_rslts),
+                          perf_region = deepcopy(perf))
 
 def subvol_index_batch_generator(subvol_decomp, n_workers,
                                  subvols_per_chunk = None):
@@ -850,6 +853,10 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         if get_kernel(stat_name).commutative_consolidate:
             accum_rslt[stat_ind] = [{} for _ in cut_regions]
 
+    cumulative_count = np.array(-1)
+    total_count = np.prod(subvol_decomp.subvols_per_ax)
+    cumulative_perf = [PerfRegions(_PERF_REGION_NAMES)]
+
     def post_proc_callback(batched_result):
         for item in batched_result:
             subvol_index = item.subvol_index
@@ -911,9 +918,25 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             total_num_points_arr[:] += subvol_available_pts
 
             _str_prefix = f'Driver: {_fmt_subvol_index(subvol_index)} - '
-            print(f'{_str_prefix}num points from subvol: {subvol_available_pts}'
-                  + '\n' + len(_str_prefix)*' ' +
-                  f'total num points: {total_num_points_arr}')
+            cumulative_count[...] += 1
+            cumulative_perf[0] = cumulative_perf[0] + item.perf_region
+
+            template = (
+                ("{_str_prefix} subvol #{cum_count} of {total_count} " +
+                 "({n_neighbors:2d} neigbors)\n") +
+                "{pad}perf-sec - {perf_summary}\n" +
+                "{pad}num points from subvol: {subvol_available_pts}\n" +
+                "{pad}total num points: {total_num_points_arr}"
+            )
+
+            print(template.format(
+                _str_prefix = _str_prefix, pad = '    ',
+                cum_count = int(cumulative_count), total_count = total_count,
+                n_neighbors = item.num_neighboring_subvols,
+                perf_summary = item.perf_region.summarize_timing_sec(),
+                subvol_available_pts = subvol_available_pts,
+                total_num_points_arr = total_num_points_arr
+            ))
 
             item.main_subvol_rslts.purge()
             item.consolidated_rslts.purge()
@@ -921,6 +944,9 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     for batched_result in pool.map(worker, iterable,
                                    callback = post_proc_callback):
         continue # simply consume the iterator
+
+    print("Cumulative subvol-processing perf-sec -\n    " +
+          cumulative_perf[0].summarize_timing_sec())
 
     # now, let's consolidate the results together
     prop_l = []
