@@ -584,7 +584,9 @@ class SFWorker:
                           perf_region = deepcopy(perf))
 
 def subvol_index_batch_generator(subvol_decomp, n_workers,
-                                 subvols_per_chunk = None):
+                                 subvols_per_chunk = None,
+                                 max_subvols_per_chunk = None):
+
     num_x, num_y, num_z = subvol_decomp.subvols_per_ax
     
     if subvols_per_chunk is None:
@@ -603,6 +605,18 @@ def subvol_index_batch_generator(subvol_decomp, n_workers,
         chunksize = subvols_per_chunk
     assert chunksize > 0
 
+    if max_subvols_per_chunk is not None:
+        if ((subvols_per_chunk is not None) and
+            (subvols_per_chunk > max_subvols_per_chunk)):
+            raise ValueError("subvols_per_chunk can't exceed "
+                             "max_subvols_per_chunk")
+        elif int(max_subvols_per_chunk) != max_subvols_per_chunk:
+            raise ValueError("max_subvols_per_chunk must be an integer")
+        elif max_subvols_per_chunk <= 0:
+            raise ValueError("max_subvols_per_chunk must be positive")
+
+        chunksize = min(chunksize, max_subvols_per_chunk)
+
     cur_batch = []
 
     for z_ind in range(num_z):
@@ -614,6 +628,126 @@ def subvol_index_batch_generator(subvol_decomp, n_workers,
                     cur_batch = []
     if len(cur_batch) > 0:
         yield tuple(cur_batch)
+
+class _PoolCallback:
+    def __init__(self, stat_kw_pairs, n_cut_regions, subvol_decomp,
+                 dist_bin_edges, autosf_subvolume_callback,
+                 structure_func_props):
+        # the following are constants:
+        self.stat_kw_pairs = stat_kw_pairs
+        self.n_cut_regions = n_cut_regions
+        self.subvol_decomp = subvol_decomp
+        self.dist_bin_edges = dist_bin_edges
+        self.autosf_subvolume_user_callback = autosf_subvolume_callback
+        self.structure_func_props = structure_func_props
+        self.total_count = np.prod(subvol_decomp.subvols_per_ax)
+
+        # the following attributes are updated with each call
+        self.tmp_result_arr = np.empty(
+            shape = (len(stat_kw_pairs), n_cut_regions,
+                     np.prod(subvol_decomp.subvols_per_ax)),
+            dtype = object
+        )
+        self.total_num_points_arr = np.array([0 for _ in range(n_cut_regions)])
+
+        self.accum_rslt = {}
+        for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
+            if get_kernel(stat_name).commutative_consolidate:
+                self.accum_rslt[stat_ind] = [{} for _ in range(n_cut_regions)]
+
+        self.cumulative_count = -1
+        self.cumulative_perf = PerfRegions(_PERF_REGION_NAMES)
+
+
+    def __call__(self, batched_result):
+        subvols_per_ax = self.subvol_decomp.subvols_per_ax
+        autosf_subvolume_callback = self.autosf_subvolume_user_callback
+
+        for item in batched_result:
+            subvol_index = item.subvol_index
+
+            subvol_index_1D = (
+                subvol_index[0] +
+                subvols_per_ax[0] * ( subvol_index[1] +
+                                      subvols_per_ax[1] * subvol_index[2] )
+            )
+
+            # subvol_available_pts is a lists of the available points from
+            # just the subvolume at subvol_index (there is an entry for each
+            # cut_region).
+            subvol_available_pts = item.main_subvol_available_points
+
+            main_subvol_rslts = item.main_subvol_rslts
+            consolidated_rslts = item.consolidated_rslts
+
+            for stat_ind, (stat_name, stat_kw) in enumerate(self.stat_kw_pairs):
+                for cut_region_i in range(self.n_cut_regions):
+
+                    # for the given subvol_index, stat_index, cut_region_index:
+                    # - main_subvol_rslts holds the contributions from just the
+                    #   subvolume at subvol_index to the total structure
+                    #   function
+                    # - consolidated_rslt includes the contribution from
+                    #   main_subvol_rslt as well as cross-term contributions
+                    #   between points in subvol_index and points in its 13 (or
+                    #   at least those that exist) nearest neigboring
+                    #   subvolumes on the right side
+                    consolidated_rslt = consolidated_rslts.retrieve_result(
+                        stat_ind, cut_region_i
+                    )
+
+                    if stat_ind in self.accum_rslt:
+                        # in the case, consolidation of the statistic is
+                        # commutative
+                        self.accum_rslt[stat_ind][cut_region_i] = \
+                            consolidate_partial_vsf_results(
+                                stat_name,
+                                self.accum_rslt[stat_ind][cut_region_i],
+                                consolidated_rslt, stat_kw = stat_kw,
+                                dist_bin_edges = self.dist_bin_edges
+                            )
+                    else:
+                        self.tmp_result_arr[stat_ind, cut_region_i,
+                                            subvol_index_1D] = consolidated_rslt
+
+                    if autosf_subvolume_callback is not None:
+                        main_subvol_rslt = main_subvol_rslts.retrieve_result(
+                            stat_ind, cut_region_i
+                        )
+                        autosf_subvolume_callback(
+                            self.structure_func_props, self.subvol_decomp,
+                            subvol_index, stat_ind, cut_region_i,
+                            main_subvol_rslt,
+                            subvol_available_pts[cut_region_i]
+                        )
+
+            # we only update total_num_points_arr once per task rslt
+            self.total_num_points_arr[:] += subvol_available_pts
+
+            _str_prefix = f'Driver: {_fmt_subvol_index(subvol_index)} - '
+            self.cumulative_count += 1
+            self.cumulative_perf = self.cumulative_perf + item.perf_region
+
+            template = (
+                ("{_str_prefix} subvol #{cum_count} of {total_count} " +
+                 "({n_neighbors:2d} neigbors)\n") +
+                "{pad}perf-sec - {perf_summary}\n" +
+                "{pad}num points from subvol: {subvol_available_pts}\n" +
+                "{pad}total num points: {total_num_points_arr}"
+            )
+
+            print(template.format(
+                _str_prefix = _str_prefix, pad = '    ',
+                cum_count = self.cumulative_count,
+                total_count = self.total_count,
+                n_neighbors = item.num_neighboring_subvols,
+                perf_summary = item.perf_region.summarize_timing_sec(),
+                subvol_available_pts = subvol_available_pts,
+                total_num_points_arr = self.total_num_points_arr
+            ))
+
+            item.main_subvol_rslts.purge()
+            item.consolidated_rslts.purge()
 
 _dflt_vel_components = (('gas','velocity_x'),
                         ('gas','velocity_y'),
@@ -628,6 +762,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         max_points = None, rand_seed = None,
                         force_subvols_per_ax = None,
                         eager_loading = False,
+                        max_subvols_per_chunk = None,
                         pool = None, autosf_subvolume_callback = None):
     """
     Computes the structure function.
@@ -680,6 +815,10 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         When True, this tries to load simulation data much more eagerly
         (aggregating reads). While this requires additional RAM, this tries to
         ease pressure on shared file systems.
+    max_subvols_per_chunk: int, optional
+        The subvolumes are passed to the pool in chunks. This is used to
+        optionally specify the maximum number of subvols that are included in a
+        chunk.
     pool: `multiprocessing.pool.Pool`-like object, optional
         When specified, this should have a `map` method with a similar
         interface to `multiprocessing.pool.Pool`'s `map method
@@ -716,7 +855,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         Summarizes the structure function calculation properties
 
     """
-    
+
     if not callable(ds_initializer):
         assert pool is None
         _ds = ds_initializer
@@ -836,133 +975,42 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                       stat_kw_pairs = stat_kw_pairs,
                       eager_loading = eager_loading)
 
-    iterable = subvol_index_batch_generator(subvol_decomp,
-                                            n_workers = n_workers)
-
-    subvols_per_ax = subvol_decomp.subvols_per_ax
-
-
-    tmp_result_arr = np.empty(
-        shape = (len(stat_kw_pairs), len(cut_regions), np.prod(subvols_per_ax)),
-        dtype = object
+    iterable = subvol_index_batch_generator(
+        subvol_decomp, n_workers = n_workers,
+        max_subvols_per_chunk = max_subvols_per_chunk
     )
-    total_num_points_arr = np.array([0 for i in cut_regions])
 
-    accum_rslt = {}
-    for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
-        if get_kernel(stat_name).commutative_consolidate:
-            accum_rslt[stat_ind] = [{} for _ in cut_regions]
-
-    cumulative_count = np.array(-1)
-    total_count = np.prod(subvol_decomp.subvols_per_ax)
-    cumulative_perf = [PerfRegions(_PERF_REGION_NAMES)]
-
-    def post_proc_callback(batched_result):
-        for item in batched_result:
-            subvol_index = item.subvol_index
-
-            subvol_index_1D = (
-                subvol_index[0] +
-                subvols_per_ax[0] * ( subvol_index[1] +
-                                      subvols_per_ax[1] * subvol_index[2] )
-            )
-
-            # subvol_available_pts is a lists of the available points from
-            # just the subvolume at subvol_index (there is an entry for each
-            # cut_region).
-            subvol_available_pts = item.main_subvol_available_points
-
-            main_subvol_rslts = item.main_subvol_rslts
-            consolidated_rslts = item.consolidated_rslts
-
-            for stat_ind, (stat_name, stat_kw) in enumerate(stat_kw_pairs):
-                for cut_region_i in range(len(cut_regions)):
-
-                    # for the given subvol_index, stat_index, cut_region_index:
-                    # - main_subvol_rslts holds the contributions from just the
-                    #   subvolume at subvol_index to the total structure
-                    #   function
-                    # - consolidated_rslt includes the contribution from
-                    #   main_subvol_rslt as well as cross-term contributions
-                    #   between points in subvol_index and points in its 13 (or
-                    #   at least those that exist) nearest neigboring
-                    #   subvolumes on the right side
-                    consolidated_rslt = consolidated_rslts.retrieve_result(
-                        stat_ind, cut_region_i
-                    )
-
-                    if stat_ind in accum_rslt:
-                        # in the case, consolidation of the statistic is
-                        # commutative
-                        accum_rslt[stat_ind][cut_region_i] = \
-                            consolidate_partial_vsf_results(
-                                stat_name, accum_rslt[stat_ind][cut_region_i],
-                                consolidated_rslt, stat_kw = stat_kw,
-                                dist_bin_edges = dist_bin_edges
-                            )
-                    else:
-                        tmp_result_arr[stat_ind, cut_region_i,
-                                       subvol_index_1D] = consolidated_rslt
-
-                    if autosf_subvolume_callback is not None:
-                        main_subvol_rslt = main_subvol_rslts.retrieve_result(
-                            stat_ind, cut_region_i
-                        )
-                        autosf_subvolume_callback(
-                            structure_func_props, subvol_decomp, subvol_index,
-                            stat_ind, cut_region_i, main_subvol_rslt,
-                            subvol_available_pts[cut_region_i]
-                        )
-
-            # we only update total_num_points_arr once per task rslt
-            total_num_points_arr[:] += subvol_available_pts
-
-            _str_prefix = f'Driver: {_fmt_subvol_index(subvol_index)} - '
-            cumulative_count[...] += 1
-            cumulative_perf[0] = cumulative_perf[0] + item.perf_region
-
-            template = (
-                ("{_str_prefix} subvol #{cum_count} of {total_count} " +
-                 "({n_neighbors:2d} neigbors)\n") +
-                "{pad}perf-sec - {perf_summary}\n" +
-                "{pad}num points from subvol: {subvol_available_pts}\n" +
-                "{pad}total num points: {total_num_points_arr}"
-            )
-
-            print(template.format(
-                _str_prefix = _str_prefix, pad = '    ',
-                cum_count = int(cumulative_count), total_count = total_count,
-                n_neighbors = item.num_neighboring_subvols,
-                perf_summary = item.perf_region.summarize_timing_sec(),
-                subvol_available_pts = subvol_available_pts,
-                total_num_points_arr = total_num_points_arr
-            ))
-
-            item.main_subvol_rslts.purge()
-            item.consolidated_rslts.purge()
+    post_proc_callback = _PoolCallback(
+        stat_kw_pairs, n_cut_regions = len(cut_regions),
+        subvol_decomp = subvol_decomp, dist_bin_edges = dist_bin_edges,
+        autosf_subvolume_callback = autosf_subvolume_callback,
+        structure_func_props = structure_func_props
+    )
 
     for batched_result in pool.map(worker, iterable,
                                    callback = post_proc_callback):
         continue # simply consume the iterator
 
     print("Cumulative subvol-processing perf-sec -\n    " +
-          cumulative_perf[0].summarize_timing_sec())
+          post_proc_callback.cumulative_perf.summarize_timing_sec())
 
     # now, let's consolidate the results together
     prop_l = []
     for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
-        if stat_ind in accum_rslt:
+        if stat_ind in post_proc_callback.accum_rslt:
             # the results for this stat are already consolidated
-            prop_l.append(accum_rslt[stat_ind])
+            prop_l.append(post_proc_callback.accum_rslt[stat_ind])
         else:
             prop_l.append([
                 consolidate_partial_vsf_results(stat_name, *sublist) \
-                for sublist in tmp_result_arr[stat_ind]
+                for sublist in post_proc_callback.tmp_result_arr[stat_ind]
             ])
 
     if single_statistic:
         prop_l = prop_l[0]
-    total_num_points_used_arr = np.array(total_num_points_arr)
-    total_avail_points_arr = np.array(total_num_points_arr)
+    total_num_points_used_arr \
+        = np.array(post_proc_callback.total_num_points_arr)
+    total_avail_points_arr \
+        = np.array(post_proc_callback.total_num_points_arr)
     return (prop_l, total_num_points_used_arr, total_avail_points_arr,
             subvol_decomp, structure_func_props)
