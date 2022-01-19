@@ -10,7 +10,8 @@ from ._kernels_cy import (
     Histogram,
     Variance,
     _validate_basic_quan_props,
-    _allocate_unintialized_rslt_dict
+    _allocate_unintialized_rslt_dict,
+    _set_empty_count_locs_to_NaN
 )
 
 from ._kernels_nonsf import BulkAverage, BulkVariance
@@ -35,15 +36,19 @@ class Mean:
 
     @classmethod
     def consolidate_stats(cls, *rslts):
-        # we could probably co-opt the method for the variance kernel
-        raise NotImplementedError()
+        raise RuntimeError("THIS SHOULD NOT BE CALLED")
 
     @classmethod
     def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
     @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {}):
+    def postprocess_rslt(cls, rslt):
+        _set_empty_count_locs_to_NaN(rslt)
+
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
+                             postprocess_rslt = True):
         raise NotImplementedError()
 
 

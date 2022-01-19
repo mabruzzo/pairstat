@@ -203,13 +203,20 @@ class BulkAverage:
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
     @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {}):
+    def postprocess_rslt(cls, rslt):
+        pass # do nothing
+
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
+                             postprocess_rslt = True):
         rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges, kwargs)
         for k in rslt.keys():
             if k == 'average':
                 rslt[k][:] = np.nan
             else:
                 rslt[k][:] = 0.0
+        if postprocess_rslt:
+            cls.postprocess_rslt(rslt)
         return rslt
 
 def _weighted_variance(x, axis = None, weights = None, returned = False):
@@ -506,17 +513,23 @@ class BulkVariance:
 
         return out
 
-
     @classmethod
     def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
     @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {}):
+    def postprocess_rslt(cls, rslt):
+        pass # do nothing
+
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
+                             postprocess_rslt = True):
         rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges, kwargs)
         for k in rslt.keys():
             if k in ['variance', 'average']:
                 rslt[k][:] = np.nan
             else:
                 rslt[k][:] = 0.0
+        if postprocess_rslt:
+            cls.postprocess_rslt(rslt)
         return rslt

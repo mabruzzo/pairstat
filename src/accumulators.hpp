@@ -32,11 +32,13 @@ public: // interface
   }
 
   double get_flt_val(std::size_t i) const noexcept{
-    if (i == 0){
-      return mean;
-    } else {
-      error("MeanAccum only has 1 float_val");
-    }
+    if (i != 0){ error("MeanAccum only has 1 float_val"); }
+    return mean;
+  }
+
+  void set_flt_val(std::size_t i, double val) noexcept{
+    if (i != 0){ error("MeanAccum only has 1 float_val"); }
+    mean = val;
   }
 
   MeanAccum() : count(0), mean(0.0) {}
@@ -46,6 +48,9 @@ public: // interface
     double val_minus_last_mean = val - mean;
     mean += (val_minus_last_mean)/count;
   }
+
+  inline void consolidate_with_other(const MeanAccum& other) noexcept
+  { error("Not Implemented Yet"); }
 
 public: // attributes
   // number of entries included (so far)
@@ -63,14 +68,24 @@ public: // interface
   static std::string stat_name() noexcept { return "variance"; }
 
   static std::vector<std::string> flt_val_names() noexcept{
-    return {"mean", "variance"};
+    return {"mean", "variance*count"};
   }
 
   double get_flt_val(std::size_t i) const noexcept{
     if (i == 0){
       return mean;
     } else if (i == 1){
-      return (count > 1) ? cur_M2 / (count - 1) : 0.0;
+      return cur_M2;
+    } else {
+      error("VarAccum only has 2 float_vals");
+    }
+  }
+
+  void set_flt_val(std::size_t i, double val) noexcept{
+    if (i == 0){
+      mean = val;
+    } else if (i == 1){
+      cur_M2 = val;
     } else {
       error("VarAccum only has 2 float_vals");
     }
@@ -84,6 +99,41 @@ public: // interface
     mean += (val_minus_last_mean)/count;
     double val_minus_cur_mean = val - mean;
     cur_M2 += val_minus_last_mean * val_minus_cur_mean;
+  }
+
+  inline void consolidate_with_other(const VarAccum& other) noexcept
+  {
+    if (this->count == 0){
+      (*this) = other;
+    } else if (other.count == 0){
+      // do nothing
+    } else if (this->count == 1){ // equiv to copying *this and adding a single
+                                  // entry to this
+      double temp = this->mean;
+      (*this) = other;
+      this->add_entry(temp);
+
+    } else if (other.count == 1){ // equiv to adding a single entry to *this
+      this->add_entry(other.mean);
+    } else { // general case
+      double totcount = this->count + other.count;
+      double delta = other.mean - this->mean;
+      double delta2 = delta * delta;
+      this->cur_M2 = (this->cur_M2 + other.cur_M2 +
+                      delta2 * (this->count * other.count / totcount));
+
+      if (true){
+        // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+        // suggests that approach is more stable when the values of
+        // this->count and other.count are approximately the same and large
+        this->mean = (this->count*this->mean + other.count*other.mean)/totcount;
+      } else {
+        // in the other, limit, the following may be more stable
+        this->mean = this->mean + (delta * other.mean / totcount);
+      }
+
+      this->count = totcount;
+    }
   }
 
 public: // attributes
@@ -122,7 +172,15 @@ public:
   /// Updates the values of `*this` to include the values from `other`
   inline void consolidate_with_other(const ScalarAccumCollection& other)
     noexcept
-  { error("Not Implemented Yet"); }
+  {
+    std::size_t num_bins = accum_list_.size();
+    if (other.accum_list_.size() != num_bins){
+      error("There seemed to be a mismatch during consolidation");
+    }
+    for (std::size_t i = 0; i < num_bins; i++){
+      accum_list_[i].consolidate_with_other(other.accum_list_[i]);
+    }
+  }
 
   /// Return the Floating Point Value Properties
   ///
@@ -180,7 +238,14 @@ public:
   /// This is primarily meant to be passed an external buffer whose values were
   /// initialized by the copy_flt_vals method.
   void import_flt_vals(const double *in_vals) noexcept {
-    error("Not Implemented Yet");
+    const std::size_t num_flt_vals = Accum::flt_val_names().size();
+    const std::size_t n_bins = accum_list_.size();
+
+    for (std::size_t i = 0; i < n_bins; i++){
+      for (std::size_t j = 0; j < num_flt_vals; j++){
+	accum_list_[i].set_flt_val(j, in_vals[i + j*n_bins]);
+      }
+    }
   }
 
   /// Overwrites the int64_t values within each scalar accumulator using data

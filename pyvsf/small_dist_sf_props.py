@@ -381,7 +381,8 @@ class SFWorker:
                             pos_a = pos, vel_a = quan,
                             pos_b = None, vel_b = None,
                             dist_bin_edges = dist_bin_edges,
-                            stat_kw_pairs = stat_details.sf_stat_kw_pairs
+                            stat_kw_pairs = stat_details.sf_stat_kw_pairs,
+                            postprocess_stat = False
                         )
 
                     itr = zip(rslts, stat_details.sf_stat_kw_pairs)
@@ -430,7 +431,8 @@ class SFWorker:
                         pos_a = m_pos, vel_a = m_quan,
                         pos_b = o_pos, vel_b = o_quan,
                         dist_bin_edges = dist_bin_edges,
-                        stat_kw_pairs = stat_details.sf_stat_kw_pairs
+                        stat_kw_pairs = stat_details.sf_stat_kw_pairs,
+                        postprocess_stat = False
                     )
 
                     itr = zip(rslts, stat_details.sf_stat_kw_pairs)
@@ -681,6 +683,7 @@ class _PoolCallback:
             consolidated_rslts = item.consolidated_rslts
 
             for stat_ind, (stat_name, stat_kw) in enumerate(self.stat_kw_pairs):
+                kernel = get_kernel(stat_name)
                 for cut_region_i in range(self.n_cut_regions):
 
                     # for the given subvol_index, stat_index, cut_region_index:
@@ -714,11 +717,13 @@ class _PoolCallback:
                         main_subvol_rslt = main_subvol_rslts.retrieve_result(
                             stat_ind, cut_region_i
                         )
+                        tmp = deepcopy(main_subvol_rslt)
+                        kernel.postprocess_rslt(tmp)
+
                         autosf_subvolume_callback(
                             self.structure_func_props, self.subvol_decomp,
                             subvol_index, stat_ind, cut_region_i,
-                            main_subvol_rslt,
-                            subvol_available_pts[cut_region_i]
+                            tmp, subvol_available_pts[cut_region_i]
                         )
 
             # we only update total_num_points_arr once per task rslt
@@ -853,7 +858,6 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         Specifies how the domain has been decomposed into subvolumes
     sf_params: StructureFuncProps
         Summarizes the structure function calculation properties
-
     """
 
     if not callable(ds_initializer):
@@ -1001,10 +1005,16 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
             # the results for this stat are already consolidated
             prop_l.append(post_proc_callback.accum_rslt[stat_ind])
         else:
-            prop_l.append([
-                consolidate_partial_vsf_results(stat_name, *sublist) \
-                for sublist in post_proc_callback.tmp_result_arr[stat_ind]
-            ])
+            tmp = []
+            for sublist in post_proc_callback.tmp_result_arr[stat_ind]:
+                tmp.append(consolidate_partial_vsf_results(
+                    stat_name, *sublist, dist_bin_edges = dist_bin_edges
+                ))
+            prop_l.append(tmp)
+
+        kernel = get_kernel(stat_name)
+        for elem in prop_l[-1]:
+            kernel.postprocess_rslt(elem)
 
     if single_statistic:
         prop_l = prop_l[0]

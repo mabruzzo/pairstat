@@ -299,7 +299,8 @@ def _validate_stat_kw_pairs(arg):
 
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
               stat_kw_pairs = [('variance', {})],
-              nproc = 1, force_sequential = False):
+              nproc = 1, force_sequential = False,
+              postprocess_stat = True):
     """
     Calculates properties pertaining to the velocity structure function for 
     pairs of points.
@@ -322,7 +323,7 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         1D array of monotonically increasing values that represent edges for 
         distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
         interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
-    stat_kw_pairs: sequence of (str, dict) tuples
+    stat_kw_pairs : sequence of (str, dict) tuples
         Each entry is a tuple holding the name of a statistic to compute and a
         dictionary of kwargs needed to compute that statistic. A list of valid
         statistics are described below. Unless we explicitly state otherwise,
@@ -331,6 +332,17 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         Number of processes to use for parallelizing this calculation. Default
         is 1. If the problem is small enough, the program may ignore this
         argument and use fewer processes.
+    force_sequential : bool, optional
+        `False` by default. When `True`, this forces the code to run with a
+        single process (regardless of the value of `nproc`). However, the data
+        is still partitioned as though it were using `nproc` processes. Thus,
+        floating point results should be bitwise identical to an identical
+        function call where this is `False`. (This is primarily provided for
+        debugging purposes)
+    postprocess_stat : bool, optional
+        Users directly employing this function should almost always set this
+        kwarg to `True` (the default). This option is only provided to simplify
+        the process of consolidating results from multiple calls to vsf_props.
 
     Notes
     -----
@@ -392,13 +404,10 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     out = []
     for stat_name, _ in stat_kw_pairs:
         val_dict = rslt_container.extract_statistic_dict(stat_name)
-        if stat_name in ['mean', 'variance']:
-            w_mask = (val_dict['counts']  == 0)
-            for k,v in val_dict.items():
-                if k == 'counts':
-                    continue
-                else:
-                    v[w_mask] = np.nan
+
+        if postprocess_stat:
+            kernel = get_kernel(stat_name)
+            kernel.postprocess_rslt(val_dict)
         out.append(val_dict)
 
     return out
