@@ -110,7 +110,15 @@ public:
   /// Updates the values of `*this` to include the values from `other`
   inline void consolidate_with_other(const CompoundAccumCollection& other)
     noexcept
-  { error("Not Implemented Yet"); }
+  {
+    auto func = [&](auto& accum_elem)
+      {
+        using T = std::decay_t<decltype(accum_elem)>;
+        const T& other_accum_elem = std::get<T>(other.accum_collec_tuple_);
+        accum_elem.consolidate_with_other(other_accum_elem);
+      };
+    for_each_tuple_entry(accum_collec_tuple_, func);
+  }
 
   /// Copies the int64_t values of each accumulator to an external buffer
   void copy_i64_vals(int64_t *out_vals) noexcept {

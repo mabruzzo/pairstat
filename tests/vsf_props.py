@@ -367,7 +367,8 @@ def test_vsf_single_collection():
                                     atol = atol_l, rtol = rtol_l)
 
 def extra_multiple_stats_test(alt_implementation_key = 'individual-stats',
-                              skip_variance = False, skip_auto_sf = False):
+                              skip_variance = False, skip_auto_sf = False,
+                              use_tol = False):
 
     # a few extra tests to verify that there is no difference in the result
     # (this is some very simplistic, crude fuzzing)
@@ -388,9 +389,14 @@ def extra_multiple_stats_test(alt_implementation_key = 'individual-stats',
         x_b, vel_b = _generate_vals((3,2000), generator)
         bin_edges = np.arange(11.0)/10
         _stat_quadruple = [
-            ('variance', {}, 0.0, {'mean' : 2e-14, 'variance' : 3e-14}),
+            ('variance', {}, 0.0, {'mean' : 3.5e-14, 'variance' : 3e-14}),
             ('histogram', {"val_bin_edges" : val_bin_edges}, 0.0, 0.0)
         ]
+
+        if use_tol:
+            _, _, atol, rtol = zip(*_stat_quadruple)
+        else:
+            atol, rtol = 0.0, 0.0
 
         # auto-structure-function
         if not skip_auto_sf:
@@ -398,7 +404,7 @@ def extra_multiple_stats_test(alt_implementation_key = 'individual-stats',
                 pos_a = x_a, pos_b = None, vel_a = vel_a, vel_b = None,
                 dist_bin_edges = bin_edges,
                 stat_kw_pairs = stat_kw_pairs,
-                atol = 0.0, rtol = 0.0,
+                atol = atol, rtol = rtol,
                 alt_implementation_key = alt_implementation_key
             )
 
@@ -407,7 +413,7 @@ def extra_multiple_stats_test(alt_implementation_key = 'individual-stats',
             pos_a = x_a, pos_b = x_b, vel_a = vel_a, vel_b = vel_b,
             dist_bin_edges = bin_edges,
             stat_kw_pairs = stat_kw_pairs,
-            atol = 0.0, rtol = 0.0,
+            atol = atol, rtol = rtol,
             alt_implementation_key = alt_implementation_key
         )
 
@@ -459,27 +465,16 @@ if __name__ == '__main__':
     print('checking partitioning for shared-memory multiprocessing')
     extra_multiple_stats_test(
         alt_implementation_key = 'actual-3proc-seq',
-        skip_variance = True,
-        skip_auto_sf = True
+        skip_variance = False,
+        skip_auto_sf = True,
+        use_tol = True
     )
     extra_multiple_stats_test(
         alt_implementation_key = 'actual-3proc',
-        skip_variance = True,
-        skip_auto_sf = True
+        skip_variance = False,
+        skip_auto_sf = True,
+        use_tol = True
     )
-
-
-    #benchmark((3,10000), shape_b = None, seed = 156,
-    #          dist_bin_edges = np.arange(101.0)/100)
-
-    #benchmark((3,20000), shape_b = None, seed = 156,
-    #          dist_bin_edges = np.arange(101.0)/100)
-
-    #benchmark((3,30000), shape_b = None, seed = 156,
-    #          dist_bin_edges = np.arange(101.0)/100)
-
-    #benchmark((3,50000), shape_b = None, seed = 156,
-    #          dist_bin_edges = np.arange(101.0)/100)
 
     print('running a short benchmark. This takes ~20 s')
     val_bin_edges = np.geomspace(start = 1e-16, stop = 2.0, num = 100,
@@ -492,10 +487,10 @@ if __name__ == '__main__':
                                ('variance', {})],
               skip_python_version = True)
 
-    print('running a short benchmark. This takes ~10 s')
+    print('running a short benchmark. This takes ~10 s on a 4 core system')
     benchmark((3,20000), shape_b = (3,20000), seed = 156,
               dist_bin_edges = np.arange(101.0)/100,
               stat_kw_pairs = [('histogram', {'val_bin_edges':val_bin_edges}),
-                               ('variance', {})][:1],
+                               ('variance', {})],#[:1],
               nproc = 4,
               skip_python_version = True)

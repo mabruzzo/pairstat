@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib> // std::getenv
 
 #include <algorithm>
 #include <string>
@@ -177,7 +178,26 @@ namespace{
       }
     }
   }
-                      
+
+  std::size_t get_nominal_nproc_(const ParallelSpec& parallel_spec) noexcept
+  {
+    if (parallel_spec.nproc == 0) {
+      // this approach is crude. OMP_NUM_THREADS doesn't need to be an int
+      char* var_val = std::getenv("OMP_NUM_THREADS");
+      if (var_val == nullptr){
+        return 1;
+      } else {
+        int tmp = std::atoi(var_val);
+        if (tmp <= 0){
+          error("OMP_NUM_THREADS has an invalid value");
+        } else {
+          return tmp;
+        }
+      }
+    } else {
+      return parallel_spec.nproc;
+    }
+  }
 
   template<typename AccumCollection>
   void calc_vsf_props_parallel_(const PointProps points_a,
@@ -188,13 +208,13 @@ namespace{
                                 AccumCollection& accumulators,
                                 bool duplicated_points) noexcept
   {
-    if (parallel_spec.nproc == 0) { error("can't handle nproc=0 yet"); }
+    std::size_t nominal_nproc = get_nominal_nproc_(parallel_spec);
 
     if (duplicated_points) {
       error("partitioning strategy for auto-vsf is untested");
     }
  
-    const TaskItFactory factory(parallel_spec.nproc, points_a.n_points,
+    const TaskItFactory factory(nominal_nproc, points_a.n_points,
                                 (duplicated_points) ? 0 : points_b.n_points);
 
     // this may be less than the value from parallel_spec.nproc
@@ -214,7 +234,11 @@ namespace{
     }
 
     const bool use_parallel = ((!parallel_spec.force_sequential) && (nproc>1));
-    
+
+    //printf("About to enter parallel region.\n"
+    //       "  use_parallel: %d, nproc = %zu, n_partitions = %zu\n",
+    //       (int)use_parallel, nproc, (std::size_t)factory.n_partitions());
+
     // now actually compute the number of statistics
     #pragma omp parallel if (use_parallel)
     {

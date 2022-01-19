@@ -382,7 +382,8 @@ class SFWorker:
                             pos_b = None, vel_b = None,
                             dist_bin_edges = dist_bin_edges,
                             stat_kw_pairs = stat_details.sf_stat_kw_pairs,
-                            postprocess_stat = False
+                            postprocess_stat = False,
+                            nproc = 1
                         )
 
                     itr = zip(rslts, stat_details.sf_stat_kw_pairs)
@@ -432,7 +433,8 @@ class SFWorker:
                         pos_b = o_pos, vel_b = o_quan,
                         dist_bin_edges = dist_bin_edges,
                         stat_kw_pairs = stat_details.sf_stat_kw_pairs,
-                        postprocess_stat = False
+                        postprocess_stat = False,
+                        nproc = 0 # fall back to OMP_NUM_THREADS env var
                     )
 
                     itr = zip(rslts, stat_details.sf_stat_kw_pairs)

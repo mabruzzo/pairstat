@@ -346,6 +346,8 @@ class Variance:
 
     @classmethod
     def postprocess_rslt(cls, rslt):
+        if rslt == {}:
+            return
         w = (rslt['counts'] > 1)
         # it may not make any sense to use Bessel's correction
         rslt['variance'][w] /= (rslt['counts'][w] - 1)

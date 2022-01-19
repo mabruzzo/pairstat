@@ -267,13 +267,19 @@ struct CrossSFPartitionStrat{
     index[1]++;
     if (index[1] == this->num_segments_B){
       index[0]++;
-      index[1] = index[0];
+      index[1] = 0;
     }
   }
 
   StatTask build_StatTask(const std::array<std::uint64_t,2>& index_2D) const
     noexcept
   {
+    if ((index_2D[0] >= num_segments_A) | (index_2D[1] >= num_segments_B)){
+      printf("2D index: (%zu, %zu); effective_shape = (%zu, %zu)\n",
+             (std::size_t)index_2D[0], (std::size_t)index_2D[1],
+             (std::size_t)num_segments_A, (std::size_t)num_segments_B);
+      error("index_2D contains a value that is too large");
+    }
     SlcStruct slice_A = calc_chunk_slice(index_2D[0], this->n_points_A,
                                          this->num_segments_A);
     SlcStruct slice_B = calc_chunk_slice(index_2D[1], this->n_points_B,
@@ -293,26 +299,46 @@ struct CrossSFPartitionStrat{
     if (nproc == 0){error("nproc can't be zero");}
 
     // we could definitely use a better algorithm to partition the work more
-    // equally
-  
-    std::size_t total_pairs = n_points_A * n_points_B; // TODO: handle overflow
+    // equally (and more conciously of the cache)
+
+    const std::size_t small_npairs = 1000;
+    bool exceed_small_npairs = // try to work around an overflow
+      ( ((n_points_A * n_points_B) > small_npairs) |
+        ((n_points_A >= small_npairs) & (n_points_B > 0)) |
+        ((n_points_B >= small_npairs) & (n_points_A > 0)) );
 
     // our definition of a small problem could be improved
-    bool is_small_problem = (!skip_small_problem_check) & (total_pairs < 5000);
+    bool is_small_problem = !exceed_small_npairs & !skip_small_problem_check;
 
     if (is_small_problem | ((nproc > n_points_A) & (nproc > n_points_B))){
       return {safe_cast<std::uint64_t>(n_points_A), 1,
               safe_cast<std::uint64_t>(n_points_B), 1};
-    } else if (nproc < n_points_B){
-      return {safe_cast<std::uint64_t>(n_points_A),
-              1,
-              safe_cast<std::uint64_t>(n_points_B),
-              safe_cast<std::uint64_t>(nproc)};
+    }
+
+    auto builder = [=](bool partition_A)->CrossSFPartitionStrat
+      {
+        return {safe_cast<std::uint64_t>(n_points_A),
+                (partition_A) ? safe_cast<std::uint64_t>(nproc) : 1,
+                safe_cast<std::uint64_t>(n_points_B),
+                (partition_A) ? 1 : safe_cast<std::uint64_t>(nproc)};
+      };
+
+    const bool partition_A = true;
+    const bool partition_B = false;
+    bool smaller_than_both = ((nproc <= n_points_A) & (nproc <= n_points_B));
+    
+    if ((nproc <= n_points_A) & ((n_points_A % nproc) == 0)){
+      return builder(partition_A);  // n_points_A is a multiple of n_proc
+    } else if ((nproc <= n_points_B) & ((n_points_B % nproc) == 0)){
+      return builder(partition_B); // n_points_B is a multiple of n_proc
+    } else if ((smaller_than_both) & (n_points_B > n_points_A)){
+      return builder(partition_B);
+    } else if (smaller_than_both) { // n_points_B <= n_points_A
+      return builder(partition_A);
+    } else if (nproc < n_points_B) {
+      return builder(partition_B);
     } else {
-      return {safe_cast<std::uint64_t>(n_points_A),
-              safe_cast<std::uint64_t>(nproc),
-              safe_cast<std::uint64_t>(n_points_B),
-              1};
+      return builder(partition_A);
     }
   }
 };
@@ -415,9 +441,11 @@ public:
   TaskIt build_TaskIt(std::size_t proc_id) const noexcept {
     if (proc_id >= nproc_){ error("proc_id is too large"); }
 
+    //printf("Compute slc before constructing TaskIt\n");
     SlcStruct slc = calc_chunk_slice(proc_id,
                                      safe_cast<std::size_t>(n_partitions()),
-                                     nproc_);
+                                     effective_nproc());
+    //printf("Done computing slc\n");
     return TaskIt(safe_cast<std::uint64_t>(slc.start),
                   safe_cast<std::uint64_t>(slc.stop),
                   partition_strat_);
