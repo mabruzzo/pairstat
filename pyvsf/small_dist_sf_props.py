@@ -248,6 +248,21 @@ class StatRsltContainer:
         for i in range(self.num_statistics):
             self._arr[i, cut_region_index] = {}
 
+    def duplicate_results_for_cut_region(self, src_cr_index, dest_cr_index):
+        """
+        Performs a deepcopy for all of the results for `src_cr_index` and
+        stores them for `dest_cr_index`
+        """
+        assert src_cr_index != dest_cr_index
+        for stat_ind in range(self.num_statistics):
+            rslt = deepcopy(
+                self.retrieve_result(stat_index = stat_ind,
+                                     cut_region_index = src_cr_index)
+            )
+            self.store_result(stat_index = stat_ind,
+                              cut_region_index = dest_cr_index,
+                              rslt = rslt)
+
     def rslt_exists(self, stat_index, cut_region_index):
         return self._arr[stat_index, cut_region_index] is not None
 
@@ -312,6 +327,32 @@ def consolidate_partial_vsf_results(statistic, *rslts,
         consolidator = build_consolidater(dist_bin_edges, kernel, stat_kw)
         return consolidator.consolidate(*rslts)
 
+class MaxSizeCutRegionTracker:
+    """
+    Lightweight functor used to track which cut_region contains the maximum
+    number of points.
+
+    Notes
+    -----
+    This is primarily meant to assist with avoiding a duplicated calculation
+    when you happen to have 2 cut_regions that include all points.
+    """
+
+    def __init__(self, ignore_cr_index = None):
+        self._ignore_cr_index = ignore_cr_index
+        self.max_size_cr_index, self._max_num_points = None, None
+
+    def process_cr_size(self, cr_index, num_points):
+        dont_ignore = cr_index != self._ignore_cr_index
+        new_val_is_larger = ((self._max_num_points is None) or
+                             (num_points > self._max_num_points))
+        if dont_ignore and new_val_is_larger:
+            self.max_size_cr_index, self._max_num_points = cr_index, num_points
+
+    def matches_max_num_points(self, num_points):
+        return ((self._max_num_points is not None) and
+                (self._max_num_points == num_points))
+
 class StatDetails(NamedTuple):
     # lightweight class used internally by SFWorker
 
@@ -345,10 +386,20 @@ class SFWorker:
     def _get_num_cut_regions(self):
         return len(self.sf_param.cut_regions)
 
+    def _get_all_inclusive_cr_index(self):
+        # return the cut_region index corresponding to an all inclusive cut
+        # region (if there is one)
+        try:
+            all_inclusive_cr_ind = self.sf_param.cut_regions.index(None)
+        except ValueError:
+            all_inclusive_cr_ind = None
+        return all_inclusive_cr_ind
+
     @staticmethod
     def process_auto_stats(cut_region_iter, stat_details, dist_bin_edges, perf,
                            rslt_container, available_points_arr,
-                           pos_and_quan_cache_l):
+                           pos_and_quan_cache_l,
+                           all_inclusive_cr_index = None):
         """
         Computes the auto-component of stats from a single subvolume.
 
@@ -364,12 +415,40 @@ class SFWorker:
         pos_and_quan_cache_l
             list where tuples of the positions and quantities for each subregion
             will be cached (so they can be reused for computing cross-terms).
+        all_inclusive_cr_index : int, optional
+            Optionally specified cut_region_index corresponding to a cut_region
+            that includes all points is specified. When specified and there is
+            another cut_region that happens to also include all points in the
+            subvolume, a duplicated calculation will be avoided.
+
+        Notes
+        -----
+        While the optimization using all_inclusive_cr_index may not seem useful,
+        for certain types of inputs (e.g. wind tunnel simulations at early
+        times), this will offer some performance improvement
         """
+
+        largest_cr_tracker = MaxSizeCutRegionTracker(
+            ignore_cr_index = all_inclusive_cr_index
+        )
+
         for tmp in cut_region_iter:
             cr_index, pos, quan, extra_quan, available_points = tmp
 
             available_points_arr[cr_index] = available_points
             pos_and_quan_cache_l.append((pos,quan))
+
+            largest_cr_tracker.process_cr_size(cr_index, available_points)
+            if ((cr_index == all_inclusive_cr_index) and
+                largest_cr_tracker.matches_max_num_points(available_points)):
+
+                # copy results from prior cut_region & skip the calculation
+                rslt_container.duplicate_results_for_cut_region(
+                    src_cr_index = largest_cr_tracker.max_size_cr_index,
+                    dest_cr_index = cr_index
+                )
+                assert available_points > 0 # sanity check
+                continue
 
             with perf.region('auto-sf'): # calc structure-func stats
 
@@ -411,7 +490,27 @@ class SFWorker:
     @staticmethod
     def process_cross_stats(cut_region_iter, main_subvol_pos_and_quan,
                             main_subvol_available_points, stat_details,
-                            dist_bin_edges, perf, rslt_container):
+                            dist_bin_edges, perf, rslt_container,
+                            all_inclusive_cr_index = None):
+        """
+        Parameters
+        ----------
+        all_inclusive_cr_index : int, optional
+            Optionally specified cut_region_index corresponding to a cut_region
+            that includes all points is specified. When specified and there is
+            another cut_region that happens to also include all points in both
+            subvolumes, a duplicated calculation will be avoided.
+
+        Notes
+        -----
+        While the optimization using all_inclusive_cr_index may not seem useful,
+        for certain types of inputs (e.g. wind tunnel simulations at early
+        times), this will offer some performance improvement
+        """
+
+        largest_cr_tracker = MaxSizeCutRegionTracker(
+            ignore_cr_index = all_inclusive_cr_index
+        )
 
         # iterate over the positions/quantities/extra_quantities from the
         # adjacent subvolume for each cut region
@@ -424,6 +523,17 @@ class SFWorker:
 
             if (m_available_points == 0) or (o_available_points == 0):
                 rslt_container.store_all_empty_cut_region(cr_index)
+                continue
+
+            npoint_pair = (m_available_points, o_available_points)
+            largest_cr_tracker.process_cr_size(cr_index, npoint_pair)
+            if ((cr_index == all_inclusive_cr_index) and
+                largest_cr_tracker.matches_max_num_points(npoint_pair)):
+                # copy results from prior cut_region & skip the calculation
+                rslt_container.duplicate_results_for_cut_region(
+                    src_cr_index = largest_cr_tracker.max_size_cr_index,
+                    dest_cr_index = cr_index
+                )
                 continue
 
             with perf.region('cross-sf'): # calc structure-func stats
@@ -510,6 +620,8 @@ class SFWorker:
             extra_quantities = extra_quan_spec
         )
 
+        all_inclusive_cr_index = self._get_all_inclusive_cr_index()
+
         sf_param = self.sf_param
         dist_bin_edges = np.copy(np.array(self.sf_param.dist_bin_edges))
 
@@ -531,7 +643,8 @@ class SFWorker:
             stat_details, dist_bin_edges, perf,
             rslt_container = main_subvol_rslts,
             available_points_arr = main_subvol_available_points,
-            pos_and_quan_cache_l = main_subvol_pos_and_quan
+            pos_and_quan_cache_l = main_subvol_pos_and_quan,
+            all_inclusive_cr_index = all_inclusive_cr_index
         )
 
         assert main_subvol_rslts.entries_stored_for_all_results() # sanity check
@@ -553,7 +666,8 @@ class SFWorker:
                 cut_region_itr_builder(other_ind, is_central = False),
                 main_subvol_pos_and_quan, main_subvol_available_points,
                 stat_details, dist_bin_edges, perf,
-                rslt_container = cross_sf_rslts[-1]
+                rslt_container = cross_sf_rslts[-1],
+                all_inclusive_cr_index = all_inclusive_cr_index
             )
 
         # finally, consolidate cross_sf_rslts together with main_subvol_rslts
@@ -802,7 +916,10 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     cut_regions: tuple of strings
         `cut_regions` is list of cut_strings combinations. Examples 
         include `"obj['temperature'] > 1e6"`,
-        `'obj["velocity_magnitude"].in_units("km/s") > 1'`, and None
+        `'obj["velocity_magnitude"].in_units("km/s") > 1'`, and `None`. `None`
+        includes all values. A minor optimization can be made if `None` is
+        passed as the last tuple entry in subvolumes where another cut_region
+        also includes all of the entries in the subvolume.
     pos_units, quantity_units: string, Optional
         Optionally specifies the position and quantity units.
     component_fields: list of fields

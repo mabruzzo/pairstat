@@ -50,6 +50,31 @@ Faster algorithms, involving kdtrees/octrees, should definitely be
 considered for larger problem sizes (the optimizations file briefly
 talks about why these alternative approaches might be beneficial).
 
+Another faster algorithm for regularly-spaced grid-based data would be
+a stencil-based approach that allows you to determine the sparation
+between pairs of points without actually calculating distances. An added
+perk of this is that you can entirely remove the branching that is present
+in the currently algorithm. As a consequence, vectorization would provide
+a significant speed improvement.
+
+This module also provides another primary function,
+``pyvsf.small_dist_sf_props.small_dist_sf_props`` that can be used to
+compute statistics for an astrophysical simulation. This function
+decomposes the simulation into smaller subvolumes (the size of each
+subvolume is related to the maximum separation). This can considerably
+reduce the complexity of the calculation.
+
+## Parallelization
+
+``pyvsf.vsf_props`` is currently parallelized for cross-structure functions
+using OpenMP (most of the ground-work is there for auto-structure functions,
+but that remains untested).
+
+``pyvsf.small_dist_sf_props.small_dist_sf_props`` also offers parallelization
+using MPI/multiprocessing, using `MPIPool` or `MultiPool` from the schwimmbad
+package. A modified `MPIPool` is also provided to work around some MPI issues
+on some super computing clusters.
+
 ## Motivations
 
 The main motivation for this module was to have an alternative to using
@@ -61,3 +86,9 @@ suggests that this is ~9 times faster for ~4e8 pairs.
 For larger numbers of pairs, it seems that the performance gap may narrow
 somewhat. However this is precisely where the scipy/numpy approach becomes
 untenable due to memory consumption.
+
+## Caveats
+This module evolved very organically. As a result, there are some oddities
+(e.g. the use of Cython and the `ctypes` module). This is particularly true for
+the ``pyvsf.small_dist_sf_props.small_dist_sf_props`` function. A fair amount
+of refactoring could be done to simplify/improve certain aspects.
