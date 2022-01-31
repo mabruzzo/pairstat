@@ -117,7 +117,8 @@ def _fmt_subvol_index(subvol_index):
 
 
 
-def decompose_volume(ds, sf_params, force_subvols_per_ax = None):
+def decompose_volume(ds, sf_params, subvol_side_len = None,
+                     force_subvols_per_ax = None):
     """
     Constructs an instance of SubVolumeDecomposition.
 
@@ -127,6 +128,12 @@ def decompose_volume(ds, sf_params, force_subvols_per_ax = None):
         The dataset object
     sf_params: StructureFuncProps
         structure function parameters.
+    subvol_side_len: tuple, Optional
+        Optional argument that specifies the length of each axis of the 
+        subvolume (assuming that its a cube). When specified, this should
+        be a 2-tuple where the first element is a positive float specifying the
+        length and the second element is a string specifying the units.
+        This can't be specified if force_subvols_per_ax is specified.
 
     Notes
     -----
@@ -207,7 +214,29 @@ def decompose_volume(ds, sf_params, force_subvols_per_ax = None):
             np.floor((width / min_subvol_width).to('dimensionless').v)
         ))
 
-        if force_subvols_per_ax is not None:
+        if subvol_side_len is not None:
+            subvol_side_len = ds.quan(*subvol_side_len)
+            if force_subvols_per_ax is not None:
+                raise ValueError("subvol_side_len and force_subvols_per_ax "
+                                 "can't both be specified.")
+            elif subvol_side_len < min_subvol_width.max():
+                raise ValueError(
+                    f"subvol_side_len, {subvol_side_len}, is too small. It "
+                    f"must be at least {min_subvol_width.max()}"
+                )
+            subvols_per_ax = tuple(map(
+                lambda x: max(1, int(x)),
+                np.floor((width / subvol_side_len).to('dimensionless').v)
+            ))
+            if (width != (np.array(subvols_per_ax) * subvol_side_len)).any():
+                raise ValueError(
+                    "The quotient of the domain with along each axis and "
+                    "subvol_side_len must be a positive integer"
+                )
+
+            kwargs['subvols_per_ax'] = subvols_per_ax
+
+        elif force_subvols_per_ax is not None:
             for i in range(3):
                 if max_subvols_per_ax[i] < force_subvols_per_ax[i]:
                     raise ValueError(
@@ -881,6 +910,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
                         geometric_selector = None,
                         statistic = 'variance', kwargs = {},
                         max_points = None, rand_seed = None,
+                        subvol_side_len = None,
                         force_subvols_per_ax = None,
                         eager_loading = False,
                         max_subvols_per_chunk = None,
@@ -935,6 +965,12 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
     rand_seed: int, optional
         Optional argument used to seed the pseudorandom permutation used to
         select points when the number of points exceed `maxpoints`.
+    subvol_side_len: tuple, Optional
+        Optional argument that specifies the length of each axis of the 
+        subvolume (assuming that its a cube). When specified, this should
+        be a 2-tuple where the first element is a positive float specifying the
+        length and the second element is a string specifying the units.
+        This can't be specified if force_subvols_per_ax is specified.
     eager_loading: bool, optional
         When True, this tries to load simulation data much more eagerly
         (aggregating reads). While this requires additional RAM, this tries to
@@ -1062,6 +1098,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 
     subvol_decomp = decompose_volume(
         ds_initializer(), structure_func_props,
+        subvol_side_len = subvol_side_len,
         force_subvols_per_ax = force_subvols_per_ax
     )
 
