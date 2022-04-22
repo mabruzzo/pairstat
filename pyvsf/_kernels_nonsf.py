@@ -132,6 +132,10 @@ class BulkAverage:
     non_vsf_func = compute_bulkaverage
 
     @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
+
+    @classmethod
     def get_extra_fields(cls, kwargs = {}):
         weight_unit_pairs = _extract_weight_unit_pairs(kwargs)
         if len(weight_unit_pairs) != 1:
@@ -401,6 +405,10 @@ class BulkVariance:
     commutative_consolidate = False
     operate_on_pairs = False
     non_vsf_func = compute_bulk_variance
+
+    @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
 
     @classmethod
     def get_extra_fields(cls, kwargs = {}):

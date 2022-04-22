@@ -247,6 +247,10 @@ class Histogram:
     non_vsf_func = None
 
     @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
+    
+    @classmethod
     def get_extra_fields(cls, kwargs = {}):
         return None
 
@@ -323,6 +327,10 @@ class Variance:
     commutative_consolidate = False
     operate_on_pairs = True
     non_vsf_func = None
+
+    @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
 
     @classmethod
     def get_extra_fields(cls, kwargs = {}):

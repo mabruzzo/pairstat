@@ -24,6 +24,10 @@ class Mean:
     non_vsf_func = None
 
     @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
+
+    @classmethod
     def get_extra_fields(cls, kwargs = {}):
         return None
 
