@@ -2,7 +2,7 @@ import functools
 
 import numpy as np
 
-from _kernels_cy import _allocate_unintialized_rslt_dict
+from .._kernels_cy import _allocate_unintialized_rslt_dict
 
 class _NeighborOpExecutor:
     def __init__(self, axis, trailing_ghost):
@@ -185,7 +185,16 @@ class GridscaleVdiffHistogram:
 
     @classmethod
     def consolidate_stats(cls, *rslts):
-        raise NotImplementedError("This needs to be implemented")
+        out = {}
+        for rslt in rslts:
+            if len(rslt) == 0:
+                continue
+            for k, vals in rslt.items():
+                if k not in out:
+                    out[k] = vals.copy()
+                else:
+                    out[k] += vals
+        return out
 
     @classmethod
     def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):

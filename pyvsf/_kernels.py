@@ -15,6 +15,7 @@ from ._kernels_cy import (
 )
 
 from ._kernels_nonsf import BulkAverage, BulkVariance
+from .grid_scale._kernels import GridscaleVdiffHistogram
 
 class Mean:
     name = "mean"
@@ -58,7 +59,8 @@ class Mean:
 
 
 
-_KERNELS = (Mean, Variance, Histogram, BulkAverage, BulkVariance)
+_KERNELS = (Mean, Variance, Histogram, BulkAverage, BulkVariance,
+            GridscaleVdiffHistogram)
 _KERNEL_DICT = dict((kernel.name, kernel) for kernel in _KERNELS)
 
 def get_kernel(statistic):

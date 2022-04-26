@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 from setuptools.extension import Extension
 from setuptools.command.build_ext import build_ext as _build_ext
 
@@ -47,7 +47,7 @@ setup(
                       'yt'],
     author='Matthew Abruzzo',
     author_email='matthewabruzzo@gmail.com',
-    packages=['pyvsf'],
+    packages=find_packages(exclude = ['tests', 'src']),
     cmdclass={'build_ext': build_ext},
     ext_modules=ext_modules
 )

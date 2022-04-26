@@ -741,3 +741,6 @@ def decompose_volume_intrinsic(ds):
     # Note: ds.periodicity doesn't store the right values for EnzoPDatasets
     kwargs['periodicity'] = (False, False, False)
     return SubVolumeDecomposition(intrinsic_decomp = True, **kwargs)
+
+def grid_scale_vel_diffs():
+    raise NotImplementedError()
