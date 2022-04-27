@@ -141,8 +141,6 @@ class WorkerStructuredGrid(_BaseWorker):
             ds, index, extra_quan_spec, self.subvol_decomp
         )
 
-        
-
         # now actually compute the statistic
         rslts = StatRsltContainer(
             num_statistics = 1,

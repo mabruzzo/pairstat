@@ -427,6 +427,41 @@ class _PoolCallback:
             item.main_subvol_rslts.purge()
             item.consolidated_rslts.purge()
 
+def _prep_pool(pool = None):
+    if pool is None:
+        class Pool:
+            def map(self, func, iterable, callback = None):
+                tmp = map(func, iterable)
+                for elem in tmp:
+                    if callback is not None:
+                        callback(elem)
+                    yield elem
+        pool = Pool()
+        n_workers = 1
+    else:
+        n_workers = pool.size
+    return pool, n_workers
+
+def _consolidate_rslts(stat_kw_pairs, post_proc_callback,
+                       dist_bin_edges):
+    prop_l = []
+    for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
+        if stat_ind in post_proc_callback.accum_rslt:
+            # the results for this stat are already consolidated
+            prop_l.append(post_proc_callback.accum_rslt[stat_ind])
+        else:
+            tmp = []
+            for sublist in post_proc_callback.tmp_result_arr[stat_ind]:
+                tmp.append(consolidate_partial_vsf_results(
+                    stat_name, *sublist, dist_bin_edges = dist_bin_edges
+                ))
+            prop_l.append(tmp)
+
+        kernel = get_kernel(stat_name)
+        for elem in prop_l[-1]:
+            kernel.postprocess_rslt(elem)
+    return prop_l
+
 _dflt_vel_components = (('gas','velocity_x'),
                         ('gas','velocity_y'),
                         ('gas','velocity_z'))
@@ -548,18 +583,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
         _ds = ds_initializer
         ds_initializer = lambda: _ds
 
-    if pool is None:
-        class Pool:
-            def map(self, func, iterable, callback = None):
-                tmp = map(func, iterable)
-                for elem in tmp:
-                    if callback is not None:
-                        callback(elem)
-                    yield elem
-        pool = Pool()
-        n_workers = 1
-    else:
-        n_workers = pool.size
+    pool, n_workers = _prep_pool(pool)
 
     assert len(cut_regions) > 0
     dist_bin_edges = np.asarray(dist_bin_edges, dtype = np.float64)
@@ -683,22 +707,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
           post_proc_callback.cumulative_perf.summarize_timing_sec())
 
     # now, let's consolidate the results together
-    prop_l = []
-    for stat_ind, (stat_name,_) in enumerate(stat_kw_pairs):
-        if stat_ind in post_proc_callback.accum_rslt:
-            # the results for this stat are already consolidated
-            prop_l.append(post_proc_callback.accum_rslt[stat_ind])
-        else:
-            tmp = []
-            for sublist in post_proc_callback.tmp_result_arr[stat_ind]:
-                tmp.append(consolidate_partial_vsf_results(
-                    stat_name, *sublist, dist_bin_edges = dist_bin_edges
-                ))
-            prop_l.append(tmp)
-
-        kernel = get_kernel(stat_name)
-        for elem in prop_l[-1]:
-            kernel.postprocess_rslt(elem)
+    prop_l = _consolidate_rslts(stat_kw_pairs, post_proc_callback,
+                                dist_bin_edges)
 
     if single_statistic:
         prop_l = prop_l[0]
@@ -711,6 +721,8 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 
 
 #--------------------------
+
+from .grid_scale.worker import WorkerStructuredGrid
 
 from gascloudtool.marching_cubes.mc_blocking_helper import \
     _top_level_grid_indices
@@ -742,5 +754,91 @@ def decompose_volume_intrinsic(ds):
     kwargs['periodicity'] = (False, False, False)
     return SubVolumeDecomposition(intrinsic_decomp = True, **kwargs)
 
-def grid_scale_vel_diffs():
-    raise NotImplementedError()
+def grid_scale_vel_diffs(ds_initializer, dist_bin_edges,
+                         cut_regions = [None],
+                         component_fields = _dflt_vel_components,
+                         max_subvols_per_chunk = 3,
+                         pool = None):
+    """
+    Computes velocity differences on the grid scale
+
+    This bears a lot of similarities to small_dist_sf_props. Maybe we can 
+    consolidate?
+
+    Parameters
+    ----------
+
+    pool: `multiprocessing.pool.Pool`-like object, optional
+        When specified, this should have a `map` method with a similar
+        interface to `multiprocessing.pool.Pool`'s `map method
+        and an iterable.
+    """
+
+    pool, n_workers = _prep_pool(pool)
+
+    # some of the argument checking is automatically performed by validation in
+    # structure_func_props
+    structure_func_props = StructureFuncProps(
+        dist_bin_edges = [0,1],
+        dist_units = 'code_length',
+        quantity_components = component_fields,
+        quantity_units = 'code_velocity',
+        cut_regions = cut_regions,
+        max_points = None,
+        geometric_selector = None
+    )
+
+    subvol_decomp = decompose_volume_intrinsic(ds_initializer())
+
+    logging.info(
+        f"Number of subvolumes per axis: {subvol_decomp.subvols_per_ax}"
+    )
+
+    # setup the stat-kw pairs
+    aligned_edges = np.array(
+        [-np.inf] + np.linspace(-3, 3, num = 121).tolist() + [np.inf]
+    )
+    transverse_edges = np.array(np.linspace(0,3,num = 121).tolist() + [np.inf])
+    stat_kw_pairs = [
+        ("grid_vdiff_histogram", {'aligned_vdiff_edges' : aligned_edges,
+                                  'transverse_vdiff_edges' : transverse_edges,
+                                  'mag_vdiff_edges' : transverse_edges.copy()})
+    ]
+    single_statistic = True
+
+    worker = WorkerStructuredGrid(ds_initializer, subvol_decomp,
+                                  sf_param = structure_func_props,
+                                  stat_kw_pairs = stat_kw_pairs)
+
+    iterable = subvol_index_batch_generator(
+        subvol_decomp, n_workers = n_workers,
+        max_subvols_per_chunk = max_subvols_per_chunk
+    )
+
+    post_proc_callback = _PoolCallback(
+        stat_kw_pairs, n_cut_regions = len(cut_regions),
+        subvol_decomp = subvol_decomp,
+        dist_bin_edges = np.array(structure_func_props.dist_bin_edges),
+        autosf_subvolume_callback = None,
+        structure_func_props = structure_func_props
+    )
+
+    for batched_result in pool.map(worker, iterable,
+                                   callback = post_proc_callback):
+        continue # simply consume the iterator
+
+    print("Cumulative subvol-processing perf-sec -\n    " +
+          post_proc_callback.cumulative_perf.summarize_timing_sec())
+
+    # now, let's consolidate the results together
+    prop_l = _consolidate_rslts(stat_kw_pairs, post_proc_callback,
+                                np.array(structure_func_props.dist_bin_edges))
+    
+    if single_statistic:
+        prop_l = prop_l[0]
+    total_num_points_used_arr \
+        = np.array(post_proc_callback.total_num_points_arr)
+    total_avail_points_arr \
+        = np.array(post_proc_callback.total_num_points_arr)
+    return (prop_l, total_num_points_used_arr, total_avail_points_arr,
+            subvol_decomp, structure_func_props)
