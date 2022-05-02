@@ -137,6 +137,24 @@ def _reference_calculation(ds, logX_e_bin_edges, hist_bin_edges):
                   ('transverse', 'transverse_vdiff'),
                   ('total', 'mag_vdiff')]
 
+    def cr_ind_iter():
+        return range(0, len(phase_bin_edges)+1)
+    
+    out = [{} for e in cr_ind_iter()]
+
+    def update_results(min_mach_vel_diff, shared_logXe_bin_ind, name):
+        for cr_ind in cr_ind_iter():
+            counts = np.histogram(
+                min_mach_vel_diff[cr_ind == shared_logXe_bin_ind],
+                bins = hist_bin_edges[name+'_edges']
+            )[0]
+            out_key = name + '_counts'
+            
+            if out_key not in out[cr_ind]:
+                out[cr_ind][out_key] = counts
+            else:
+                out[cr_ind][out_key] += counts
+
     # first, collect the velocity differences
     grid = ds.covering_grid(level=0, left_edge=ds.domain_left_edge,
                             dims=ds.domain_dimensions)
@@ -144,40 +162,20 @@ def _reference_calculation(ds, logX_e_bin_edges, hist_bin_edges):
     shared_logXe_bin_ind_l = []
     for axis in 'xyz':
         print(f'reference calc {axis}-axis setup')
-        shared_logXe_bin_ind_l.append(get_shared_logXe_bin_ind(
+        shared_logXe_bin_ind = get_shared_logXe_bin_ind(
                 grid, axis = axis, logX_e_bin_edges = logX_e_bin_edges
-        ).ravel())
+        ).ravel()
         max_cs_vals = max_neighboring_cs(grid, axis = axis)
 
         print(f'reference calc {axis}-axis vdiff')
-        for diff_type,_ in name_pairs:
+        for diff_type,name in name_pairs:
             vel_diffs = neighbor_vel_differences(grid, axis = axis,
                                                  diff_type = diff_type)
             min_mach_vel_diff = (vel_diffs / max_cs_vals).to('dimensionless')
-            measurements[diff_type].append(
-                min_mach_vel_diff.ndarray_view().ravel()
-            )
+
+            update_results(min_mach_vel_diff.ndarray_view().ravel(), 
+                           shared_logXe_bin_ind, name)
     grid.clear_data()
-
-    # concatenate some arrays
-    shared_logXe_bin_ind = np.concatenate(shared_logXe_bin_ind_l)
-    for diff_type,_ in name_pairs:
-        measurements[diff_type] = np.concatenate(measurements[diff_type])
-
-    # now, build histograms
-    out = []
-    for cr_ind in np.unique(shared_logXe_bin_ind):
-        if cr_ind == -1:
-            continue
-        print('reference calc: cr_ind = ', cr_ind)
-        w = (cr_ind == shared_logXe_bin_ind)
-        counts_dict = {}
-        for diff_type,name in name_pairs:
-            key = f'{name}_counts'
-            hist_edges = hist_bin_edges[f'{name}_edges']
-            counts_dict[key] = np.histogram(measurements[diff_type][w],
-                                            bins = hist_edges)[0]
-        out.append(counts_dict)
     return out
 
 def func(ds, phase_bin_edges):
@@ -197,9 +195,6 @@ def func(ds, phase_bin_edges):
 
     actual_results = tmp[0]
     hist_bin_edges = tmp[2]
-
-    print(actual_results)
-    print(hist_bin_edges)
 
     reference_results = _reference_calculation(
         ds, logX_e_bin_edges = phase_bin_edges, hist_bin_edges = hist_bin_edges
