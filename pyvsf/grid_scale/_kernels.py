@@ -58,11 +58,9 @@ def _neighbor_vec_differences(components, axis, diff_type,
           between all components
     """
     exec_operation = _NeighborOpExecutor(axis, trailing_ghost)
-    
-    assert len(field_components) == 3
 
     if axis == 'x':
-        aligned_comp = 0, (1,2)
+        aligned_comp,transverse_comps = 0, (1,2)
     elif axis == 'y':
         aligned_comp,transverse_comps = 1, (2,0)
     elif axis == 'z':
@@ -72,21 +70,21 @@ def _neighbor_vec_differences(components, axis, diff_type,
 
     op = lambda x0, x1: x1 - x0
     if diff_type == 'transverse':
-        diff_l = [exec_operation.exec_on_field(op, comp, grid) \
+        diff_l = [exec_operation.exec_on_field(op, comp, components) \
                   for comp in transverse_comps]
         return np.sqrt(np.square(diff_l[0]) + np.square(diff_l[1]))
     elif diff_type == 'total':   # magnitude of vel including all 3 components
-        diff_l = [exec_operation.exec_on_field(op, comp, grid) \
-                  for comp in field_components]
+        diff_l = [exec_operation.exec_on_field(op, comp, components) \
+                  for comp in (0,1,2)]
         return np.sqrt(np.square(diff_l[0]) + np.square(diff_l[1]) +
                        np.square(diff_l[2]))
     elif diff_type == 'parallel': # signed difference of component parallel to 
                                   # displacement vector between 2 cells
-        return exec_operation.exec_on_field(op, aligned_comp, grid)
+        return exec_operation.exec_on_field(op, aligned_comp, components)
     else:
         raise ValueError(f'invalid diff_type value: {diff_type}')
 
-def neighbor_vdiffs(quan_dict, extra_quantities, cr_map, kwargs,
+def neighbor_vdiffs(quan_dict, extra_quan_dict, cr_map, kwargs,
                     trailing_ghost = True):
     """
     Computes histograms of velocity differences between neigboring cells. The
@@ -114,9 +112,9 @@ def neighbor_vdiffs(quan_dict, extra_quantities, cr_map, kwargs,
                   quan_dict[("gas", "velocity_z")]]
     cs_vals = extra_quan_dict[('gas', 'sound_speed')]
 
-    calc_pairs = [('aligned_vdiff_', 'parallel'),
-                  ('transverse_vdiff_', 'transverse'),
-                  ('mag_vdiff_', 'total')]
+    calc_pairs = [('aligned_vdiff', 'parallel'),
+                  ('transverse_vdiff', 'transverse'),
+                  ('mag_vdiff', 'total')]
     
     out = {}
     for cr_ind in cr_map.keys():
@@ -138,7 +136,7 @@ def neighbor_vdiffs(quan_dict, extra_quantities, cr_map, kwargs,
                                                 trailing_ghost)
                       / max_shared_cs)
 
-            for cr_ind, cr_select_mask in cr_map.keys():
+            for cr_ind, cr_select_mask in cr_map.items():
                 # identify pairs of of cells that are in the same cut region
                 idx = exec_operation.exec_on_array(np.logical_and,
                                                    cr_select_mask)
@@ -171,14 +169,14 @@ class GridscaleVdiffHistogram:
         assert ('gas', 'velocity_y') in quan_components
         assert ('gas', 'velocity_z') in quan_components
         assert len(quan_components) == 3
-        return {('gas', 'sound_speed') : (sf_params.quan_units,
+        return {('gas', 'sound_speed') : (sf_params.quantity_units,
                                           cls.operate_on_pairs)}
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges, kwargs = {}):
         assert len(kwargs) == 3
         out = []
-        for prefix in ['aligned_vdiff_', 'transverse_vdiff_', 'mag_vdiff_']:
+        for prefix in ['aligned_vdiff', 'transverse_vdiff', 'mag_vdiff']:
             shape = (kwargs[f'{prefix}_edges'].size - 1,)
             out.append((f'{prefix}_counts', np.int64, shape))
         return out

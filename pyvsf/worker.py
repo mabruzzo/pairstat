@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Tuple, Sequence, NamedTuple, Dict, Any
 import numpy as np
 
@@ -6,6 +7,10 @@ from .pyvsf import vsf_props
 from ._kernels import get_kernel
 from ._kernels_cy import build_consolidater
 from ._perf import PerfRegions
+from ._cut_region_iterator import (
+    neighbor_ind_iter,
+    get_cut_region_itr_builder
+)
 
 def consolidate_partial_vsf_results(statistic, *rslts,
                                     stat_kw = {}, dist_bin_edges = None):
@@ -32,7 +37,7 @@ class StatDetails(NamedTuple):
     # pairs of kernels and kwargs for non-structure function statistics:
     nonsf_kernel_kw_pairs: Sequence[Tuple[Any, Dict[str,Any]]]
 
-def _process_stat_choices(stat_kw_pairs):
+def _process_stat_choices(stat_kw_pairs, sf_params):
     # Handle some stuff related to the choice of statistics:
     # 1. load the appropriate kernel object
     # 2. build dictionary specifying extra fields that need to be loaded
@@ -48,7 +53,13 @@ def _process_stat_choices(stat_kw_pairs):
         # 1. load the kernel
         kernels.append(get_kernel(stat_name))
         # 2. update extra_quan_spec (if necesary)
-        tmp = kernels[stat_ind].get_extra_fields(kw)
+        try:
+            tmp = kernels[stat_ind].get_extra_fields(kw, sf_params = sf_params)
+        except TypeError:
+            # not all implementations of get_extra_fields expect sf_params as a
+            # keyword argument (this is a little bit of a hack)
+            tmp = kernels[stat_ind].get_extra_fields(kw)
+
         if (tmp is not None) and (len(extra_quan_spec) == 0):
             extra_quan_spec = tmp
         elif tmp is not None:
@@ -148,7 +159,7 @@ class TaskResult:
         # the following are not strictly necessary, but provide useful status
         # information
         self.num_neighboring_subvols = num_neighboring_subvols
-        self.perf_region = perf_region
+        self.perf_region = deepcopy(perf_region)
 
 class MaxSizeCutRegionTracker:
     """
@@ -415,7 +426,7 @@ class SFWorker(_BaseWorker):
         #    functions, since its MUCH faster to compute multiple structure
         #    function statistics at once (especially for large problems)
         kernels, extra_quan_spec, stat_details = _process_stat_choices(
-            stat_kw_pairs
+            self.stat_kw_pairs, self.sf_params
         )
         # cut_region_itr_builder constructs iterators over cut_regions for a
         # given subvolume_index
@@ -504,7 +515,7 @@ class SFWorker(_BaseWorker):
         return TaskResult(subvol_index, main_subvol_available_points,
                           main_subvol_rslts, consolidated_rslts,
                           num_neighboring_subvols = len(cross_sf_rslts),
-                          perf_region = deepcopy(perf))
+                          perf_region = perf)
 
 
 

@@ -1,6 +1,4 @@
-
 from copy import deepcopy
-from datetime import datetime, timedelta
 import logging
 from typing import Tuple, Sequence, Optional
 
@@ -13,11 +11,7 @@ from pydantic import (
     root_validator
 )
 
-from ._cut_region_iterator import (
-    get_root_level_cell_width,
-    neighbor_ind_iter,
-    get_cut_region_itr_builder
-)
+from ._cut_region_iterator import get_root_level_cell_width
 
 from .worker import (
     SFWorker,
@@ -739,6 +733,7 @@ def decompose_volume_intrinsic(ds):
     """
 
     kwargs = {}
+    len_u = str(ds.domain_left_edge.units)
     kwargs['left_edge'] = tuple(ds.domain_left_edge.v)
     kwargs['right_edge'] = tuple(ds.domain_right_edge.to(len_u).v)
     kwargs['length_unit'] = str(ds.domain_left_edge.units)
@@ -754,7 +749,7 @@ def decompose_volume_intrinsic(ds):
     kwargs['periodicity'] = (False, False, False)
     return SubVolumeDecomposition(intrinsic_decomp = True, **kwargs)
 
-def grid_scale_vel_diffs(ds_initializer, dist_bin_edges,
+def grid_scale_vel_diffs(ds_initializer,
                          cut_regions = [None],
                          component_fields = _dflt_vel_components,
                          max_subvols_per_chunk = 3,
@@ -773,6 +768,11 @@ def grid_scale_vel_diffs(ds_initializer, dist_bin_edges,
         interface to `multiprocessing.pool.Pool`'s `map method
         and an iterable.
     """
+
+    if not callable(ds_initializer):
+        assert pool is None
+        _ds = ds_initializer
+        ds_initializer = lambda: _ds
 
     pool, n_workers = _prep_pool(pool)
 
@@ -840,5 +840,5 @@ def grid_scale_vel_diffs(ds_initializer, dist_bin_edges,
         = np.array(post_proc_callback.total_num_points_arr)
     total_avail_points_arr \
         = np.array(post_proc_callback.total_num_points_arr)
-    return (prop_l, total_num_points_used_arr, total_avail_points_arr,
-            subvol_decomp, structure_func_props)
+    return (prop_l, total_num_points_used_arr, stat_kw_pairs[0][1],
+            structure_func_props)

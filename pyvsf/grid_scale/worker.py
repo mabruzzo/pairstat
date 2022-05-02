@@ -1,3 +1,11 @@
+import sys
+import functools
+
+eprint = functools.partial(print, file = sys.stderr)
+
+import numpy as np
+
+
 from ..worker import (
     _BaseWorker,
     _PERF_REGION_NAMES,
@@ -63,7 +71,7 @@ class WorkerStructuredGrid(_BaseWorker):
 
     @staticmethod
     def load_subvol_data(ds, subvol_index, extra_quan_spec, subvol_decomp,
-                         sf_props, n_ghost_cells = 1):
+                         sf_props, n_ghost_ax_end = 1):
         # load in the data as a covering_grid:
         if ds.index.max_level == 0:
             root_block_shape = tuple(
@@ -72,18 +80,20 @@ class WorkerStructuredGrid(_BaseWorker):
         else:
             raise RuntimeError('Not equipped to handle AMR')
 
-        if subvol_decomp.instrinsic_decomp:
+        if subvol_decomp.intrinsic_decomp:
             block_index = subvol_index
         else:
             raise RuntimeError("unsure how to handle this case")
 
+        ax_has_ghost = [False, False, False]
         filled_shape = []
         for ax in range(3):
             if (block_index[ax] + 1) > subvol_decomp.subvols_per_ax[ax]:
                 raise RuntimeError("This should not happen")
             length = root_block_shape[ax]
             if (block_index[ax] + 1) != subvol_decomp.subvols_per_ax[ax]:
-                length += n_ghost_cells
+                length += n_ghost_ax_end
+                ax_has_ghost[ax] = True
             filled_shape.append(length)
 
         grid = ds.covering_grid(
@@ -98,9 +108,9 @@ class WorkerStructuredGrid(_BaseWorker):
         # region
         cr_map = {}
         my_locals = {"obj" : grid}
-        for i, condition in enumerate(sf_props.cut_region):
+        for i, condition in enumerate(sf_props.cut_regions):
             if condition is None:
-                yield i, np.ones(grid.shape, np.bool8)
+                cr_map[i] = np.ones(grid.shape, np.bool8)
             else:
                 idx = eval(condition, my_locals)
                 cr_map[i] = idx
@@ -108,18 +118,18 @@ class WorkerStructuredGrid(_BaseWorker):
 
         pos = {'x' : grid['index', 'x'], 'y' : grid['index', 'y'],
                'z' : grid['index', 'z']}
-        quans = []
+        quan_dict = {}
         for field in sf_props.quantity_components:
-            quans.append(
+            quan_dict[field] = \
                 grid[field].to(sf_props.quantity_units).ndarray_view()
-            )
+
         equan_dict = {}
-        for equan_name, (equan_units, _) in extra_quantities.items():
+        for equan_name, (equan_units, _) in extra_quan_spec.items():
             equan_dict[equan_name] = \
-                cad[equan_name].to(equan_units).ndarray_view()
+                grid[equan_name].to(equan_units).ndarray_view()
 
         grid.clear_data()
-        return cr_map, pos, quans, equan_dict
+        return cr_map, pos, quan_dict, equan_dict, ax_has_ghost
 
     def process_index(self, subvol_index):
         perf = PerfRegions(_PERF_REGION_NAMES)
@@ -131,23 +141,40 @@ class WorkerStructuredGrid(_BaseWorker):
 
         # Handle some stuff related to the choice of statistics:
         kernels, extra_quan_spec, stat_details =  _process_stat_choices(
-            stat_kw_pairs
+            self.stat_kw_pairs, self.sf_param
         )
 
         assert len(stat_details.sf_stat_kw_pairs) == 0 # sanity check!
+        assert len(kernels) == 1 # sanity check!
 
-        load_subvol_data(ds, index, extra_quan_spec, subvol_decomp, sf_props)
-        cr_map, pos, quans, equan_dict = load_subvol_data(
-            ds, index, extra_quan_spec, self.subvol_decomp
+        n_ghost_ax_end = max(k.n_ghost_ax_end() for k in kernels)
+        cr_map, pos, quans, equan_dict, ax_has_ghost = self.load_subvol_data(
+            ds, subvol_index, extra_quan_spec, self.subvol_decomp,
+            self.sf_param, n_ghost_ax_end = n_ghost_ax_end
         )
-
         # now actually compute the statistic
-        rslts = StatRsltContainer(
+        rslt_container = StatRsltContainer(
             num_statistics = 1,
             num_cut_regions = len(cr_map),
         )
         main_subvol_available_points = np.zeros((self._get_num_cut_regions(),),
                                                 dtype = np.int64)
+
+        # determine num_neighboring_subvols
+        # - grid_scale velocity differences technically only requires data from
+        #   sum(ax_has_ghost) neighboring subvols
+        # - but the current implementation has us load data from more neighbors
+        n_neighboring_subvols = {0 : 0, 1 : 1, 2 : 3, 3 : 7}[sum(ax_has_ghost)]
+
+        # compute the number of available points (need to be a little careful
+        # about this to avoid double-counting in the ghost zones)
+        assert [k.name for k in kernels] == ["grid_vdiff_histogram"]
+        slcs = [slice(0, -n_ghost_ax_end) if (has_ghost) else slice(None) \
+                for has_ghost in ax_has_ghost]
+        for cr_ind, cr_ind_rslt in cr_map.items():
+            main_subvol_available_points[cr_ind] = \
+                cr_ind_rslt[slcs[0], slcs[1], slcs[2]].sum()
+
         # TODO: in the future, come back & initialize each entry of
         # main_subvol_available_points appropriately. Need to be a little
         # careful about this since we include ghost zones
@@ -157,16 +184,19 @@ class WorkerStructuredGrid(_BaseWorker):
             for kernel, kw in stat_details.nonsf_kernel_kw_pairs:
                 stat_index = stat_details.name_index_map[kernel.name]
                 func = kernel.non_vsf_func
-                rslt = func(quan = quan, extra_quantities = extra_quan,
-                            kwargs = kw)
+                rslt = func(quan_dict = quans, extra_quan_dict = equan_dict,
+                            cr_map = cr_map, kwargs = kw)
 
                 for cr_ind, cr_ind_rslt in rslt.items():
                     rslt_container.store_result(stat_index = stat_index,
                                                 cut_region_index = cr_ind,
-                                                rslt = rslt)
+                                                rslt = cr_ind_rslt)
 
         perf.stop_region('all')
+
+        # main_subvol_rslts and consolidated_rslts are identical
         return TaskResult(subvol_index, main_subvol_available_points,
-                          main_subvol_rslts, None,
-                          num_neighboring_subvols = 0,
-                          perf_region = deepcopy(perf))
+                          main_subvol_rslts = rslt_container,
+                          consolidated_rslts = rslt_container,
+                          num_neighboring_subvols = n_neighboring_subvols,
+                          perf_region = perf)

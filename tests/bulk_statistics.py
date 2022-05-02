@@ -17,6 +17,9 @@ def setup_ds():
     path = ('/media/mabruzzo/Elements/turb_cloud/cloud_runs/'
             'X1000_M1.5_HD_CDdftCstr_R864.7_logP3_Res8/cloud_07.5000/'
             'cloud_07.5000.block_list')
+    #path = ('/media/mabruzzo/Elements/turb_cloud/cloud_runs/'
+    #        'X1000_M1.5_HD_CDdftFloor_R864.7_logP3_Res16/cloud_07.5000/'
+    #        'cloud_07.5000.block_list')
     #path = ('/home/mabruzzo/research/turb_cloud/cloud_runs/'
     #        'X1000_M1.5_HD_CDdftFloor_R864.7_logP3_Res8/cloud_07.5000/'
     #        'cloud_07.5000.block_list')
@@ -26,6 +29,41 @@ def setup_ds():
         env_fname = f'{_tmp_prefix}/cloud_env'
     )
     ds = yt.load(path)
+
+    print(ds.field_list)
+    print()
+    # I don't know why this is necessary, but it is...
+    if ('gas','pressure') not in ds.derived_field_list:
+
+        for name in [('gas', 'specific_internal_energy'),
+                     ('gas', 'specific_thermal_energy')]:
+            print(name)
+            if name in ds.derived_field_list:
+                eint_f = name
+                break
+        else:
+            raise RuntimeError("Don't recognize any internal energy fields")
+
+        def _pressure(field, data):
+            return (data.ds.gamma - 1.0) * data["gas","density"] * data[eint_f]
+
+        ds.add_field(
+            name=("gas", "pressure"),
+            function=_pressure,
+            sampling_type="local",
+            units="dyne/cm**2",
+        )
+
+    if ('gas', 'sound_speed') not in ds.derived_field_list:
+        def _sound_speed(field, data):
+            return np.sqrt(data.ds.gamma * data["gas","pressure"] /
+                           data["gas", "density"])
+        ds.add_field(
+            name=("gas", "sound_speed"),
+            function=_sound_speed,
+            sampling_type="local",
+            units="cm/s",
+        )
     setup_func(ds)
     return ds
 
