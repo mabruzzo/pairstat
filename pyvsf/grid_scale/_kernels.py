@@ -1,25 +1,68 @@
+from dataclasses import dataclass
 import functools
 
 import numpy as np
 
 from .._kernels_cy import _allocate_unintialized_rslt_dict
 
-class _NeighborOpExecutor:
-    def __init__(self, axis, trailing_ghost):
-        if trailing_ghost:
-            default_slc = slice(None, -1)
+@dataclass(frozen = True)
+class TrailingGhostSpec:
+    """
+    Tracks the number of trailing ghost zones along each axis
+    """
+    x: int
+    y: int
+    z: int
+
+    def __post_init__(self):
+        assert self.x >= 0
+        assert self.y >= 0
+        assert self.z >= 0
+
+    def num_overlapping_subvols(self):
+        """
+        Returns the number of neighboring subvolumes whose data would be
+        included in a grid that mentions this subvol_spec
+        """
+        num_ax_with_ghosts = (self.x > 0) + (self.y > 0) + (self.z > 0)
+        if num_ax_with_ghosts in (0, 1):
+            return num_ax_with_ghosts
+        elif num_ax_with_ghosts == 2:
+            return 3
         else:
-            default_slc = slice(None)
-        self.x_slcs = default_slc, default_slc
-        self.y_slcs = default_slc, default_slc
-        self.z_slcs = default_slc, default_slc
-        
+            return 7
+
+    def active_zone_idx(self):
+        """
+        Returns a tuple of slices for a 3D array whose indices are ordered
+        (x,y,z) that only select the active zone.
+        """
+        x_slc = slice(0, -1 * self.x) if self.x > 0 else slice(None)
+        y_slc = slice(0, -1 * self.y) if self.y > 0 else slice(None)
+        z_slc = slice(0, -1 * self.z) if self.z > 0 else slice(None)
+        return (x_slc, y_slc, z_slc)
+
+class _NeighborOpExecutor:
+    def __init__(self, axis, trailing_ghost_spec):
+        assert isinstance(trailing_ghost_spec, TrailingGhostSpec)
+
+        # initialize default values of x_slcs, y_slcs, and z_slcs so that
+        # they select all non-ghost cells
+        active_zone_slcs = trailing_ghost_spec.active_zone_idx()
+
+        self.x_slcs = active_zone_slcs[0], active_zone_slcs[0]
+        self.y_slcs = active_zone_slcs[1], active_zone_slcs[1]
+        self.z_slcs = active_zone_slcs[2], active_zone_slcs[2]
+
+        # overwrite the value x_slcs, y_slcs, and z_slcs
         if axis == 'x':
             self.x_slcs = slice(0,-1,1), slice(1,None, 1)
         elif axis == 'y':
-            self.y_slcs =slice(0,-1,1), slice(1,None, 1)
+            self.y_slcs = slice(0,-1,1), slice(1,None, 1)
         elif axis == 'z':
             self.z_slcs = slice(0,-1,1), slice(1,None, 1)
+        else:
+            raise ValueError(f"Can't handle axis = {axis}")
 
     def exec_on_array(self, op, arr):
         x_slc0, x_slc1 = self.x_slcs
@@ -32,8 +75,10 @@ class _NeighborOpExecutor:
     def exec_on_field(self, op, field, grid):
         return self.exec_on_array(op, grid[field])
 
+_NO_GHOST_CELLS_SPEC = TrailingGhostSpec(False, False, False)
+
 def _neighbor_vec_differences(components, axis, diff_type,
-                              trailing_ghost = False):
+                              trailing_ghost_spec = _NO_GHOST_CELLS_SPEC):
     """
     Computes differences between vectors
     
@@ -41,9 +86,10 @@ def _neighbor_vec_differences(components, axis, diff_type,
     ---------
     diff_type : str
         Accepts values of 'parallel', 'transverse', 'total'
-    trailing_ghost: bool
-        `True` indicates that there is a trailing ghost cell 
-        at the end of each axis.
+    trailing_ghost_spec: TrailingGhostSpec, optional
+        Specifies the number of trailing ghost cells for each axis. The default
+        is no ghost cells
+
     Notes
     -----
     The different values accepted by diff_type haven the 
@@ -57,7 +103,8 @@ def _neighbor_vec_differences(components, axis, diff_type,
         - 'total': computes the magnitude of the differences
           between all components
     """
-    exec_operation = _NeighborOpExecutor(axis, trailing_ghost)
+    assert isinstance(trailing_ghost_spec, TrailingGhostSpec)
+    exec_operation = _NeighborOpExecutor(axis, trailing_ghost_spec)
 
     if axis == 'x':
         aligned_comp,transverse_comps = 0, (1,2)
@@ -85,7 +132,7 @@ def _neighbor_vec_differences(components, axis, diff_type,
         raise ValueError(f'invalid diff_type value: {diff_type}')
 
 def neighbor_vdiffs(quan_dict, extra_quan_dict, cr_map, kwargs,
-                    trailing_ghost = True):
+                    trailing_ghost_spec = _NO_GHOST_CELLS_SPEC):
     """
     Computes histograms of velocity differences between neigboring cells. The
     velocity differences are normalized by the maximum sound speed of each pair
@@ -106,7 +153,12 @@ def neighbor_vdiffs(quan_dict, extra_quan_dict, cr_map, kwargs,
         'aligned_vdiff_edges', 'transverse_vdiff_edges', and 'mag_vdiff_edges'.
         The values associted with each key should be 1D arrays holding 
         monotonically increasing velocity differences.
+    trailing_ghost_spec: TrailingGhostSpec, optional
+        Specifies the number of trailing ghost cells for each axis. The default
+        is no ghost cells
     """
+    assert isinstance(trailing_ghost_spec, TrailingGhostSpec)
+
     components = [quan_dict[("gas", "velocity_x")],
                   quan_dict[("gas", "velocity_y")],
                   quan_dict[("gas", "velocity_z")]]
@@ -122,7 +174,7 @@ def neighbor_vdiffs(quan_dict, extra_quan_dict, cr_map, kwargs,
             [], kwargs, False
         )
     for axis in 'xyz':
-        exec_operation = _NeighborOpExecutor(axis, trailing_ghost)
+        exec_operation = _NeighborOpExecutor(axis, trailing_ghost_spec)
 
         # find the maximum sound speed from pairs of cells
         max_shared_cs = exec_operation.exec_on_array(np.maximum, cs_vals)
@@ -133,7 +185,7 @@ def neighbor_vdiffs(quan_dict, extra_quan_dict, cr_map, kwargs,
 
             # find the velocity differences
             vdiffs = (_neighbor_vec_differences(components, axis, diff_type,
-                                                trailing_ghost)
+                                                trailing_ghost_spec)
                       / max_shared_cs)
 
             for cr_ind, cr_select_mask in cr_map.items():

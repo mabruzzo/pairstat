@@ -224,7 +224,7 @@ if __name__ == '__main__':
     phase_bin_edges = np.array([1.0, 3.0, 5.0, 7.0, 9.0, 11.0]) / 12.0
     
 
-    func(ds, phase_bin_edges[:2])
+    func(ds, phase_bin_edges)
 
 
     if False:

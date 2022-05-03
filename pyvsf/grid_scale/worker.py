@@ -21,6 +21,7 @@ from gascloudtool.marching_cubes.mc_blocking_helper import (
 
 from .._perf import PerfRegions
 from .._kernels import get_kernel
+from ._kernels import TrailingGhostSpec
 
 class WorkerStructuredGrid(_BaseWorker):
     """
@@ -95,7 +96,9 @@ class WorkerStructuredGrid(_BaseWorker):
                 length += n_ghost_ax_end
                 ax_has_ghost[ax] = True
             filled_shape.append(length)
-
+        trailing_ghost_spec = TrailingGhostSpec(x = ax_has_ghost[0],
+                                                y = ax_has_ghost[1],
+                                                z = ax_has_ghost[2])
         grid = ds.covering_grid(
             level = 0,
             left_edge = get_left_edge(block_index, ds, cell_edge = True),
@@ -129,7 +132,7 @@ class WorkerStructuredGrid(_BaseWorker):
                 grid[equan_name].to(equan_units).ndarray_view()
 
         grid.clear_data()
-        return cr_map, pos, quan_dict, equan_dict, ax_has_ghost
+        return cr_map, pos, quan_dict, equan_dict, trailing_ghost_spec
 
     def process_index(self, subvol_index):
         perf = PerfRegions(_PERF_REGION_NAMES)
@@ -148,10 +151,11 @@ class WorkerStructuredGrid(_BaseWorker):
         assert len(kernels) == 1 # sanity check!
 
         n_ghost_ax_end = max(k.n_ghost_ax_end() for k in kernels)
-        cr_map, pos, quans, equan_dict, ax_has_ghost = self.load_subvol_data(
-            ds, subvol_index, extra_quan_spec, self.subvol_decomp,
-            self.sf_param, n_ghost_ax_end = n_ghost_ax_end
-        )
+        cr_map, pos, quans, equan_dict, trailing_ghost_spec \
+            = self.load_subvol_data(ds, subvol_index, extra_quan_spec,
+                                    self.subvol_decomp, self.sf_param,
+                                    n_ghost_ax_end = n_ghost_ax_end)
+
         # now actually compute the statistic
         rslt_container = StatRsltContainer(
             num_statistics = 1,
@@ -164,16 +168,14 @@ class WorkerStructuredGrid(_BaseWorker):
         # - grid_scale velocity differences technically only requires data from
         #   sum(ax_has_ghost) neighboring subvols
         # - but the current implementation has us load data from more neighbors
-        n_neighboring_subvols = {0 : 0, 1 : 1, 2 : 3, 3 : 7}[sum(ax_has_ghost)]
+        n_neighboring_subvols = trailing_ghost_spec.num_overlapping_subvols()
 
         # compute the number of available points (need to be a little careful
         # about this to avoid double-counting in the ghost zones)
         assert [k.name for k in kernels] == ["grid_vdiff_histogram"]
-        slcs = [slice(0, -n_ghost_ax_end) if (has_ghost) else slice(None) \
-                for has_ghost in ax_has_ghost]
+        idx = trailing_ghost_spec.active_zone_idx()
         for cr_ind, cr_ind_rslt in cr_map.items():
-            main_subvol_available_points[cr_ind] = \
-                cr_ind_rslt[slcs[0], slcs[1], slcs[2]].sum()
+            main_subvol_available_points[cr_ind] = cr_ind_rslt[idx].sum()
 
         # TODO: in the future, come back & initialize each entry of
         # main_subvol_available_points appropriately. Need to be a little
@@ -185,7 +187,8 @@ class WorkerStructuredGrid(_BaseWorker):
                 stat_index = stat_details.name_index_map[kernel.name]
                 func = kernel.non_vsf_func
                 rslt = func(quan_dict = quans, extra_quan_dict = equan_dict,
-                            cr_map = cr_map, kwargs = kw)
+                            cr_map = cr_map, kwargs = kw,
+                            trailing_ghost_spec = trailing_ghost_spec)
 
                 for cr_ind, cr_ind_rslt in rslt.items():
                     rslt_container.store_result(stat_index = stat_index,
