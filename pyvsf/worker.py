@@ -426,7 +426,7 @@ class SFWorker(_BaseWorker):
         #    functions, since its MUCH faster to compute multiple structure
         #    function statistics at once (especially for large problems)
         kernels, extra_quan_spec, stat_details = _process_stat_choices(
-            self.stat_kw_pairs, self.sf_params
+            self.stat_kw_pairs, self.sf_param
         )
         # cut_region_itr_builder constructs iterators over cut_regions for a
         # given subvolume_index

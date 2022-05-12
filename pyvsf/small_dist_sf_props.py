@@ -717,9 +717,7 @@ def small_dist_sf_props(ds_initializer, dist_bin_edges,
 #--------------------------
 
 from .grid_scale.worker import WorkerStructuredGrid
-
-from gascloudtool.marching_cubes.mc_blocking_helper import \
-    _top_level_grid_indices
+from .grid_scale._utils import _top_level_grid_indices
 
 def decompose_volume_intrinsic(ds):
     """

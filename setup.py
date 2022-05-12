@@ -44,10 +44,10 @@ setup(
     description='Module for computing velocity structure function properties',
     setup_requires = ['numpy', 'cython'],
     install_requires=['setuptools', 'numpy','h5py','cython', 'matplotlib',
-                      'yt'],
+                      'yt', "schwimmbad", "pydantic"],
     author='Matthew Abruzzo',
     author_email='matthewabruzzo@gmail.com',
-    packages=find_packages(exclude = ['tests', 'src']),
+    packages=find_packages(exclude = ['tests', 'src', 'examples']),
     cmdclass={'build_ext': build_ext},
     ext_modules=ext_modules
 )

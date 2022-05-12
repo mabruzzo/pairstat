@@ -14,7 +14,7 @@ from ..worker import (
     TaskResult
 )
 
-from gascloudtool.marching_cubes.mc_blocking_helper import (
+from ._utils import (
     _top_level_grid_indices,
     get_left_edge
 )
