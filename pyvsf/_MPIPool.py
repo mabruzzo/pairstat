@@ -209,13 +209,22 @@ class MPIPool(BasePool):
     comm : :class:`mpi4py.MPI.Comm`, optional
         An MPI communicator to distribute tasks with. If ``None``, this uses
         ``MPI.COMM_WORLD`` by default.
-    use_dill: Set `True` to use `dill` serialization. Default is `False`.
-    result
+    use_dill
+        Set `True` to use `dill` serialization. Default is `False`.
+    result_comm
+        Optional argument for breaking up messages into smaller sizes
+    use_ssend_task : bool
+        When true, uses comm.ssend for communicating the tags. When false (the
+        default), uses comm.send. Ordinarily a false value will be faster, but
+        specifying True may provide more robust behavior.
     """
 
     def __init__(self, comm=None, use_dill=False,
-                 result_comm_routines = None):
+                 result_comm_routines = None,
+                 use_ssend_task = False):
         MPI = _import_mpi(use_dill=use_dill)
+
+        self._use_ssend_task = use_ssend_task
 
         if comm is None:
             comm = MPI.COMM_WORLD
@@ -356,7 +365,11 @@ class MPIPool(BasePool):
                 taskid, task = tasklist.pop()
                 log.log(_VERBOSE, "Sent task %s to worker %s with tag %s",
                         task[1], worker, taskid)
-                self.comm.send(task, dest=worker, tag=taskid)
+                _send_kwargs = {'dest' : worker, 'tag' : taskid}
+                if self._use_ssend_task:
+                    self.comm.ssend(task, **_send_kwargs)
+                else:
+                    self.comm.send(task, **_send_kwargs)
 
 
             # now check if there is a message waiting to be received
