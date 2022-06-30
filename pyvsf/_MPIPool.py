@@ -214,7 +214,7 @@ class MPIPool(BasePool):
     result_comm
         Optional argument for breaking up messages into smaller sizes
     use_ssend_task : bool
-        When true, uses comm.ssend for communicating the tags. When false (the
+        When true, uses comm.ssend for communicating the tasks. When false (the
         default), uses comm.send. Ordinarily a false value will be faster, but
         specifying True may provide more robust behavior.
     """
