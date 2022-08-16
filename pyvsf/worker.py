@@ -80,6 +80,14 @@ class StatRsltContainer:
         self._arr = np.empty((num_statistics, num_cut_regions),
                              dtype = object)
 
+    @classmethod
+    def build_empty_container(cls, num_statistics, num_cut_regions):
+        out = cls(num_statistics = num_statistics,
+                  num_cut_regions = num_cut_regions)
+        for i in range(num_cut_regions):
+            out.store_all_empty_cut_region(i)
+        return out
+
     def store_result(self, stat_index, cut_region_index, rslt):
         if self._arr[stat_index, cut_region_index] is not None:
             raise IndexError("A result has already been stored for "
@@ -428,6 +436,13 @@ class SFWorker(_BaseWorker):
         kernels, extra_quan_spec, stat_details = _process_stat_choices(
             self.stat_kw_pairs, self.sf_param
         )
+
+        any_cross_stats = (
+            (len(stat_details.sf_stat_kw_pairs) > 0) or
+            any(kernel.operate_on_pairs for kernel, _ \
+                in stat_details.nonsf_kernel_kw_pairs)
+        )
+
         # cut_region_itr_builder constructs iterators over cut_regions for a
         # given subvolume_index
         cut_region_itr_builder = get_cut_region_itr_builder(
@@ -473,18 +488,24 @@ class SFWorker(_BaseWorker):
         for other_ind in neighbor_ind_iter(subvol_index, self.subvol_decomp):
             #print(f"{subvol_index}-{other_ind}")
 
-            cross_sf_rslts.append(StatRsltContainer(
-                num_statistics = self._get_num_statistics(),
-                num_cut_regions = self._get_num_cut_regions()
-            ))
-
-            SFWorker.process_cross_stats(
-                cut_region_itr_builder(other_ind, is_central = False),
-                main_subvol_pos_and_quan, main_subvol_available_points,
-                stat_details, dist_bin_edges, perf,
-                rslt_container = cross_sf_rslts[-1],
-                all_inclusive_cr_index = all_inclusive_cr_index
-            )
+            if any_cross_stats:
+                cross_sf_rslts.append(StatRsltContainer(
+                    num_statistics = self._get_num_statistics(),
+                    num_cut_regions = self._get_num_cut_regions()
+                ))
+                SFWorker.process_cross_stats(
+                    cut_region_itr_builder(other_ind, is_central = False),
+                    main_subvol_pos_and_quan, main_subvol_available_points,
+                    stat_details, dist_bin_edges, perf,
+                    rslt_container = cross_sf_rslts[-1],
+                    all_inclusive_cr_index = all_inclusive_cr_index
+                )
+            else:
+                cross_sf_rslts.append(
+                    StatRsltContainer.build_empty_container(
+                        num_statistics = self._get_num_statistics(),
+                        num_cut_regions = self._get_num_cut_regions()
+                ))
 
         # finally, consolidate cross_sf_rslts together with main_subvol_rslts
         consolidated_rslts = StatRsltContainer(
