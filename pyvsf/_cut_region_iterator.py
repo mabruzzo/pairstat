@@ -1,5 +1,6 @@
 # module that defines some helper functions related to loading subvolume data
 # in save_sf_to_file
+import functools
 import gc
 from itertools import product
 import logging
@@ -12,7 +13,9 @@ def _is_grid_based(ds):
         return ("enzop" in ds.fluid_types) or ("enzoe" in ds.fluid_types)
     return False
 
-def neighbor_ind_iter(central_subvol_ind, subvol_decomp, yield_batches = False):
+def _neighbor_ind_iter(central_subvol_ind, subvol_decomp, *,
+                       yield_batches = False,
+                       force_traditional_neighbors = False):
     """
     Generator that yields the indices of all valid neighboring subvolume indices
     for which the cross-structure function must be computed.
@@ -22,16 +25,38 @@ def neighbor_ind_iter(central_subvol_ind, subvol_decomp, yield_batches = False):
     loading)
     """
 
-    _neighbor_delta_ind_batches =(
-        # case with dx = 1, dy = 0, dz =0
-        ( ( 1, 0, 0), ),
-        # cases with dy = 1, dz = 0
-        ( (-1, 1, 0), ( 0, 1, 0), ( 1, 1, 0) ),
-        # cases with dz = 1
-        ( (-1,-1, 1), ( 0,-1, 1), ( 1,-1, 1),
-          (-1, 0, 1), ( 0, 0, 1), ( 1, 0, 1),
-          (-1, 1, 1), ( 0, 1, 1), ( 1, 1, 1))
-    )
+    subvols_per_ax = subvol_decomp.subvols_per_ax
+
+    if ( (not yield_batches) and (not force_traditional_neighbors) and
+         all(e==2 for e in subvol_decomp.subvols_per_ax[1:]) ):
+        # under this special case, we can distribute neighbors in a slightly
+        # more balanced way. In the future, we can generalize more
+
+        # at most, 4 of the 9 delta_inds in _common_batch can ever be valid
+        _common_batch = ( ( 1,-1,-1), ( 1, 0,-1), ( 1, 1,-1),
+                          ( 1,-1, 0), ( 1, 0, 0), ( 1, 1, 0),
+                          ( 1,-1, 1), ( 1, 0, 1), ( 1, 1, 1))
+        if (central_subvol_ind[2] == 0) and (central_subvol_ind[1] == 0):
+            _other_batch = (( 0, 1, 0), ( 0, 1, 1))
+        elif (central_subvol_ind[2] == 0) and (central_subvol_ind[1] == 1):
+            _other_batch = (( 0, 0, 1), ( 0, -1, 1))
+        elif (central_subvol_ind[2] == 1) and (central_subvol_ind[1] == 0):
+            _other_batch = (( 0, 0, -1),)
+        else:
+            _other_batch = (( 0, -1, 0),)
+        _neighbor_delta_ind_batches = (_common_batch, _other_batch)
+    else:
+        # this is the generic case!
+        _neighbor_delta_ind_batches =(
+            # case with dx = 1, dy = 0, dz =0
+            ( ( 1, 0, 0), ),
+            # cases with dy = 1, dz = 0
+            ( (-1, 1, 0), ( 0, 1, 0), ( 1, 1, 0) ),
+            # cases with dz = 1
+            ( (-1,-1, 1), ( 0,-1, 1), ( 1,-1, 1),
+              (-1, 0, 1), ( 0, 0, 1), ( 1, 0, 1),
+              (-1, 1, 1), ( 0, 1, 1), ( 1, 1, 1))
+        )
 
     is_valid= lambda ind: self.subvol_decomp.valid_subvol_index(ind)
 
@@ -269,6 +294,7 @@ class SimpleCutRegionIterBuilder:
     TODO: when is_central == False, avoid loading unnecessary extra_quantities
 
     """
+
     def __init__(self, ds, subvol_decomp, sf_props, extra_quantities = {},
                  rand_generator = None):
         self.ds = ds
@@ -276,6 +302,12 @@ class SimpleCutRegionIterBuilder:
         self.sf_props = sf_props
         self.extra_quantities = extra_quantities
         self.rand_generator = rand_generator
+
+    def neighbor_ind_iter(self, *args, **kwargs):
+        """
+        This is made necessary by a particular subclass
+        """
+        yield from _neighbor_ind_iter(*args, **kwargs)
 
     def _pos_quan_equan_arr_iterator(self, data_region):
         return _pos_quan_equan_arr_generator(
@@ -323,6 +355,22 @@ class EagerCutRegionIterBuilder(SimpleCutRegionIterBuilder):
         self.cached_iterators = {}
         self.cur_center = None
 
+    def neighbor_ind_iter(self, *args, **kwargs):
+        """
+        This is class assumes that the "traditional order" is being used.
+
+        We may be able to relax this requirement (as long as we always use a
+        consistent order), but that requires more thought...
+        """
+        if 'force_traditional_neighbors' not in kwargs:
+            kwargs['force_traditional_neighbors'] = True
+        elif kwargs['force_traditional_neighbors'] == False:
+            raise ValueError(
+                f"instances of {self.__class__.__name__} don't allow "
+                "force_traditional_neighbors to be False"
+            )
+        yield from _neighbor_ind_iter(*args, **kwargs)
+
     def clear_cache(self, keep_cur_center = False, run_gc = True):
         if self.cur_center is None or not keep_cur_center:
             self.cached_iterators = {} # clear the full cache
@@ -331,7 +379,8 @@ class EagerCutRegionIterBuilder(SimpleCutRegionIterBuilder):
             # remove the non-neighbors of cur_center
             unneeded_keys = set(self.cached_iterators.keys())
             unneeded_keys.remove(self.cur_center)
-            for ind in neighbor_ind_iter(self.cur_center, self.subvol_decomp):
+            for ind in self.neighbor_ind_iter(self.cur_center,
+                                              self.subvol_decomp):
                 unneeded_keys.remove(ind)
             for key in unneeded_keys:
                 del self.cached_iterators[key]
@@ -381,8 +430,9 @@ class EagerCutRegionIterBuilder(SimpleCutRegionIterBuilder):
 
             self._build_iterators_for_batch([self.cur_center])
 
-            for batch in neighbor_ind_iter(self.cur_center, self.subvol_decomp,
-                                           yield_batches = True):
+            for batch in self.neighbor_ind_iter(self.cur_center,
+                                                self.subvol_decomp,
+                                                yield_batches = True):
                 self._build_iterators_for_batch(batch)
 
         # retrieve the appropriate iterator from the cache

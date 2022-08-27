@@ -7,10 +7,7 @@ from .pyvsf import vsf_props
 from ._kernels import get_kernel
 from ._kernels_cy import build_consolidater
 from ._perf import PerfRegions
-from ._cut_region_iterator import (
-    neighbor_ind_iter,
-    get_cut_region_itr_builder
-)
+from ._cut_region_iterator import get_cut_region_itr_builder
 
 def consolidate_partial_vsf_results(statistic, *rslts,
                                     stat_kw = {}, dist_bin_edges = None):
@@ -484,7 +481,7 @@ class SFWorker(_BaseWorker):
 
         # Next, load the adjacent subvolumes (on the right side) and compute
         # the cross term for the vsf (and any other stats)
-
+        neighbor_ind_iter = cut_region_itr_builder.neighbor_ind_iter
         for other_ind in neighbor_ind_iter(subvol_index, self.subvol_decomp):
             #print(f"{subvol_index}-{other_ind}")
 
