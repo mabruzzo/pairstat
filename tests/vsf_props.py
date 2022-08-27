@@ -380,7 +380,7 @@ def extra_multiple_stats_test(alt_implementation_key = 'individual-stats',
     if skip_variance:
         stat_kw_pairs = stat_kw_pairs[1:]
 
-    
+
     for seed in [4162,2354,7468,3563,88567]:
 
         generator = np.random.RandomState(seed = seed)
@@ -400,14 +400,16 @@ def extra_multiple_stats_test(alt_implementation_key = 'individual-stats',
 
         # auto-structure-function
         if not skip_auto_sf:
+            # use x_b and vel_b to make sure that we use multiple processes
+            # when nproc>1
             compare_vsf_implementations(
-                pos_a = x_a, pos_b = None, vel_a = vel_a, vel_b = None,
+                pos_a = x_b, pos_b = None, vel_a = vel_b, vel_b = None,
                 dist_bin_edges = bin_edges,
                 stat_kw_pairs = stat_kw_pairs,
                 atol = atol, rtol = rtol,
                 alt_implementation_key = alt_implementation_key
             )
-
+        return None
         # cross-structure-function
         compare_vsf_implementations(
             pos_a = x_a, pos_b = x_b, vel_a = vel_a, vel_b = vel_b,
@@ -466,17 +468,17 @@ if __name__ == '__main__':
     extra_multiple_stats_test(
         alt_implementation_key = 'actual-3proc-seq',
         skip_variance = False,
-        skip_auto_sf = True,
+        skip_auto_sf = False,
         use_tol = True
     )
     extra_multiple_stats_test(
         alt_implementation_key = 'actual-3proc',
         skip_variance = False,
-        skip_auto_sf = True,
+        skip_auto_sf = False,
         use_tol = True
     )
 
-    print('running a short benchmark. This takes ~20 s')
+    print('running a short benchmark. This takes ~7 s on a 4 core system')
     val_bin_edges = np.geomspace(start = 1e-16, stop = 2.0, num = 100,
                                  dtype = np.float64)
     val_bin_edges[0] = 0.0
@@ -485,6 +487,7 @@ if __name__ == '__main__':
               dist_bin_edges = np.arange(101.0)/100,
               stat_kw_pairs = [('histogram', {'val_bin_edges':val_bin_edges}),
                                ('variance', {})],
+              nproc = 4,
               skip_python_version = True)
 
     print('running a short benchmark. This takes ~10 s on a 4 core system')

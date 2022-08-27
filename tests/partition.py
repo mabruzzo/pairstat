@@ -53,7 +53,8 @@ def _get_ref(a_vals, b_vals):
                        task_iter = None)
     return ref_vals
 
-def _run_test(a_vals, b_vals, nproc, ref_vals = None):
+def _run_test(a_vals, b_vals, nproc, ref_vals = None,
+              assert_within_max_nproc = False):
     if ref_vals is None:
         ref_vals = _get_ref(a_vals, b_vals)
 
@@ -63,13 +64,21 @@ def _run_test(a_vals, b_vals, nproc, ref_vals = None):
                                     skip_small_prob_check = True)
     actual_vals = DummyAccumulator()
 
+    max_nproc = factory.num_partitions()
+    if max_nproc < nproc:
+        if assert_within_max_nproc:
+            raise AssertionError("nproc exceeds number of partitions")
+        else:
+            print(f"Number of partitions, {max_nproc} exceeds nproc, {nproc}. "
+                  "Adjusting nproc accordingly")
+            nproc = max_nproc
+
     for proc_id in range(nproc):
         tmp = factory.build_iterator(proc_id)
         _apply_accumulator(actual_vals, a_vals, b_vals,
                            task_iter = tmp)
-
     ref_vals.assert_equal(actual_vals)
-    
+
 def test_cross_partition():
 
     locase = 'abcdefghijklmnopqrstuvwxyz'
@@ -86,7 +95,21 @@ def test_cross_partition():
             ref_vals.assert_equal(alt_ref_vals)
             for nproc in range(1, longer_len):
                 print(nproc)
-                _run_test(shorter, longer, nproc, ref_vals = ref_vals)
+                _run_test(shorter, longer, nproc, ref_vals = ref_vals,
+                          assert_within_max_nproc = True)
+
+def test_auto_partition():
+
+    letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+    for length in range(2,len(letters)+1):
+        print(f'length = {length}')
+        vals = letters[:length]
+        ref_vals = _get_ref(vals, [])
+
+        for nproc in range(1, 61): # hard limit in the code for now is 60
+            _run_test(vals, [], nproc, ref_vals = ref_vals)
 
 if __name__ == '__main__':
     test_cross_partition()
+    test_auto_partition()

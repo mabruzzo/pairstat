@@ -160,7 +160,7 @@ namespace{
              points_b.n_spatial_dims,
              points_b.spatial_dim_stride};
  
-      if (duplicated_points){ // this branch is largely untested
+      if (duplicated_points){
         if ((stat_task.start_B == stat_task.stop_B) & (stat_task.stop_B == 0)){
           // not a typo, use cur_points_a twice
           process_data<AccumCollection, true>(cur_points_a, cur_points_a,
@@ -209,10 +209,6 @@ namespace{
                                 bool duplicated_points) noexcept
   {
     std::size_t nominal_nproc = get_nominal_nproc_(parallel_spec);
-
-    if (duplicated_points) {
-      error("partitioning strategy for auto-vsf is untested");
-    }
  
     const TaskItFactory factory(nominal_nproc, points_a.n_points,
                                 (duplicated_points) ? 0 : points_b.n_points);

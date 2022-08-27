@@ -217,19 +217,47 @@ class ArrayMap(Mapping):
             out[k][...] = v
         return out
 
-"""
+    def update_from_other(self, other):
+        # updates values held by self with values copied from other.
+        #
+        # This is generally an inefficient way to handle things...
+
+        raise RuntimeError("Untested")
+        if not isinstance(other, ArrayMap):
+            other = ArrayMap.copy_from_dict(other)
+        assert self.entry_spec == other.entry_spec
+        self.data_buffer[:] = other.data_buffer[:]
+
+
+'''
+def _process_array_of_array_maps_args(shape, entry_spec):
+    _array_shape_validation(shape)
+    entry_spec = ArrayMapEntrySpec(entry_spec)
+    single_array_map_buffer_shape = (entry_spec.required_storage_num_uint64(),)
+    complete_shape = shape + single_array_map_buffer_shape
+    return entry_spec, complete_shape
+
+
 class ArrayofArrayMaps:
+    """
+    Represents an array of array maps
+    """
 
     def __init__(self, shape, entry_spec):
-        _array_shape_validation(shape)
-        self._entry_spec = ArrayMapEntrySpec(entry_spec)
-
-        single_array_map_buffer_shape = \
-            (self._entry_spec.required_storage_num_uint64(),)
-
-        complete_shape = shape + single_array_map_buffer_shape
+        self._entry_spec, complete_shape \
+            = _process_array_of_array_maps_args(shape, entry_spec)
 
         self._arr = np.empty(shape = complete_shape, dtype = np.uint64)
+
+    @staticmethod
+    def expected_buffer_size_bytes(shape, entry_spec):
+        """
+        Computes the expected size of the buffer (in bytes) that will be used 
+        to hold all of this data
+        """
+        _, complete_shape \
+            = _process_array_of_array_maps_args(shape, entry_spec)
+        return np.prod(complete_shape) * np.dtype(np.uint64).itemsize
 
     @property
     def shape(self):
@@ -261,9 +289,7 @@ class ArrayofArrayMaps:
 
         sub_buffer = self._arr[idx]
         return ArrayMap(self.entry_spec, buffer = sub_buffer)
-"""
 
-"""
 entry_spec = [('counts', np.int64, (15,)), ('mean', np.float64, (15,)),
               ('variance', np.int64, (15,))]
 x = ArrayofArrayMaps((8,), entry_spec)
@@ -282,4 +308,8 @@ for i in range(x.size):
 print(len(pickle.dumps(x)))
 #print(pickle.dumps(old))
 print(len(pickle.dumps(old)))
-"""
+'''
+
+# may want to create an ArrayMapStore class that wraps either ArrayofArrayMaps
+# or some sort of file-based store (so that we can write the extra data to
+# a scratch ssd disk)

@@ -216,26 +216,33 @@ struct AutoSFPartitionStrat{
       error("nproc can't be zero");
     } else if (n_points <= 1){
       error("n_points must exceed 1");
-    } else if (nproc > 30){
+    } else if (nproc > 60){
       error("Probably want to rethink partitioning strategy for so many proc");
     }
 
+    // minimum number of points per segment is 2. For n_points == 5, that means
+    // max_segments = 2. For fewer points, force max_segments == 1
+    const std::size_t max_segments = (n_points <= 4) ? 1 : (n_points - 1) / 2;
 
     // our definition of a small problem could be improved
     bool is_small_problem = (!skip_small_prob_check) & (n_points <= 1000);
 
-    if (is_small_problem | (nproc == 1)){
+    if (is_small_problem | (nproc == 1) | (max_segments == 1)){
       return {safe_cast<std::uint64_t>(n_points), 1};
     }
 
     // we could definitely use a better algorithm to partition the work more
     // equally. For example, we could count sub triangles and sub rectangles for
     // different amounts of work...
-  
+
     // determine the number of segments to break each axis of the distance
     // matrix into. The choice of algorithm is fairly arbitrary...
     std::size_t num_segments = 0;
     for (std::size_t cur_num_segments = 2; ; cur_num_segments++){
+      if (cur_num_segments >= max_segments){
+        num_segments = max_segments;
+        break;
+      }
       // compute number of chunks for cur_segments
       std::size_t num_chunks = num_dist_array_chunks_auto(cur_num_segments);
       if (num_chunks >= (3 * nproc)){
