@@ -311,7 +311,7 @@ class SFWorker(_BaseWorker):
                             dist_bin_edges = dist_bin_edges,
                             stat_kw_pairs = stat_details.sf_stat_kw_pairs,
                             postprocess_stat = False,
-                            nproc = 1
+                            nproc = 0
                         )
 
                     itr = zip(rslts, stat_details.sf_stat_kw_pairs)
