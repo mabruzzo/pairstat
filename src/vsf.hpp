@@ -72,7 +72,7 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
                     const StatListItem* stat_list, size_t stat_list_len,
                     const double *bin_edges, size_t nbins,
                     const ParallelSpec parallel_spec,
-                    double *out_flt_vals, int64_t *out_i64_vals) noexcept;
+                    double *out_flt_vals, int64_t *out_i64_vals);
 
 #ifdef __cplusplus
 }

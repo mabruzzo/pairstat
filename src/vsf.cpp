@@ -269,7 +269,7 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
 		    const StatListItem* stat_list, std::size_t stat_list_len,
                     const double *bin_edges, std::size_t nbins,
                     const ParallelSpec parallel_spec,
-                    double *out_flt_vals, int64_t *out_i64_vals) noexcept
+                    double *out_flt_vals, int64_t *out_i64_vals)
 {
   const bool duplicated_points = ((points_b.positions == nullptr) &&
 				  (points_b.velocities == nullptr));

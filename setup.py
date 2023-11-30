@@ -18,18 +18,22 @@ _PYVSF_ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
 _PYVSF_CPP_SRC_DIR = os.path.join(_PYVSF_ROOT_DIR,'src')
 print(_PYVSF_CPP_SRC_DIR)
 
+extra_compile_args = ['--std=c++17']
+
 ext_modules = [
     Extension('pyvsf._ArrayDict_cy', ['pyvsf/_ArrayDict_cy.pyx'],
+              extra_compile_args = extra_compile_args,
               language="c++"),
     Extension('pyvsf._kernels_cy', ['pyvsf/_kernels_cy.pyx'],
               include_dirs = [_PYVSF_CPP_SRC_DIR],
               library_dirs = [_PYVSF_CPP_SRC_DIR],
               runtime_library_dirs=[_PYVSF_CPP_SRC_DIR],
               libraries = ['vsf'],
+              extra_compile_args = extra_compile_args,
               language="c++"),
     Extension('pyvsf._partition_cy', ['pyvsf/_partition_cy.pyx'],
               include_dirs = [_PYVSF_CPP_SRC_DIR],
-              extra_compile_args = ['--std=c++17'],
+              extra_compile_args = extra_compile_args,
               language="c++"),
 ]
 
