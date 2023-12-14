@@ -4,7 +4,7 @@
 CC = g++
 OMP_FLAG = -fopenmp
 
-# if you are compiling on a Mac, you probably want to comment the above 2 lines
+# when compiling on a Mac (with the standard Apple-provided clang-compiler you probably want to comment the above 2 lines
 # and uncomment the following 2 lines
 #CC = clang++
 #OMP_FLAG =     # intentionally left blank
