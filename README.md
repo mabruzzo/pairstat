@@ -26,8 +26,12 @@ There are two important things to note:
 - This currently needs to be installed in development mode (so that the module
   can find the shared library). This means that you can't delete this
   repository after installation
+
 - You need to modify the ``Makefile`` if you have a C++ compiler other ``g++``
 
+- You especially need modify the ``Makefile`` if you are using the Apple-provided clang-compiler on a Mac.
+  This is especially important because the Apple-provided clang-compiler does NOT support openmp.
+  The modification in this case is simple (instructions are provided telling you which 2 lines to comment and the other 2 lines that must be uncommented)
 
 ## Description
 

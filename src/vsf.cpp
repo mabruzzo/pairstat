@@ -27,7 +27,7 @@
 
 // the anonymous namespace informs the compiler that the contents are only used
 // in the local compilation unit (facillitating more optimizations)
-namespace{
+namespace { // anonymous namespace
 
   FORCE_INLINE double calc_dist_sqr(double x0, double x1,
                                     double y0, double y1,
@@ -179,7 +179,10 @@ namespace{
     }
   }
 
-  std::size_t get_nominal_nproc_(const ParallelSpec& parallel_spec) noexcept
+  // we annotate the following with the maybe_unused attribute to suppress
+  // warnings when compiling without openmp
+  [[maybe_unused]] std::size_t
+  get_nominal_nproc_(const ParallelSpec& parallel_spec) noexcept
   {
     if (parallel_spec.nproc == 0) {
       // this approach is crude. OMP_NUM_THREADS doesn't need to be an int
@@ -208,6 +211,10 @@ namespace{
                                 AccumCollection& accumulators,
                                 bool duplicated_points) noexcept
   {
+#ifndef _OPENMP
+    error("calc_vsf_props_parallel_ should not be called unless the library "
+          "is compiled with support for OPENMP");
+#else
     std::size_t nominal_nproc = get_nominal_nproc_(parallel_spec);
  
     const TaskItFactory factory(nominal_nproc, points_a.n_points,
@@ -260,9 +267,10 @@ namespace{
     for (std::size_t i = 1; i < nproc; i++){
       accumulators.consolidate_with_other(partition_dest[i]);
     }
+#endif
   }
 
-}
+} // close anonymous namespace
 
 
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
@@ -304,10 +312,16 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   AccumColVariant accumulators = build_accum_collection(stat_list,
                                                         stat_list_len, nbins);
 
+#ifdef _OPENMP
+  const bool use_serial = parallel_spec.nproc == 1;
+#else
+  const bool use_serial = true;
+#endif
+
   // now actually use the accumulators to compute that statistics
   auto func = [=](auto& accumulators)
     {
-      if (parallel_spec.nproc == 1){
+      if (use_serial) {
         calc_vsf_props_helper_(points_a, my_points_b,
                                dist_sqr_bin_edges_vec.data(), nbins,
                                accumulators, duplicated_points);

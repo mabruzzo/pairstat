@@ -1,8 +1,17 @@
+
+# This first set of flags assumes that you are compiling on linux with the g++
+# compiler (which has support for openmp)
 CC = g++
+OMP_FLAG = -fopenmp
+
+# if you are compiling on a Mac, you probably want to comment the above 2 lines
+# and uncomment the following 2 lines
+#CC = clang++
+#OMP_FLAG =     # intentionally left blank
 
 # -fno-math-errno lets compilers inline the sqrt command (see comments of to
 # this SO answer) https://stackoverflow.com/a/54642811/4538758
-CFLAGS = -g -O2 -Wall -fPIC -fno-math-errno -fopenmp --std=c++17
+CFLAGS = -g -O2 -Wall -fPIC -fno-math-errno $(OMP_FLAG) --std=c++17
 
 
 LIBS=-lm
