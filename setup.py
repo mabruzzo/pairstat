@@ -14,9 +14,11 @@ class build_ext(_build_ext):
         import numpy
         self.include_dirs.append(numpy.get_include())
 
-_PYVSF_ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
+# we use os.path.abspath to try to circumvent an issue on macOS that seems to
+# cause us to just use a relative path
+_PYVSF_ROOT_DIR = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
 _PYVSF_CPP_SRC_DIR = os.path.join(_PYVSF_ROOT_DIR,'src')
-print(_PYVSF_CPP_SRC_DIR)
+print(f'Path to directory containing shared library: "{_PYVSF_CPP_SRC_DIR}"')
 
 extra_compile_args = ['--std=c++17']
 
