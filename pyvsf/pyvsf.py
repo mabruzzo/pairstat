@@ -6,8 +6,7 @@ import os.path
 
 import numpy as np
 
-from ._kernels import get_kernel
-from ._kernels_cy import _verify_bin_edges
+from ._kernels_cy import get_sf_kernel, _verify_bin_edges
 
 # get the directory of the current file 
 _dir_of_cur_file = os.path.dirname(os.path.abspath(__file__))
@@ -235,7 +234,7 @@ def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
     # are also initialized in alphabetical order
     for stat_name, stat_kw in sorted(stat_kw_pairs, key = lambda pair: pair[0]):
         # load kernel object, which stores metadata
-        kernel = get_kernel(stat_name)
+        kernel = get_sf_kernel(stat_name)
         if kernel.non_vsf_func is not None:
             raise ValueError(f"'{stat_name}' can't be computed by vsf_props")
 
@@ -406,7 +405,7 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         val_dict = rslt_container.extract_statistic_dict(stat_name)
 
         if postprocess_stat:
-            kernel = get_kernel(stat_name)
+            kernel = get_sf_kernel(stat_name)
             kernel.postprocess_rslt(val_dict)
         out.append(val_dict)
 

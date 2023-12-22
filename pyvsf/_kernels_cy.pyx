@@ -376,3 +376,60 @@ class Variance:
         if postprocess_rslt:
             cls.postprocess_rslt(rslt)
         return rslt
+
+class Mean:
+    name = "mean"
+    output_keys = ('counts', 'mean')
+    commutative_consolidate = False
+    operate_on_pairs = True
+    non_vsf_func = None
+
+    @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
+
+    @classmethod
+    def get_extra_fields(cls, kwargs = {}):
+        return None
+
+    @classmethod
+    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
+        assert kwargs == {}
+        assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
+        return [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
+                ('mean',     np.float64, (np.size(dist_bin_edges) - 1,))]
+
+    @classmethod
+    def consolidate_stats(cls, *rslts):
+        raise RuntimeError("THIS SHOULD NOT BE CALLED")
+
+    @classmethod
+    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
+        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
+
+    @classmethod
+    def postprocess_rslt(cls, rslt):
+        _set_empty_count_locs_to_NaN(rslt)
+
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
+                             postprocess_rslt = True):
+        raise NotImplementedError()
+
+
+class KernelRegistry:
+    def __init__(self, itr):
+        self._kdict = dict((kernel.name, kernel) for kernel in set(itr))
+    def get_kernel(self, statistic):
+        try:
+            return self._kdict[statistic]
+        except KeyError:
+            # the `from None` clause avoids exception chaining
+            raise ValueError(f"Unknown Statistic: {statistic}") from None
+
+# sequence of kernels related to the structure function
+_SF_KERNEL_TUPLE = (Mean, Variance, Histogram)
+_SF_KERNEL_REGISTRY = KernelRegistry(_SF_KERNEL_TUPLE)
+
+def get_sf_kernel(statistic):
+    return _SF_KERNEL_REGISTRY.get_kernel(statistic)
