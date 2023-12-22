@@ -8,6 +8,22 @@ This module is still highly experimental.
 
 ## Installation
 
+This is fairly simple. From the root of the directory execute:
+
+```console
+$ python setup.py develop
+```
+
+In principle, other invocations may also work...
+
+Right now, if you are on macOS, the code will not be compiled with openmp support, by default.
+This is for compatibility with the default compiler shipped on macOS.
+
+## Old Installation
+
+To use the old installation method, set the first if-statement in the `_kernel_extension_module()` within `setup.py` to `True`.
+This older approach runs into problems on macOS.
+
 Installation is a little unorthodox since I have not had a chance to
 figure out how to have the ``setup.py`` script compile the C++ library
 itself. This requires that you have a C++ compiler (so far it has only
