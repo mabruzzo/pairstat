@@ -1,12 +1,23 @@
+from collections import OrderedDict
+from collections.abc import Sequence
 from copy import deepcopy
 import numpy as np
 
-from libc.stdint cimport int64_t
+from libc.stdint cimport int64_t, uintptr_t
 from libc.stddef cimport size_t
 
 from cpython.version cimport PY_MAJOR_VERSION
 
 from ._ArrayDict_cy import ArrayMap
+
+#==============================================================================
+# In the first chunk of this file, we define an interface for calc_vsf_props
+# - before it was written in cython, the interface was previously written using
+#   the ctypes module
+# - when I rewrote it, I largely kept the same general code structure
+# - with that in mind, the code structure (and readability) could definitely be
+#   improved
+#==============================================================================
 
 def _verify_bin_edges(bin_edges):
     nbins = bin_edges.size - 1
@@ -20,14 +31,486 @@ def _verify_bin_edges(bin_edges):
         return True
 
 cdef extern from "vsf.hpp":
+    ctypedef struct PointProps:
+        double* positions
+        double* velocities
+        size_t n_points
+        size_t n_spatial_dims
+        size_t spatial_dim_stride
+
     ctypedef struct BinSpecification:
         double* bin_edges
         size_t n_bins
+
+    ctypedef struct ParallelSpec:
+        size_t nproc
+        bint force_sequential
 
     ctypedef struct StatListItem:
         char* statistic
         void* arg_ptr
 
+    # at the end of the cython documentation page on using C++ in cython
+    #     https://cython.readthedocs.io/en/latest/src/userguide/wrapping_CPlusPlus.html
+    # there is an discussion that cython generates calls to functions assuming
+    # that they are C++ functions (i.e. the functions are not declared as
+    # ``extern "C" {...}``).
+    #
+    #   - The docs says that it's okay if the C functions have C++ entry points
+    #   - but otherwise, they recommend writing a small C++ shim module
+    #
+    # It's not exactly clear what "C++ entry-points" mean... But, I think this
+    # is okay?
+
+    bint calc_vsf_props(const PointProps points_a, const PointProps points_b,
+                        const StatListItem* stat_list, size_t stat_list_len,
+                        const double *bin_edges, size_t nbins,
+                        const ParallelSpec parallel_spec,
+                        double *out_flt_vals, int64_t *out_i64_vals)
+
+
+cdef class PyPointsProps:
+    cdef PointProps c_points # wrapped c++ instance
+    # the following 2 attributes are intended to ensure that the lifetimes
+    # of the arrays are consistent with the rest of the object
+    cdef object pos_arr
+    cdef object vel_arr
+
+    def __cinit__(self, pos, vel, dtype = np.float64, allow_null_pair = False):
+        assert np.dtype(dtype) == np.float64
+
+        cdef double[:,:] pos_memview
+        cdef double[:,:] vel_memview
+
+        if allow_null_pair and (pos is None) and (vel is None):
+            self.pos_arr = None
+            self.vel_arr = None
+
+            # initialize the c_points struct
+            self.c_points.positions = NULL
+            self.c_points.velocities = NULL
+            self.c_points.n_points = 0
+            self.c_points.n_spatial_dims = 0
+            self.c_points.spatial_dim_stride = 0
+
+        elif (pos is None) or (vel is None):
+            raise ValueError("pos and vel must not be None")
+
+        else:
+            # we store pos_arr and vel_arr as attributes to ensure that the
+            # arrays are not freed while the pointers are in use
+
+            self.pos_arr = np.asarray(pos, dtype = dtype, order = 'C')
+            self.vel_arr = np.asarray(vel, dtype = dtype, order = 'C')
+            assert self.pos_arr.ndim == 2
+            assert self.vel_arr.ndim == 2
+
+            # I believe this is a redundant check:
+            assert self.pos_arr.strides[1] == self.pos_arr.itemsize
+            assert self.vel_arr.strides[1] == self.vel_arr.itemsize
+
+            assert self.pos_arr.shape == self.vel_arr.shape
+            n_spatial_dims = int(self.pos_arr.shape[0])
+            n_points = int(self.pos_arr.shape[1])
+
+            # in the future, consider relaxing the following condition (to
+            # facillitate better data alignment)
+            assert self.pos_arr.strides[0] == (n_points * self.pos_arr.itemsize)
+            assert self.vel_arr.strides[0] == (n_points * self.vel_arr.itemsize)
+            spatial_dim_stride = int(n_points)
+
+            pos_memview = self.pos_arr
+            vel_memview = self.vel_arr
+
+            # initialize the c_points struct
+            self.c_points.positions = &pos_memview[0,0]
+            self.c_points.velocities = &vel_memview[0,0]
+            self.c_points.n_points = n_points
+            self.c_points.n_spatial_dims = n_spatial_dims
+            self.c_points.spatial_dim_stride = spatial_dim_stride
+
+    @property
+    def n_points(self): return self.c_points.n_points
+
+    @property
+    def n_spatial_dims(self):  return self.c_points.n_spatial_dims
+
+    @property
+    def spatial_dim_stride(self):  return self.c_points.spatial_dim_stride
+
+
+cdef class _WrappedVoidPtr: # this is just a helper class
+    cdef void* ptr
+    def __cinit__(self):
+        self.ptr = NULL
+
+cdef class PyBinSpecification:
+    cdef BinSpecification c_bin_spec # wrapped c++ instance
+    cdef object bin_edges # numpy array that owns the pointer stored in the
+                          # wrapped struct
+
+    def __cinit__(self, bin_edges):
+        self.bin_edges = np.asarray(bin_edges, dtype = np.float64, order = 'C')
+        if not self.bin_edges.flags['C_CONTIGUOUS']:
+            self.bin_edges = np.ascontiguousarray(self.bin_edges)
+
+        assert _verify_bin_edges(self.bin_edges)
+        n_bins = int(self.bin_edges.size - 1)
+
+        cdef double[::1] bin_edges_memview = self.bin_edges
+        self.c_bin_spec.bin_edges = &bin_edges_memview[0]
+        self.c_bin_spec.n_bins = n_bins
+
+    def wrapped_void_ptr(self):
+        cdef _WrappedVoidPtr out = _WrappedVoidPtr()
+        out.ptr = <void *>(&(self.c_bin_spec))
+        return out
+
+cdef enum:
+    _MAX_STATLIST_CAPACITY = 4
+
+cdef class StatList:
+    cdef StatListItem[_MAX_STATLIST_CAPACITY] data
+
+    # current length (less than or equal to _MAX_STATLIST_CAPACITY)
+    cdef int length
+
+    # the c-string stored in data[i].statistic is a pointer to the buffer
+    # of the Python byte string stored in self._py_byte_strs (this is supported
+    # by cython magic)
+    # -> an important reason for this attributes existence is that it ensures
+    #    that the lifetime of the contained strings are consistent with the
+    #    lifetime of the rest of the object
+    # -> the mechanism for extracting the reference to this string is
+    #    handled by cython magic
+    cdef object _py_byte_strs
+
+    # data[i].arg_ptr is either NULL or a pointer. In cases where its not NULL,
+    # it is a pointer to a value wrapped by the extension-type held in
+    # self._attached_storage[i].
+    cdef object _arg_storage
+
+    def __cinit__(self):
+        self.length = 0
+        for i in range(_MAX_STATLIST_CAPACITY):
+            self.data[i].statistic = NULL
+            self.data[i].arg_ptr = NULL
+
+        self._py_byte_strs = [None for i in range(_MAX_STATLIST_CAPACITY)]
+        self._arg_storage = [None for i in range(_MAX_STATLIST_CAPACITY)]
+
+    def append(self, statistic_name, statistic_arg = None):
+        assert (self.length + 1) <= _MAX_STATLIST_CAPACITY
+        ind = self.length
+        self.length+=1
+
+        # handle the statistic name (convert it to bytes instance)
+        if isinstance(statistic_name, str):
+            statistic_name = statistic_name.encode('ascii')
+        elif isinstance(statistic_name, bytearray):
+            statistic_name = bytes(statistic_name)
+        elif not isinstance(statistic_name, bytes):
+            raise ValueError("statistic_name must be coercable to bytes")
+        self._py_byte_strs[ind] = statistic_name
+
+        # we rely on cython magic to get a pointer to the byte buffer of the
+        # Python byte string
+        cdef char* c_stat_name = <bytes>(self._py_byte_strs[ind])
+
+        cdef void* arg_ptr = NULL
+        self._arg_storage[ind] = statistic_arg
+        if self._arg_storage[ind] is not None:
+            ptr_wrapper = self._arg_storage[ind].wrapped_void_ptr()
+            arg_ptr = (<_WrappedVoidPtr?>(ptr_wrapper)).ptr
+
+        self.data[ind].statistic = c_stat_name
+        self.data[ind].arg_ptr = arg_ptr
+
+    def __len__(self):
+        return self.length
+
+    def __str__(self):
+        cdef uintptr_t tmp
+        elements = []
+        for i in range(self.length):
+            if self.data[i].arg_ptr == NULL:
+                ptr_str = 'NULL'
+            else:
+                tmp = <uintptr_t>(self.data[i].arg_ptr)
+                ptr_str = 'ptr(' + hex(int(tmp)) + ')'
+
+            elements.append('{' + self._py_byte_strs[i].decode('ascii') + ',' +
+                            ptr_str + '}')
+        return '[' + ','.join(elements) + ']'
+
+
+class VSFPropsRsltContainer:
+    def __init__(self, int64_quans, float64_quans):
+        duplicates = set(int64_quans.keys()).intersection(float64_quans.keys())
+        assert len(duplicates) == 0
+
+        def _parse_input_dict(input_dict):
+            total_length = 0
+            access_dict = {}
+            for key, subarr_shape in input_dict.items():
+                subarr_size = np.prod(subarr_shape)
+                subarr_idx = slice(total_length, total_length + subarr_size)
+                access_dict[key] = (subarr_idx, subarr_shape)
+                total_length += subarr_size
+            return access_dict, total_length
+
+        self.int64_access_dict,   int64_len   = _parse_input_dict(int64_quans)
+        self.float64_access_dict, float64_len = _parse_input_dict(float64_quans)
+
+        self.int64_arr   = np.empty((int64_len,),   dtype = np.int64  )
+        self.float64_arr = np.empty((float64_len,), dtype = np.float64)
+
+    @staticmethod
+    def _get(key, access_dict, arr):
+        idx, out_shape = access_dict[key]
+        out = arr[idx]
+        out.shape = out_shape # ensures we don't make a copy
+        return out
+
+    def __getitem__(self,key):
+        try:
+            return self._get(key, self.float64_access_dict, self.float64_arr)
+        except KeyError:
+            try:
+                return self._get(key, self.int64_access_dict, self.int64_arr)
+            except KeyError:
+                raise KeyError(key) from None
+
+    def extract_statistic_dict(self, statistic_name):
+        out = {}
+
+        def _extract(access_dict, arr):
+            for (stat,quan), v in access_dict.items():
+                if stat == statistic_name:
+                    out[quan] = self._get((stat,quan), access_dict, arr)
+
+        _extract(self.int64_access_dict,   self.int64_arr  )
+        _extract(self.float64_access_dict, self.float64_arr)
+
+        if len(out) == 0:
+            raise ValueError(f"there's no statistic called '{statistic_name}'")
+        return out
+
+    def get_flt_vals_arr(self):
+        return self.float64_arr
+
+    def get_i64_vals_arr(self):
+        return self.int64_arr
+
+def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
+    """
+    Construct the appropriate instance of StatList as well as information about
+    the output data
+    """
+
+    # it's important that we retain order!
+    int64_quans = OrderedDict()
+    float64_quans = OrderedDict()
+
+    stat_list = StatList()
+
+    # it's important that we consider the entries of stat_kw_pairs in
+    # alphabetical order of the statistic names so that the stat_list entries
+    # are also initialized in alphabetical order
+    for stat_name, stat_kw in sorted(stat_kw_pairs, key = lambda pair: pair[0]):
+        # load kernel object, which stores metadata
+        kernel = get_sf_kernel(stat_name)
+        if kernel.non_vsf_func is not None:
+            raise ValueError(f"'{stat_name}' can't be computed by vsf_props")
+
+        # first, look at output quantities associated with stat_name
+        prop_l = kernel.get_dset_props(dist_bin_edges, kwargs = stat_kw)
+        for quan_name, dtype, shape in prop_l:
+            key = (stat_name, quan_name)
+            assert (key not in int64_quans) and (key not in float64_quans)
+            if dtype == np.int64:
+                int64_quans[key] = shape
+            elif dtype == np.float64:
+                float64_quans[key] = shape
+            else:
+                raise ValueError(f"can't handle datatype: {dtype}")
+
+        # now, update StatList
+        if len(stat_kw) == 0:
+            stat_list.append(statistic_name = stat_name, statistic_arg = None)
+        elif stat_name == 'histogram':
+            assert list(stat_kw) == ['val_bin_edges']
+            val_bin_edges = np.asanyarray(stat_kw['val_bin_edges'],
+                                          dtype = 'f8')
+            if not _verify_bin_edges(val_bin_edges):
+                raise ValueError(
+                    'kwargs["val_bin_edges"] must be a 1D monotonically '
+                    'increasing array with 2 or more values'
+                )
+            val_bin_spec = PyBinSpecification(bin_edges = val_bin_edges)
+            stat_list.append(stat_name, val_bin_spec)
+        else:
+            raise RuntimeError(f"There's no support for adding '{stat_name}' "
+                               "to stat_list")
+
+    return stat_list, VSFPropsRsltContainer(int64_quans = int64_quans,
+                                            float64_quans = float64_quans)
+
+def _validate_stat_kw_pairs(arg):
+    if not isinstance(arg, Sequence):
+        raise ValueError("stat_kw_pairs must be a sequence")
+    for elem in arg:
+        if len(elem) != 2:
+            raise ValueError("Each element in stat_kw_pairs must hold 2"
+                             "elements")
+        first, second = elem
+        if (not isinstance(first, str)) or (not isinstance(second, dict)):
+            raise ValueError("Each element in stat_kw_pairs must hold a "
+                             "string paired with a dict")
+
+def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
+              stat_kw_pairs = [('variance', {})],
+              nproc = 1, force_sequential = False,
+              postprocess_stat = True):
+    """
+    Calculates properties pertaining to the velocity structure function for 
+    pairs of points.
+
+    If you set both ``pos_b`` and ``vel_b`` to ``None`` then the velocity 
+    structure properties will only be computed for unique pairs of the points
+    specified by ``pos_a`` and ``vel_a``
+
+    Parameters
+    ----------
+    pos_a, pos_b : array_like
+        2D arrays holding the positions of each point. Axis 0 should be the 
+        number of spatial dimensions must be consistent for each array. Axis 1
+        can be different for each array
+    vel_a, vel_b : array_like
+        2D arrays holding the velocities at each point. The shape of ``vel_a`` 
+        should match ``pos_a`` and the shape of ``vel_b`` should match
+        ``pos_b``.
+    dist_bin_edges : array_like
+        1D array of monotonically increasing values that represent edges for 
+        distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
+        interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
+    stat_kw_pairs : sequence of (str, dict) tuples
+        Each entry is a tuple holding the name of a statistic to compute and a
+        dictionary of kwargs needed to compute that statistic. A list of valid
+        statistics are described below. Unless we explicitly state otherwise,
+        an empty dict should be passed for the kwargs.
+    nproc : int, optional
+        Number of processes to use for parallelizing this calculation. Default
+        is 1. If the problem is small enough, the program may ignore this
+        argument and use fewer processes.
+    force_sequential : bool, optional
+        `False` by default. When `True`, this forces the code to run with a
+        single process (regardless of the value of `nproc`). However, the data
+        is still partitioned as though it were using `nproc` processes. Thus,
+        floating point results should be bitwise identical to an identical
+        function call where this is `False`. (This is primarily provided for
+        debugging purposes)
+    postprocess_stat : bool, optional
+        Users directly employing this function should almost always set this
+        kwarg to `True` (the default). This option is only provided to simplify
+        the process of consolidating results from multiple calls to vsf_props.
+
+    Notes
+    -----
+    Currently recognized statistic names include:
+        - 'mean': calculate the 1st order VSF.
+        - 'variance': calculate the 1st and 2nd order VSFs
+        - 'histogram': this constructs a 2D histogram. The bin edges along axis
+          0 are given by the `dist_bin_edges` argument. The magnitudes of the 
+          velocity differences are binned along axis 1. The 'val_bin_edges'
+          keyword must be specified alongside this statistic. It should be
+          associated with a 1D monotonic array that specifies the bin edges
+          along axis 1.
+    """
+    _validate_stat_kw_pairs(stat_kw_pairs)
+
+    cdef PyPointsProps points_a = PyPointsProps(pos_a, vel_a, dtype = 'f8',
+                                                allow_null_pair = False)
+    cdef PyPointsProps points_b = PyPointsProps(pos_b, vel_b, dtype = 'f8',
+                                                allow_null_pair = True)
+
+    # do some basic argument checking
+    if (pos_b is None) and (points_a.n_points <= 1):
+        raise ValueError("When pos_b and vel_b are None, then pos_a and vel_a "
+                         "must specify properties for more than 1 point")
+    elif ((pos_b is not None) and
+          (points_a.n_spatial_dims != points_b.n_spatial_dims)):
+        raise ValueError("When pos_a and pos_b are both specified, they must "
+                         "have consistent spatial dimensions")
+    elif points_a.n_spatial_dims != 3:
+        raise NotImplementedError(
+            "vsf_props currently only has support for computing velocity "
+            "structure function properties for sets of points with 3 spatial "
+            "dimensions"
+        )
+
+    # check validity of dist_bin_edges (and do any necessary coercion)
+    dist_bin_edges = np.asanyarray(dist_bin_edges, dtype = np.float64)
+    if not dist_bin_edges.flags['C_CONTIGUOUS']:
+        dist_bin_edges = np.ascontiguousarray(dist_bin_edges)
+    if not _verify_bin_edges(dist_bin_edges):
+        raise ValueError(
+            'dist_bin_edges must be a 1D monotonically increasing array with '
+            '2 or more values'
+        )
+    ndist_bins = dist_bin_edges.size - 1
+    cdef const double[::1] bin_edges_view = dist_bin_edges
+
+    # construct stat_list and rslt_container
+    stat_list, rslt_container = _process_statistic_args(stat_kw_pairs,
+                                                        dist_bin_edges)
+
+    cdef ParallelSpec parallel_spec
+    parallel_spec.nproc = nproc
+    parallel_spec.force_sequential = force_sequential
+
+    # setup the pointers to the output buffers
+    cdef double* out_flt_vals = NULL
+    cdef double[::1] out_flt_memview
+    if rslt_container.get_flt_vals_arr().size > 0:
+        out_flt_memview = rslt_container.get_flt_vals_arr()
+        out_flt_vals = &(out_flt_memview[0])
+
+    cdef int64_t* out_i64_vals = NULL
+    cdef int64_t[::1] out_i64_memview
+    if rslt_container.get_i64_vals_arr().size > 0:
+        out_i64_memview = rslt_container.get_i64_vals_arr()
+        out_i64_vals = &(out_i64_memview[0])
+
+    cdef bint success = calc_vsf_props(
+        points_a = points_a.c_points, points_b = points_b.c_points,
+        stat_list = (<StatList?>stat_list).data,
+        stat_list_len = len(stat_list),
+        bin_edges = &(bin_edges_view[0]), nbins = ndist_bins,
+        parallel_spec = parallel_spec, 
+        out_flt_vals = out_flt_vals, out_i64_vals = out_i64_vals
+    )
+
+    if not success:
+        raise RuntimeError("Something went wrong while in calc_vsf_props")
+
+    out = []
+    for stat_name, _ in stat_kw_pairs:
+        val_dict = rslt_container.extract_statistic_dict(stat_name)
+
+        if postprocess_stat:
+            kernel = get_sf_kernel(stat_name)
+            kernel.postprocess_rslt(val_dict)
+        out.append(val_dict)
+
+    return out
+
+#==============================================================================
+# It's been a long time since I've looked at the next chunk of code, but I
+# think it could be integrated with the above chunk to some degree
+# - the following section is related to defining "Kernels" for
+#   structure-function statistics
+#==============================================================================
 
 cdef extern from "accum_handle.hpp":
 
