@@ -40,14 +40,14 @@ namespace { // anonymous namespace
     return dx*dx + dy*dy + dz*dz;
   }
 
-  struct dist_rslt{ double dist_sqr; double abs_vdiff; };
+  struct pair_rslt{ double dist_sqr; double abs_vdiff; };
 
-  FORCE_INLINE dist_rslt calc_dist_rslt(double x_a, double y_a, double z_a,
-                                        double vx_a, double vy_a, double vz_a,
-                                        const double* pos_b,
-                                        const double* vel_b,
-                                        std::size_t i_b,
-                                        std::size_t spatial_dim_stride_b)
+  FORCE_INLINE pair_rslt legacy_calc_pair_rslt(double x_a, double y_a, double z_a,
+                                               double vx_a, double vy_a, double vz_a,
+                                               const double* pos_b,
+                                               const double* vel_b,
+                                               std::size_t i_b,
+                                               std::size_t spatial_dim_stride_b)
     noexcept
   {
     const double x_b = pos_b[i_b];
@@ -70,11 +70,11 @@ namespace { // anonymous namespace
   
 
   template<class AccumCollection, bool duplicated_points>
-  void process_data(const PointProps points_a,
-                    const PointProps points_b,
-                    const double *dist_sqr_bin_edges,
-                    std::size_t nbins,
-                    AccumCollection& accumulators)
+  void legacy_process_data(const PointProps points_a,
+                           const PointProps points_b,
+                           const double *dist_sqr_bin_edges,
+                           std::size_t nbins,
+                           AccumCollection& accumulators)
   {
 
     // this assumes 3D
@@ -104,18 +104,19 @@ namespace { // anonymous namespace
 
       for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++){
 
-        dist_rslt tmp = calc_dist_rslt(x_a, y_a, z_a,
-                                       vx_a, vy_a, vz_a,
-                                       pos_b, vel_b, i_b,
-                                       spatial_dim_stride_b);
+        pair_rslt tmp = legacy_calc_pair_rslt(x_a, y_a, z_a,
+                                              vx_a, vy_a, vz_a,
+                                              pos_b, vel_b, i_b,
+                                              spatial_dim_stride_b);
 
-	std::size_t bin_ind = identify_bin_index(tmp.dist_sqr,
+        std::size_t bin_ind = identify_bin_index(tmp.dist_sqr,
                                                  dist_sqr_bin_edges,
                                                  nbins);
-	if (bin_ind < nbins){
+        if (bin_ind < nbins){
           accumulators.add_entry(bin_ind, tmp.abs_vdiff);
-	}
+        }
       }
+
     }
   }
 
@@ -128,13 +129,13 @@ namespace { // anonymous namespace
 			      bool duplicated_points){
 
     if (duplicated_points){
-      process_data<AccumCollection, true>(points_a, points_b,
-                                          dist_sqr_bin_edges, nbins, 
-                                          accumulators);
+      legacy_process_data<AccumCollection, true>(points_a, points_b,
+                                                 dist_sqr_bin_edges, nbins, 
+                                                 accumulators);
     } else {
-      process_data<AccumCollection, false>(points_a, points_b,
-                                           dist_sqr_bin_edges, nbins,
-                                           accumulators);
+      legacy_process_data<AccumCollection, false>(points_a, points_b,
+                                                  dist_sqr_bin_edges, nbins,
+                                                  accumulators);
     }
   }
 
