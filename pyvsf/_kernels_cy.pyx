@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from collections.abc import Sequence
+import functools
 from copy import deepcopy
 import numpy as np
 
@@ -77,11 +78,13 @@ cdef class PyPointsProps:
     cdef object pos_arr
     cdef object val_arr
 
-    def __cinit__(self, pos, val, dtype = np.float64, allow_null_pair = False):
+    def __cinit__(self, pos, val, val_is_vector = True, dtype = np.float64,
+                  allow_null_pair = False):
         assert np.dtype(dtype) == np.float64
 
         cdef double[:,:] pos_memview
-        cdef double[:,:] val_memview
+        cdef double[:,:] vector_val_memview
+        cdef double[:]   scalar_val_memview
 
         if allow_null_pair and (pos is None) and (val is None):
             self.pos_arr = None
@@ -102,15 +105,21 @@ cdef class PyPointsProps:
             # arrays are not freed while the pointers are in use
 
             self.pos_arr = np.asarray(pos, dtype = dtype, order = 'C')
-            self.val_arr = np.asarray(val, dtype = dtype, order = 'C')
             assert self.pos_arr.ndim == 2
-            assert self.val_arr.ndim == 2
-
             # I believe this is a redundant check:
             assert self.pos_arr.strides[1] == self.pos_arr.itemsize
-            assert self.val_arr.strides[1] == self.val_arr.itemsize
 
-            assert self.pos_arr.shape == self.val_arr.shape
+            self.val_arr = np.asarray(val, dtype = dtype, order = 'C')
+            if val_is_vector:
+                assert self.val_arr.ndim == 2
+                assert self.val_arr.strides[1] == self.val_arr.itemsize
+                assert self.pos_arr.shape == self.val_arr.shape
+            else:
+                assert self.val_arr.ndim == 1
+                assert self.val_arr.strides[0] == self.val_arr.itemsize
+                assert self.pos_arr.shape[1] == self.val_arr.shape[0]
+
+
             n_spatial_dims = int(self.pos_arr.shape[0])
             n_points = int(self.pos_arr.shape[1])
 
@@ -120,12 +129,18 @@ cdef class PyPointsProps:
             assert self.val_arr.strides[0] == (n_points * self.val_arr.itemsize)
             spatial_dim_stride = int(n_points)
 
-            pos_memview = self.pos_arr
-            val_memview = self.val_arr
 
             # initialize the c_points struct
+            pos_memview = self.pos_arr
             self.c_points.positions = &pos_memview[0,0]
-            self.c_points.values = &val_memview[0,0]
+
+            if val_is_vector:
+                vector_val_memview = self.val_arr
+                self.c_points.values = &vector_val_memview[0,0]
+            else:
+                scalar_val_memview = self.val_arr
+                self.c_points.values = &scalar_val_memview[0]
+
             self.c_points.n_points = n_points
             self.c_points.n_spatial_dims = n_spatial_dims
             self.c_points.spatial_dim_stride = spatial_dim_stride
@@ -369,6 +384,101 @@ def _validate_stat_kw_pairs(arg):
             raise ValueError("Each element in stat_kw_pairs must hold a "
                              "string paired with a dict")
 
+
+def _core_pairwise_work(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
+                        pairwise_op = "sf",
+                        stat_kw_pairs = [('variance', {})],
+                        nproc = 1, force_sequential = False,
+                        postprocess_stat = True):
+    _validate_stat_kw_pairs(stat_kw_pairs)
+
+    val_is_vector = (pairwise_op == "sf")
+    cdef PyPointsProps points_a = PyPointsProps(pos_a, vel_a,
+                                                val_is_vector = val_is_vector,
+                                                dtype = 'f8',
+                                                allow_null_pair = False)
+    cdef PyPointsProps points_b = PyPointsProps(pos_b, vel_b,
+                                                val_is_vector = val_is_vector,
+                                                dtype = 'f8',
+                                                allow_null_pair = True)
+
+    # do some basic argument checking
+    if (pos_b is None) and (points_a.n_points <= 1):
+        raise ValueError("When pos_b and vel_b are None, then pos_a and vel_a "
+                         "must specify properties for more than 1 point")
+    elif ((pos_b is not None) and
+          (points_a.n_spatial_dims != points_b.n_spatial_dims)):
+        raise ValueError("When pos_a and pos_b are both specified, they must "
+                         "have consistent spatial dimensions")
+    elif points_a.n_spatial_dims != 3:
+        raise NotImplementedError(
+            "vsf_props currently only has support for computing velocity "
+            "structure function properties for sets of points with 3 spatial "
+            "dimensions"
+        )
+
+    # check validity of dist_bin_edges (and do any necessary coercion)
+    dist_bin_edges = np.asanyarray(dist_bin_edges, dtype = np.float64)
+    if not dist_bin_edges.flags['C_CONTIGUOUS']:
+        dist_bin_edges = np.ascontiguousarray(dist_bin_edges)
+    if not _verify_bin_edges(dist_bin_edges):
+        raise ValueError(
+            'dist_bin_edges must be a 1D monotonically increasing array with '
+            '2 or more values'
+        )
+    ndist_bins = dist_bin_edges.size - 1
+    cdef const double[::1] bin_edges_view = dist_bin_edges
+
+    # construct stat_list and rslt_container
+    stat_list, rslt_container = _process_statistic_args(stat_kw_pairs,
+                                                        dist_bin_edges)
+
+    cdef ParallelSpec parallel_spec
+    parallel_spec.nproc = nproc
+    parallel_spec.force_sequential = force_sequential
+
+    # setup the pointers to the output buffers
+    cdef double* out_flt_vals = NULL
+    cdef double[::1] out_flt_memview
+    if rslt_container.get_flt_vals_arr().size > 0:
+        out_flt_memview = rslt_container.get_flt_vals_arr()
+        out_flt_vals = &(out_flt_memview[0])
+
+    cdef int64_t* out_i64_vals = NULL
+    cdef int64_t[::1] out_i64_memview
+    if rslt_container.get_i64_vals_arr().size > 0:
+        out_i64_memview = rslt_container.get_i64_vals_arr()
+        out_i64_vals = &(out_i64_memview[0])
+
+    cdef bytes casted_pairwise_op = pairwise_op.encode("ASCII")
+
+    cdef const char* c_pairwise_op = casted_pairwise_op
+
+    cdef bint success = calc_vsf_props(
+        points_a = points_a.c_points, points_b = points_b.c_points,
+        pairwise_op = c_pairwise_op,
+        stat_list = (<StatList?>stat_list).data,
+        stat_list_len = len(stat_list),
+        bin_edges = &(bin_edges_view[0]), nbins = ndist_bins,
+        parallel_spec = parallel_spec, 
+        out_flt_vals = out_flt_vals, out_i64_vals = out_i64_vals
+    )
+
+    if not success:
+        raise RuntimeError("Something went wrong while in calc_vsf_props")
+
+    out = []
+    for stat_name, _ in stat_kw_pairs:
+        val_dict = rslt_container.extract_statistic_dict(stat_name)
+
+        if postprocess_stat:
+            kernel = get_sf_kernel(stat_name)
+            kernel.postprocess_rslt(val_dict)
+        out.append(val_dict)
+
+    return out
+
+
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
               stat_kw_pairs = [('variance', {})],
               nproc = 1, force_sequential = False,
@@ -428,86 +538,13 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
           associated with a 1D monotonic array that specifies the bin edges
           along axis 1.
     """
-    _validate_stat_kw_pairs(stat_kw_pairs)
 
-    cdef PyPointsProps points_a = PyPointsProps(pos_a, vel_a, dtype = 'f8',
-                                                allow_null_pair = False)
-    cdef PyPointsProps points_b = PyPointsProps(pos_b, vel_b, dtype = 'f8',
-                                                allow_null_pair = True)
-
-    # do some basic argument checking
-    if (pos_b is None) and (points_a.n_points <= 1):
-        raise ValueError("When pos_b and vel_b are None, then pos_a and vel_a "
-                         "must specify properties for more than 1 point")
-    elif ((pos_b is not None) and
-          (points_a.n_spatial_dims != points_b.n_spatial_dims)):
-        raise ValueError("When pos_a and pos_b are both specified, they must "
-                         "have consistent spatial dimensions")
-    elif points_a.n_spatial_dims != 3:
-        raise NotImplementedError(
-            "vsf_props currently only has support for computing velocity "
-            "structure function properties for sets of points with 3 spatial "
-            "dimensions"
-        )
-
-    # check validity of dist_bin_edges (and do any necessary coercion)
-    dist_bin_edges = np.asanyarray(dist_bin_edges, dtype = np.float64)
-    if not dist_bin_edges.flags['C_CONTIGUOUS']:
-        dist_bin_edges = np.ascontiguousarray(dist_bin_edges)
-    if not _verify_bin_edges(dist_bin_edges):
-        raise ValueError(
-            'dist_bin_edges must be a 1D monotonically increasing array with '
-            '2 or more values'
-        )
-    ndist_bins = dist_bin_edges.size - 1
-    cdef const double[::1] bin_edges_view = dist_bin_edges
-
-    # construct stat_list and rslt_container
-    stat_list, rslt_container = _process_statistic_args(stat_kw_pairs,
-                                                        dist_bin_edges)
-
-    cdef ParallelSpec parallel_spec
-    parallel_spec.nproc = nproc
-    parallel_spec.force_sequential = force_sequential
-
-    # setup the pointers to the output buffers
-    cdef double* out_flt_vals = NULL
-    cdef double[::1] out_flt_memview
-    if rslt_container.get_flt_vals_arr().size > 0:
-        out_flt_memview = rslt_container.get_flt_vals_arr()
-        out_flt_vals = &(out_flt_memview[0])
-
-    cdef int64_t* out_i64_vals = NULL
-    cdef int64_t[::1] out_i64_memview
-    if rslt_container.get_i64_vals_arr().size > 0:
-        out_i64_memview = rslt_container.get_i64_vals_arr()
-        out_i64_vals = &(out_i64_memview[0])
-
-    cdef const char* pairwise_op = "sf"
-
-    cdef bint success = calc_vsf_props(
-        points_a = points_a.c_points, points_b = points_b.c_points,
-        pairwise_op = pairwise_op,
-        stat_list = (<StatList?>stat_list).data,
-        stat_list_len = len(stat_list),
-        bin_edges = &(bin_edges_view[0]), nbins = ndist_bins,
-        parallel_spec = parallel_spec, 
-        out_flt_vals = out_flt_vals, out_i64_vals = out_i64_vals
-    )
-
-    if not success:
-        raise RuntimeError("Something went wrong while in calc_vsf_props")
-
-    out = []
-    for stat_name, _ in stat_kw_pairs:
-        val_dict = rslt_container.extract_statistic_dict(stat_name)
-
-        if postprocess_stat:
-            kernel = get_sf_kernel(stat_name)
-            kernel.postprocess_rslt(val_dict)
-        out.append(val_dict)
-
-    return out
+    return _core_pairwise_work(
+        pos_a = pos_a, pos_b = pos_b, vel_a = vel_a, vel_b = vel_b,
+        dist_bin_edges = dist_bin_edges, pairwise_op = "sf",
+        stat_kw_pairs = stat_kw_pairs, nproc = nproc,
+        force_sequential = force_sequential,
+        postprocess_stat = postprocess_stat)
 
 #==============================================================================
 # It's been a long time since I've looked at the next chunk of code, but I
