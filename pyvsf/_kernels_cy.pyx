@@ -126,7 +126,8 @@ cdef class PyPointsProps:
             # in the future, consider relaxing the following condition (to
             # facillitate better data alignment)
             assert self.pos_arr.strides[0] == (n_points * self.pos_arr.itemsize)
-            assert self.val_arr.strides[0] == (n_points * self.val_arr.itemsize)
+            if val_is_vector:
+                assert self.val_arr.strides[0] == (n_points * self.val_arr.itemsize)
             spatial_dim_stride = int(n_points)
 
 
@@ -385,7 +386,7 @@ def _validate_stat_kw_pairs(arg):
                              "string paired with a dict")
 
 
-def _core_pairwise_work(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
+def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
                         pairwise_op = "sf",
                         stat_kw_pairs = [('variance', {})],
                         nproc = 1, force_sequential = False,
@@ -393,11 +394,11 @@ def _core_pairwise_work(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     _validate_stat_kw_pairs(stat_kw_pairs)
 
     val_is_vector = (pairwise_op == "sf")
-    cdef PyPointsProps points_a = PyPointsProps(pos_a, vel_a,
+    cdef PyPointsProps points_a = PyPointsProps(pos_a, val_a,
                                                 val_is_vector = val_is_vector,
                                                 dtype = 'f8',
                                                 allow_null_pair = False)
-    cdef PyPointsProps points_b = PyPointsProps(pos_b, vel_b,
+    cdef PyPointsProps points_b = PyPointsProps(pos_b, val_b,
                                                 val_is_vector = val_is_vector,
                                                 dtype = 'f8',
                                                 allow_null_pair = True)
@@ -480,7 +481,7 @@ def _core_pairwise_work(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
 
 
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
-              stat_kw_pairs = [('variance', {})],
+              *, stat_kw_pairs = [('variance', {})],
               nproc = 1, force_sequential = False,
               postprocess_stat = True):
     """
@@ -540,11 +541,59 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
     """
 
     return _core_pairwise_work(
-        pos_a = pos_a, pos_b = pos_b, vel_a = vel_a, vel_b = vel_b,
+        pos_a = pos_a, pos_b = pos_b, val_a = vel_a, val_b = vel_b,
         dist_bin_edges = dist_bin_edges, pairwise_op = "sf",
         stat_kw_pairs = stat_kw_pairs, nproc = nproc,
         force_sequential = force_sequential,
         postprocess_stat = postprocess_stat)
+
+
+def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
+                         *, stat_kw_pairs = [('mean', {})],
+                         nproc = 1, force_sequential = False):
+    """
+    Calculates the 2pcf (two-point correlation function) for pairs of points.
+
+    If you set both ``pos_b`` and ``val_b`` to ``None`` then the two-point 
+    correlation function will only be computed for unique pairs of the points
+    specified by ``pos_a`` and ``val_a``
+
+    Parameters
+    ----------
+    pos_a, pos_b : array_like
+        2D arrays holding the positions of each point. Axis 0 should be the 
+        number of spatial dimensions must be consistent for each array. Axis 1
+        can be different for each array
+    val_a, val_b : array_like
+        1D arrays holding the velocities at each point. The shape of ``vel_a`` 
+        should match ``pos_a`` and the shape of ``vel_b`` should match
+        ``pos_b``.
+    dist_bin_edges : array_like
+        1D array of monotonically increasing values that represent edges for 
+        distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
+        interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
+    stat_kw_pairs : sequence of (str, dict) tuples, optional
+        The default choice is most meaningful for the 2pcf. In practice, this
+        can accept the same arguments accepted by :py:func:`vsf_props`.
+    nproc : int, optional
+        Number of processes to use for parallelizing this calculation. Default
+        is 1. If the problem is small enough, the program may ignore this
+        argument and use fewer processes.
+    force_sequential : bool, optional
+        `False` by default. When `True`, this forces the code to run with a
+        single process (regardless of the value of `nproc`). However, the data
+        is still partitioned as though it were using `nproc` processes. Thus,
+        floating point results should be bitwise identical to an identical
+        function call where this is `False`. (This is primarily provided for
+        debugging purposes)
+    """
+
+    return _core_pairwise_work(
+        pos_a = pos_a, pos_b = pos_b, val_a = val_a, val_b = val_b,
+        dist_bin_edges = dist_bin_edges, pairwise_op = "correlate",
+        stat_kw_pairs = stat_kw_pairs, nproc = nproc,
+        force_sequential = force_sequential,
+        postprocess_stat = True)
 
 #==============================================================================
 # It's been a long time since I've looked at the next chunk of code, but I
