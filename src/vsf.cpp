@@ -82,12 +82,12 @@ namespace { // anonymous namespace
     const std::size_t n_points_a = points_a.n_points;
     const std::size_t spatial_dim_stride_a = points_a.spatial_dim_stride;
     const double *pos_a = points_a.positions;
-    const double *vel_a = points_a.velocities;
+    const double *vel_a = points_a.values;
 
     const std::size_t n_points_b = points_b.n_points;
     const std::size_t spatial_dim_stride_b = points_b.spatial_dim_stride;
     const double *pos_b = points_b.positions;
-    const double *vel_b = points_b.velocities;
+    const double *vel_b = points_b.values;
 
     if constexpr (choice == PairOperation::correlate) {
 
@@ -158,14 +158,14 @@ namespace { // anonymous namespace
 
       const PointProps cur_points_a =
         {points_a.positions + stat_task.start_A,
-         points_a.velocities + stat_task.start_A,
+         points_a.values + stat_task.start_A,
          stat_task.stop_A - stat_task.start_A, // = n_points
          points_a.n_spatial_dims,
          points_a.spatial_dim_stride};
 
       const PointProps cur_points_b =
             {points_b.positions + stat_task.start_B,
-             points_b.velocities + stat_task.start_B,
+             points_b.values + stat_task.start_B,
              stat_task.stop_B - stat_task.start_B, // = n_points
              points_b.n_spatial_dims,
              points_b.spatial_dim_stride};
@@ -291,7 +291,7 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
                     double *out_flt_vals, int64_t *out_i64_vals)
 {
   const bool duplicated_points = ((points_b.positions == nullptr) &&
-				  (points_b.velocities == nullptr));
+				  (points_b.values == nullptr));
 
   const PointProps my_points_b = (duplicated_points) ? points_a : points_b;
 
@@ -302,7 +302,7 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   } else if (my_points_b.n_spatial_dims != 3){
     return false;
   } else if ((points_a.positions == nullptr) ||
-	     (points_a.velocities == nullptr)) {
+             (points_a.values == nullptr)) {
     return false;
   }
 

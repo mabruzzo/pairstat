@@ -33,7 +33,7 @@ def _verify_bin_edges(bin_edges):
 cdef extern from "vsf.hpp":
     ctypedef struct PointProps:
         double* positions
-        double* velocities
+        double* values
         size_t n_points
         size_t n_spatial_dims
         size_t spatial_dim_stride
@@ -74,57 +74,57 @@ cdef class PyPointsProps:
     # the following 2 attributes are intended to ensure that the lifetimes
     # of the arrays are consistent with the rest of the object
     cdef object pos_arr
-    cdef object vel_arr
+    cdef object val_arr
 
-    def __cinit__(self, pos, vel, dtype = np.float64, allow_null_pair = False):
+    def __cinit__(self, pos, val, dtype = np.float64, allow_null_pair = False):
         assert np.dtype(dtype) == np.float64
 
         cdef double[:,:] pos_memview
-        cdef double[:,:] vel_memview
+        cdef double[:,:] val_memview
 
-        if allow_null_pair and (pos is None) and (vel is None):
+        if allow_null_pair and (pos is None) and (val is None):
             self.pos_arr = None
-            self.vel_arr = None
+            self.val_arr = None
 
             # initialize the c_points struct
             self.c_points.positions = NULL
-            self.c_points.velocities = NULL
+            self.c_points.values = NULL
             self.c_points.n_points = 0
             self.c_points.n_spatial_dims = 0
             self.c_points.spatial_dim_stride = 0
 
-        elif (pos is None) or (vel is None):
-            raise ValueError("pos and vel must not be None")
+        elif (pos is None) or (val is None):
+            raise ValueError("pos and val must not be None")
 
         else:
-            # we store pos_arr and vel_arr as attributes to ensure that the
+            # we store pos_arr and val_arr as attributes to ensure that the
             # arrays are not freed while the pointers are in use
 
             self.pos_arr = np.asarray(pos, dtype = dtype, order = 'C')
-            self.vel_arr = np.asarray(vel, dtype = dtype, order = 'C')
+            self.val_arr = np.asarray(val, dtype = dtype, order = 'C')
             assert self.pos_arr.ndim == 2
-            assert self.vel_arr.ndim == 2
+            assert self.val_arr.ndim == 2
 
             # I believe this is a redundant check:
             assert self.pos_arr.strides[1] == self.pos_arr.itemsize
-            assert self.vel_arr.strides[1] == self.vel_arr.itemsize
+            assert self.val_arr.strides[1] == self.val_arr.itemsize
 
-            assert self.pos_arr.shape == self.vel_arr.shape
+            assert self.pos_arr.shape == self.val_arr.shape
             n_spatial_dims = int(self.pos_arr.shape[0])
             n_points = int(self.pos_arr.shape[1])
 
             # in the future, consider relaxing the following condition (to
             # facillitate better data alignment)
             assert self.pos_arr.strides[0] == (n_points * self.pos_arr.itemsize)
-            assert self.vel_arr.strides[0] == (n_points * self.vel_arr.itemsize)
+            assert self.val_arr.strides[0] == (n_points * self.val_arr.itemsize)
             spatial_dim_stride = int(n_points)
 
             pos_memview = self.pos_arr
-            vel_memview = self.vel_arr
+            val_memview = self.val_arr
 
             # initialize the c_points struct
             self.c_points.positions = &pos_memview[0,0]
-            self.c_points.velocities = &vel_memview[0,0]
+            self.c_points.values = &val_memview[0,0]
             self.c_points.n_points = n_points
             self.c_points.n_spatial_dims = n_spatial_dims
             self.c_points.spatial_dim_stride = spatial_dim_stride
