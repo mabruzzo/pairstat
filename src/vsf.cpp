@@ -24,7 +24,7 @@
 #include "accum_col_variant.hpp"
 #include "partition.hpp"
 
-
+enum class PairOperation{vec_diff, correlate};
 
 
 // the anonymous namespace informs the compiler that the contents are only used
@@ -69,12 +69,12 @@ namespace { // anonymous namespace
 
   
 
-  template<class AccumCollection, bool duplicated_points>
-  void legacy_process_data(const PointProps points_a,
-                           const PointProps points_b,
-                           const double *dist_sqr_bin_edges,
-                           std::size_t nbins,
-                           AccumCollection& accumulators)
+  template<class AccumCollection, bool duplicated_points, PairOperation choice>
+  void process_data(const PointProps points_a,
+                    const PointProps points_b,
+                    const double *dist_sqr_bin_edges,
+                    std::size_t nbins,
+                    AccumCollection& accumulators)
   {
 
     // this assumes 3D
@@ -89,57 +89,64 @@ namespace { // anonymous namespace
     const double *pos_b = points_b.positions;
     const double *vel_b = points_b.velocities;
 
-    for (std::size_t i_a = 0; i_a < n_points_a; i_a++){
-      // When duplicated_points is true, points_a is the same as points_b. In
-      // that case, take some care to avoid duplicating pairs
-      std::size_t i_b_start = (duplicated_points) ? i_a + 1 : 0;
+    if constexpr (choice == PairOperation::correlate) {
 
-      const double x_a = pos_a[i_a];
-      const double y_a = pos_a[i_a + spatial_dim_stride_a];
-      const double z_a = pos_a[i_a + 2*spatial_dim_stride_a];
 
-      const double vx_a = vel_a[i_a];
-      const double vy_a = vel_a[i_a + spatial_dim_stride_a];
-      const double vz_a = vel_a[i_a + 2*spatial_dim_stride_a];
 
-      for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++){
+    } else {
 
-        pair_rslt tmp = legacy_calc_pair_rslt(x_a, y_a, z_a,
-                                              vx_a, vy_a, vz_a,
-                                              pos_b, vel_b, i_b,
-                                              spatial_dim_stride_b);
+      for (std::size_t i_a = 0; i_a < n_points_a; i_a++){
+        // When duplicated_points is true, points_a is the same as points_b. In
+        // that case, take some care to avoid duplicating pairs
+        std::size_t i_b_start = (duplicated_points) ? i_a + 1 : 0;
 
-        std::size_t bin_ind = identify_bin_index(tmp.dist_sqr,
-                                                 dist_sqr_bin_edges,
-                                                 nbins);
-        if (bin_ind < nbins){
-          accumulators.add_entry(bin_ind, tmp.abs_vdiff);
+        const double x_a = pos_a[i_a];
+        const double y_a = pos_a[i_a + spatial_dim_stride_a];
+        const double z_a = pos_a[i_a + 2*spatial_dim_stride_a];
+
+        const double vx_a = vel_a[i_a];
+        const double vy_a = vel_a[i_a + spatial_dim_stride_a];
+        const double vz_a = vel_a[i_a + 2*spatial_dim_stride_a];
+
+        for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++){
+
+          pair_rslt tmp = legacy_calc_pair_rslt(x_a, y_a, z_a,
+                                                vx_a, vy_a, vz_a,
+                                                pos_b, vel_b, i_b,
+                                                spatial_dim_stride_b);
+
+          std::size_t bin_ind = identify_bin_index(tmp.dist_sqr,
+                                                   dist_sqr_bin_edges,
+                                                   nbins);
+          if (bin_ind < nbins){
+            accumulators.add_entry(bin_ind, tmp.abs_vdiff);
+          }
         }
       }
 
     }
   }
 
-  template<typename AccumCollection>
+  template<typename AccumCollection, PairOperation choice>
   void calc_vsf_props_helper_(const PointProps points_a,
-			      const PointProps points_b,
-			      const double *dist_sqr_bin_edges,
+                              const PointProps points_b,
+                              const double *dist_sqr_bin_edges,
                               std::size_t nbins,
                               AccumCollection& accumulators,
-			      bool duplicated_points){
+                              bool duplicated_points){
 
     if (duplicated_points){
-      legacy_process_data<AccumCollection, true>(points_a, points_b,
-                                                 dist_sqr_bin_edges, nbins, 
-                                                 accumulators);
-    } else {
-      legacy_process_data<AccumCollection, false>(points_a, points_b,
-                                                  dist_sqr_bin_edges, nbins,
+      process_data<AccumCollection, true, choice>(points_a, points_b,
+                                                  dist_sqr_bin_edges, nbins, 
                                                   accumulators);
+    } else {
+      process_data<AccumCollection, false, choice>(points_a, points_b,
+                                                   dist_sqr_bin_edges, nbins,
+                                                   accumulators);
     }
   }
 
-  template<typename AccumCollection>
+  template<typename AccumCollection, PairOperation choice>
   void process_TaskIt_(const PointProps points_a,
                        const PointProps points_b,
                        const double *dist_sqr_bin_edges,
@@ -166,18 +173,18 @@ namespace { // anonymous namespace
       if (duplicated_points){
         if ((stat_task.start_B == stat_task.stop_B) & (stat_task.stop_B == 0)){
           // not a typo, use cur_points_a twice
-          process_data<AccumCollection, true>(cur_points_a, cur_points_a,
-                                              dist_sqr_bin_edges, nbins, 
-                                              accumulators);
+          process_data<AccumCollection, true, choice>(cur_points_a, cur_points_a,
+                                                      dist_sqr_bin_edges, nbins, 
+                                                      accumulators);
         } else {
-          process_data<AccumCollection, false>(cur_points_a, cur_points_b,
-                                               dist_sqr_bin_edges, nbins,
-                                               accumulators);
+          process_data<AccumCollection, false, choice>(cur_points_a, cur_points_b,
+                                                       dist_sqr_bin_edges, nbins,
+                                                       accumulators);
         }
       } else {
-        process_data<AccumCollection, false>(cur_points_a, cur_points_b,
-                                             dist_sqr_bin_edges, nbins,
-                                             accumulators);
+        process_data<AccumCollection, false, choice>(cur_points_a, cur_points_b,
+                                                     dist_sqr_bin_edges, nbins,
+                                                     accumulators);
       }
     }
   }
@@ -205,7 +212,7 @@ namespace { // anonymous namespace
     }
   }
 
-  template<typename AccumCollection>
+  template<typename AccumCollection, PairOperation choice>
   void calc_vsf_props_parallel_(const PointProps points_a,
                                 const PointProps points_b,
                                 const double *dist_sqr_bin_edges,
@@ -255,9 +262,10 @@ namespace { // anonymous namespace
         // to a location that is fast for the current process to access.
         AccumCollection local_accums(partition_dest[proc_id]);
 
-        process_TaskIt_(points_a, points_b, dist_sqr_bin_edges, nbins,
-                        local_accums, duplicated_points,
-                        factory.build_TaskIt(proc_id));
+        process_TaskIt_<AccumCollection,choice>(
+          points_a, points_b, dist_sqr_bin_edges, nbins,
+          local_accums, duplicated_points,
+          factory.build_TaskIt(proc_id));
 
         partition_dest[proc_id] = local_accums;
       }
@@ -324,15 +332,20 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   // now actually use the accumulators to compute that statistics
   auto func = [=](auto& accumulators)
     {
+      using AccumCollection = std::decay_t<decltype(accumulators)>;
       if (use_serial) {
-        calc_vsf_props_helper_(points_a, my_points_b,
-                               dist_sqr_bin_edges_vec.data(), nbins,
-                               accumulators, duplicated_points);
+        calc_vsf_props_helper_<AccumCollection,PairOperation::vec_diff>(
+          points_a, my_points_b,
+          dist_sqr_bin_edges_vec.data(), nbins,
+          accumulators, duplicated_points);
+
       } else {
-        calc_vsf_props_parallel_(points_a, my_points_b,
-                                 dist_sqr_bin_edges_vec.data(), nbins,
-                                 parallel_spec, accumulators,
-                                 duplicated_points);
+        calc_vsf_props_parallel_<AccumCollection,PairOperation::vec_diff>(
+          points_a, my_points_b,
+          dist_sqr_bin_edges_vec.data(), nbins,
+          parallel_spec, accumulators,
+          duplicated_points);
+
       }
     };
   std::visit(func, accumulators);
