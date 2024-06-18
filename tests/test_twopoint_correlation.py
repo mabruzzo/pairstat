@@ -58,8 +58,8 @@ def test_twopoint_correlation():
 
     ref = _twopoint_correlation_python(x_a, None, val_a, None, bin_edges)
     actual = pyvsf.twopoint_correlation(x_a, None, val_a, None, bin_edges)
-    print(ref)
-    print(actual)
+    for key in ['mean', 'counts']:
+        assert np.all(ref[0][key] == actual[0][key])
 
 if __name__ == '__main__':
     test_twopoint_correlation()
