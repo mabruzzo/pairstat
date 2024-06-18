@@ -63,6 +63,7 @@ cdef extern from "vsf.hpp":
     # is okay?
 
     bint calc_vsf_props(const PointProps points_a, const PointProps points_b,
+                        const char * pairwise_op,
                         const StatListItem* stat_list, size_t stat_list_len,
                         const double *bin_edges, size_t nbins,
                         const ParallelSpec parallel_spec,
@@ -482,8 +483,11 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         out_i64_memview = rslt_container.get_i64_vals_arr()
         out_i64_vals = &(out_i64_memview[0])
 
+    cdef const char* pairwise_op = "sf"
+
     cdef bint success = calc_vsf_props(
         points_a = points_a.c_points, points_b = points_b.c_points,
+        pairwise_op = pairwise_op,
         stat_list = (<StatList?>stat_list).data,
         stat_list_len = len(stat_list),
         bin_edges = &(bin_edges_view[0]), nbins = ndist_bins,

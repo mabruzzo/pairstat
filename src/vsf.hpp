@@ -54,6 +54,13 @@ extern "C" {
 ///     In the event that the positions and velocities pointers are each
 ///     nullptrs, then pairwise distances are just computed for points_a
 ///     (without duplicating any pairs).
+/// @param[in]  pairwise_op String specifying the kind of calculation: either
+///     "sf" or "correlate".
+///       * In the former case, we assume that the values associated with the
+///         points correspond to vectors of the same dimensionality as the
+///         positions (so that we can compute the velocity structure function)
+///       * In the latter case, we assume that the values associated with the
+///         points correspond to scalars (so that we can compute the 2pcf)
 /// @param[in]  stat_list Pointer to an array of 1 or more StatListItems that
 ///     provide details about the statistics that will be computed.
 /// @param[in]  stat_list_len Specifies the number of entries in stat_list.
@@ -69,6 +76,7 @@ extern "C" {
 ///
 /// @returns This returns ``true`` on success and ``false`` on failure.
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
+                    const char* pairwise_op,
                     const StatListItem* stat_list, size_t stat_list_len,
                     const double *bin_edges, size_t nbins,
                     const ParallelSpec parallel_spec,

@@ -285,7 +285,8 @@ namespace { // anonymous namespace
 
 
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
-		    const StatListItem* stat_list, std::size_t stat_list_len,
+                    const char * pairwise_op,
+                    const StatListItem* stat_list, std::size_t stat_list_len,
                     const double *bin_edges, std::size_t nbins,
                     const ParallelSpec parallel_spec,
                     double *out_flt_vals, int64_t *out_i64_vals)
@@ -303,6 +304,13 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
     return false;
   } else if ((points_a.positions == nullptr) ||
              (points_a.values == nullptr)) {
+    return false;
+  }
+
+  std::string tmp(pairwise_op);
+  if (tmp == "correlate") {
+    return false;
+  } else if (tmp != "sf") {
     return false;
   }
 
