@@ -11,47 +11,26 @@ This module is still highly experimental.
 This is fairly simple. From the root of the directory execute:
 
 ```console
-$ python setup.py develop
+$ python -m pip install -v .
 ```
 
-In principle, other invocations may also work...
+OpenMP is used if it is available.
 
-Right now, if you are on macOS, the code will not be compiled with openmp support, by default.
-This is for compatibility with the default compiler shipped on macOS.
+If you want to use OpenMP on macOS, you will need to install a C++ compiler that supports it. The default C++ compiler on macOS is an apple-specific version of clang++.
 
-## Old Installation
+- The easiest way to get a different compiler is use homebrew to install a version of g++.
 
-To use the old installation method, set the first if-statement in the `_kernel_extension_module()` within `setup.py` to `True`.
-This older approach runs into problems on macOS.
+- Once you have an installed version of g++, (like g++-14), you should invoke
 
-Installation is a little unorthodox since I have not had a chance to
-figure out how to have the ``setup.py`` script compile the C++ library
-itself. This requires that you have a C++ compiler (so far it has only
-been tested with g++)
+  ```console
+  $ CXX=g++-14 python -m pip install -v .
+  ```
 
-To install this module, you need to clone this repository and execute
-the following commands from the root level of the repository:
-
-```console
-$ make
-$ python setup.py develop
-```
-
-There are two important things to note:
-
-- This currently needs to be installed in development mode (so that the module
-  can find the shared library). This means that you can't delete this
-  repository after installation
-
-- You need to modify the ``Makefile`` if you have a C++ compiler other ``g++``
-
-- You especially need modify the ``Makefile`` if you are using the Apple-provided clang-compiler on a Mac.
-  This is especially important because the Apple-provided clang-compiler does NOT support openmp.
-  The modification in this case is simple (instructions are provided telling you which 2 lines to comment and the other 2 lines that must be uncommented)
+- NOTE: on macOS simply typing `g++` aliases the default clang++ compiler (`g++-14` invokes a different compiler)
 
 ## Description
 
-The main function, ``pyvsf.vsf_props``, currently employs a very naive
+The main function, ``pyvsf.vsf_props``, currently employs a naive
 brute-force algorithm. The user specifies a set of distance bins and
 either:
 

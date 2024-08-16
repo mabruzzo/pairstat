@@ -1,0 +1,40 @@
+[build-system]
+requires=[
+  "cython",
+  # since tool.scikit-build.minimum-version is set to "build-system.requires",
+  # the minimum build-requirement for scikit-build-core controls some default
+  # behaviors when newer versions of scikit-build-core are installed
+  # (we should keep an eye on this and keep increasing it over time)
+  "scikit-build-core>=0.9"
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "pyvsf"
+version = "0.0.2"
+description = "Module for computing velocity structure function properties"
+authors = [
+  {name = "Matthew Abruzzo", email = "matthewabruzzo@gmail.com" },
+]
+# I need to revisit the following
+dependencies = [
+  'numpy', 'h5py', 'cython', 'matplotlib',
+  'yt', "schwimmbad", "pydantic"
+]
+
+[project.urls]
+Homepage = 'https://github.com/mabruzzo/pyvsf'
+
+[tool.scikit-build]
+# if the following version of CMake isn't found, scikit-build-core will
+# download and use a compatible CMake-verison
+cmake.version = ">=3.16"
+
+# The build type to use when building the project. Valid options are: "Debug",
+# "Release", "RelWithDebInfo", "MinSizeRel", "", etc.
+cmake.build-type = "Release"
+
+# since this is set, this provides a method for backward compatibility.
+minimum-version = "0.9" # change to "build-system.requires" in next version
+
+
