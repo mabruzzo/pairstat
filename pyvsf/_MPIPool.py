@@ -1,5 +1,7 @@
 # This was taken from Schwimmbad and modified to try to address some
 # cluster-specific problems
+#
+# Schwimmbad has an MIT LICENSE
 
 # Standard library
 import atexit
