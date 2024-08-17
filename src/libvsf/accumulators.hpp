@@ -3,10 +3,16 @@
 
 #include <cstdint>  // std::int64_t
 #include <string>
-#include <utility>  // std::pair
+#include <type_traits>  // std::is_same_v
+#include <utility>      // std::pair
 #include <vector>
 
 #include "utils.hpp"  // error
+
+/// defining a construct like this is a common workaround used to raise a
+/// compile-time error in the else-branch of a constexpr-if statement.
+template <class>
+inline constexpr bool dummy_false_v_ = false;
 
 /// compute the total count
 ///
@@ -14,20 +20,21 @@
 /// There is some question about what the most numerically stable way to do
 /// this actually is. Some of this debate is highlighted inside of this
 /// function...
-inline double consolidate_mean_(double primary_mean, int64_t primary_count,
-                                double other_mean, int64_t other_count,
-                                int64_t total_count) {
+template <typename T>
+inline double consolidate_mean_(double primary_mean, T primary_weight,
+                                double other_mean, T other_weight,
+                                double total_weight) {
 #if 1
   // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
   // suggests that approach is more stable when the values of
   // this->count and other.count are approximately the same and large
-  return (primary_count * primary_mean + other_count * other_mean) /
-         total_count;
+  return (primary_weight * primary_mean + other_weight * other_mean) /
+         total_weight;
 #else
-  // in the other limit, (other_count is smaller and close to 1) the following
+  // in the other limit, (other_weight is smaller and close to 1) the following
   // may be more stable
   double delta = other_mean - primary_mean;
-  return primary_mean + (delta * other_count / total_count);
+  return primary_mean + (delta * other_weight / total_weight);
 #endif
 }
 
@@ -47,20 +54,27 @@ public:  // interface
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return "mean"; }
 
+  static std::vector<std::string> int_val_names() noexcept { return {"count"}; }
+
   static std::vector<std::string> flt_val_names() noexcept { return {"mean"}; }
 
-  double get_flt_val(std::size_t i) const noexcept {
-    if (i != 0) {
-      error("MeanAccum only has 1 float_val");
+  template <typename T>
+  const T& access(std::size_t i) const noexcept {
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      if (i != 0) error("MeanAccum only has 1 integer value");
+      return this->count;
+    } else if constexpr (std::is_same_v<T, double>) {
+      if (i != 0) error("MeanAccum only has 1 floating point value");
+      return this->mean;
+    } else {
+      static_assert(dummy_false_v_<T>,
+                    "template T must be double or std::int64_t");
     }
-    return mean;
   }
 
-  void set_flt_val(std::size_t i, double val) noexcept {
-    if (i != 0) {
-      error("MeanAccum only has 1 float_val");
-    }
-    mean = val;
+  template <typename T>
+  T& access(std::size_t i) noexcept {
+    return const_cast<T&>(const_cast<MeanAccum*>(this)->access<T>(i));
   }
 
   MeanAccum() : count(0), mean(0.0) {}
@@ -104,28 +118,35 @@ public:  // interface
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return "variance"; }
 
+  static std::vector<std::string> int_val_names() noexcept { return {"count"}; }
+
   static std::vector<std::string> flt_val_names() noexcept {
     return {"mean", "variance*count"};
   }
 
-  double get_flt_val(std::size_t i) const noexcept {
-    if (i == 0) {
-      return mean;
-    } else if (i == 1) {
-      return cur_M2;
+  template <typename T>
+  const T& access(std::size_t i) const noexcept {
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      if (i != 0) error("VarAccum only has 1 integer value");
+      return this->count;
+    } else if constexpr (std::is_same_v<T, double>) {
+      switch (i) {
+        case 0:
+          return mean;
+        case 1:
+          return cur_M2;
+        default:
+          error("VarAccum only has 2 float_vals");
+      }
     } else {
-      error("VarAccum only has 2 float_vals");
+      static_assert(dummy_false_v_<T>,
+                    "template T must be double or std::int64_t");
     }
   }
 
-  void set_flt_val(std::size_t i, double val) noexcept {
-    if (i == 0) {
-      mean = val;
-    } else if (i == 1) {
-      cur_M2 = val;
-    } else {
-      error("VarAccum only has 2 float_vals");
-    }
+  template <typename T>
+  T& access(std::size_t i) noexcept {
+    return const_cast<T&>(const_cast<VarAccum*>(this)->access<T>(i));
   }
 
   VarAccum() : count(0), mean(0.0), cur_M2(0.0) {}
@@ -170,6 +191,71 @@ public:  // attributes
   double mean;
   // sum of differences from the current mean
   double cur_M2;
+};
+
+struct WeightedMeanAccum {
+public:  // interface
+  /// Returns the name of the stat computed by the accumulator
+  static std::string stat_name() noexcept { return "weightedmean"; }
+
+  static std::vector<std::string> int_val_names() noexcept { return {}; }
+
+  static std::vector<std::string> flt_val_names() noexcept {
+    return {"weight_sum", "mean"};
+  }
+
+  template <typename T>
+  const T& access(std::size_t i) const noexcept {
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      error("WeightedMeanAccum only has 1 integer value");
+    } else if constexpr (std::is_same_v<T, double>) {
+      switch (i) {
+        case 0:
+          return weight_sum;
+        case 1:
+          return mean;
+        default:
+          error("WeightedMeanAccum only has 2 float_vals");
+      }
+    } else {
+      static_assert(dummy_false_v_<T>,
+                    "template T must be double or std::int64_t");
+    }
+  }
+
+  template <typename T>
+  T& access(std::size_t i) noexcept {
+    return const_cast<T&>(const_cast<WeightedMeanAccum*>(this)->access<T>(i));
+  }
+
+  WeightedMeanAccum() : weight_sum(0.0), mean(0.0) {}
+
+  inline void add_entry(double val, double weight) noexcept {
+    weight_sum += weight;
+    double val_minus_last_mean = val - mean;
+    // we could use the following line if we wanted to allow weight=0
+    // mean += (val_minus_last_mean * weight) / (weight_sum + (weight_sum == 0);
+    mean += (val_minus_last_mean * weight) / weight_sum;
+  }
+
+  inline void consolidate_with_other(const WeightedMeanAccum& other) noexcept {
+    if (this->weight_sum == 0.0) {
+      (*this) = other;
+    } else if (other.weight_sum == 0.0) {
+      // do nothing
+    } else {  // general case
+      double tot_weight = this->weight_sum + other.weight_sum;
+      this->mean = consolidate_mean_(this->mean, this->weight_sum, other.mean,
+                                     other.weight_sum, tot_weight);
+      this->weight_sum = tot_weight;
+    }
+  }
+
+public:  // attributes
+  // the total weight (so far)
+  double weight_sum;
+  // current mean
+  double mean;
 };
 
 template <typename Accum>
@@ -242,7 +328,7 @@ public:
 
     for (std::size_t i = 0; i < n_bins; i++) {
       for (std::size_t j = 0; j < num_flt_vals; j++) {
-        out_vals[i + j * n_bins] = accum_list_[i].get_flt_val(j);
+        out_vals[i + j * n_bins] = accum_list_[i].template access<double>(j);
       }
     }
   }
@@ -266,7 +352,7 @@ public:
 
     for (std::size_t i = 0; i < n_bins; i++) {
       for (std::size_t j = 0; j < num_flt_vals; j++) {
-        accum_list_[i].set_flt_val(j, in_vals[i + j * n_bins]);
+        accum_list_[i].template access<double>(j) = in_vals[i + j * n_bins];
       }
     }
   }
@@ -384,8 +470,7 @@ public:
   /// Return the Floating Point Value Properties (if any)
   static std::vector<std::pair<std::string, std::size_t>>
   flt_val_props() noexcept {
-    std::vector<std::pair<std::string, std::size_t>> out;
-    return out;
+    return {};
   }
 
   /// Return the Int64 Value Properties
