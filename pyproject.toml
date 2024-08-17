@@ -11,7 +11,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pyvsf"
-version = "0.0.2"
+version = "0.1.0"
 description = "Module for computing velocity structure function properties"
 authors = [
   {name = "Matthew Abruzzo", email = "matthewabruzzo@gmail.com" },

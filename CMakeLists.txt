@@ -15,6 +15,27 @@ find_package(OpenMP OPTIONAL_COMPONENTS CXX)
 
 # Actual Build Recipies
 # ---------------------
+
+# first, declare the pure C++ part of the library
+
+add_library(vsf_cpp OBJECT src/libvsf/accum_handle.cpp src/libvsf/vsf.cpp)
+set_target_properties(vsf_cpp PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+)
+target_link_libraries(vsf_cpp PRIVATE 
+  $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+target_include_directories(vsf_cpp PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/libvsf")
+if (CMAKE_CXX_COMPILER_ID MATCHES "^GNU|Clang|AppleClang$")
+  # -fno-math-errno lets compilers inline the sqrt command (see comments of to
+  # this SO answer) https://stackoverflow.com/a/54642811/4538758
+  target_compile_options(vsf_cpp PRIVATE "-fno-math-errno")
+else()
+  message(FATAL_ERROR "this was a problem!")
+endif()
+
+# next, declare the cython packages
+
 include("cmake/use_cython.cmake")
 
 # invoking include_directories is crude, but necessary for add_cython_target
@@ -24,22 +45,10 @@ add_cython_target(_ArrayDict_cythonization "src/pyvsf/_ArrayDict_cy.pyx"
   CXX PY3 OUTPUT_VAR _ArrayDict_cxx_file)
 python_add_library(_ArrayDict_cy MODULE ${_ArrayDict_cxx_file} WITH_SOABI)
 
-# todo:
-# -> consider compiling src/vsf.cpp and arc/accum_handle.cpp into a separate
-#    library
-# -> try re-enabling -fno-errno for vsf.cpp and accum_handle.cpp
-#    -fno-math-errno lets compilers inline the sqrt command (see comments of to
-#    this SO answer) https://stackoverflow.com/a/54642811/4538758
-
 add_cython_target(_kernels_cythonization "src/pyvsf/_kernels_cy.pyx"
   CXX PY3 OUTPUT_VAR _kernels_cxx_file)
-python_add_library(_kernels_cy MODULE
-  ${_kernels_cxx_file}
-  src/libvsf/accum_handle.cpp src/libvsf/vsf.cpp
-  WITH_SOABI)
-if (OpenMP_CXX_FOUND)
-  target_link_libraries(_kernels_cy PRIVATE OpenMP::OpenMP_CXX)
-endif()
+python_add_library(_kernels_cy MODULE ${_kernels_cxx_file} WITH_SOABI)
+target_link_libraries(_kernels_cy PRIVATE vsf_cpp)
 
 add_cython_target(_partition_cythonization "src/pyvsf/_partition_cy.pyx"
   CXX PY3 OUTPUT_VAR _partition_cxx_file)
