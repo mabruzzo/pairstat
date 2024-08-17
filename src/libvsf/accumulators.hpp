@@ -54,7 +54,7 @@ public:  // interface
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return "mean"; }
 
-  static std::vector<std::string> int_val_names() noexcept { return {"count"}; }
+  static std::vector<std::string> i64_val_names() noexcept { return {"count"}; }
 
   static std::vector<std::string> flt_val_names() noexcept { return {"mean"}; }
 
@@ -118,7 +118,7 @@ public:  // interface
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return "variance"; }
 
-  static std::vector<std::string> int_val_names() noexcept { return {"count"}; }
+  static std::vector<std::string> i64_val_names() noexcept { return {"count"}; }
 
   static std::vector<std::string> flt_val_names() noexcept {
     return {"mean", "variance*count"};
@@ -198,7 +198,7 @@ public:  // interface
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return "weightedmean"; }
 
-  static std::vector<std::string> int_val_names() noexcept { return {}; }
+  static std::vector<std::string> i64_val_names() noexcept { return {}; }
 
   static std::vector<std::string> flt_val_names() noexcept {
     return {"weight_sum", "mean"};
@@ -258,9 +258,20 @@ public:  // attributes
   double mean;
 };
 
+template <typename Accum, typename T>
+inline std::size_t num_type_vals_per_bin_() {
+  if constexpr (std::is_same_v<T, std::int64_t>) {
+    return Accum::i64_val_names().size();
+  } else if constexpr (std::is_same_v<T, double>) {
+    return Accum::flt_val_names().size();
+  } else {
+    static_assert(dummy_false_v_<T>,
+                  "template T must be double or std::int64_t");
+  }
+}
+
 template <typename Accum>
-class ScalarAccumCollection {
-public:
+struct ScalarAccumCollection {
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return Accum::stat_name(); }
 
@@ -317,28 +328,52 @@ public:
   /// This is currently the same for all scalar accumulators
   static std::vector<std::pair<std::string, std::size_t>>
   i64_val_props() noexcept {
-    return {{"count", 1}};
+    std::vector<std::string> i64_val_names = Accum::i64_val_names();
+
+    std::vector<std::pair<std::string, std::size_t>> out;
+    for (std::size_t i = 0; i < i64_val_names.size(); i++) {
+      out.push_back(std::make_pair(i64_val_names[i], 1));
+    }
+    return out;
+  }
+
+  /// Copies values of each scalar accumulator to a pre-allocated buffer
+  template <typename T>
+  void copy_vals(T* out_vals) const noexcept {
+    const std::size_t num_dtype_vals = num_type_vals_per_bin_<Accum, T>();
+    const std::size_t n_bins = accum_list_.size();
+
+    for (std::size_t i = 0; i < n_bins; i++) {
+      for (std::size_t j = 0; j < num_dtype_vals; j++) {
+        out_vals[i + j * n_bins] = accum_list_[i].template access<T>(j);
+      }
+    }
+  }
+
+  /// Overwrites the floating point values within each scalar accumulator using
+  /// data from an external buffer.
+  template <typename T>
+  void import_vals(const T* in_vals) noexcept {
+    const std::size_t num_flt_vals = num_type_vals_per_bin_<Accum, T>();
+    const std::size_t n_bins = accum_list_.size();
+
+    for (std::size_t i = 0; i < n_bins; i++) {
+      for (std::size_t j = 0; j < num_flt_vals; j++) {
+        accum_list_[i].template access<T>(j) = in_vals[i + j * n_bins];
+      }
+    }
   }
 
   /// Copies the floating point values of each scalar accumulator to a
   /// pre-allocatd buffer
   void copy_flt_vals(double* out_vals) const noexcept {
-    const std::size_t num_flt_vals = Accum::flt_val_names().size();
-    const std::size_t n_bins = accum_list_.size();
-
-    for (std::size_t i = 0; i < n_bins; i++) {
-      for (std::size_t j = 0; j < num_flt_vals; j++) {
-        out_vals[i + j * n_bins] = accum_list_[i].template access<double>(j);
-      }
-    }
+    this->copy_vals(out_vals);
   }
 
   /// Copies the int64_t values of each scalar accumulator to a pre-allocatd
   /// buffer
   void copy_i64_vals(int64_t* out_vals) const noexcept {
-    for (std::size_t i = 0; i < accum_list_.size(); i++) {
-      out_vals[i] = accum_list_[i].count;
-    }
+    this->copy_vals(out_vals);
   }
 
   /// Overwrites the floating point values within each scalar accumulator using
@@ -347,14 +382,7 @@ public:
   /// This is primarily meant to be passed an external buffer whose values were
   /// initialized by the copy_flt_vals method.
   void import_flt_vals(const double* in_vals) noexcept {
-    const std::size_t num_flt_vals = Accum::flt_val_names().size();
-    const std::size_t n_bins = accum_list_.size();
-
-    for (std::size_t i = 0; i < n_bins; i++) {
-      for (std::size_t j = 0; j < num_flt_vals; j++) {
-        accum_list_[i].template access<double>(j) = in_vals[i + j * n_bins];
-      }
-    }
+    this->import_vals(in_vals);
   }
 
   /// Overwrites the int64_t values within each scalar accumulator using data
@@ -363,9 +391,7 @@ public:
   /// This is primarily meant to be passed an external buffer whose values were
   /// initialized by the copy_i64_vals method.
   void import_i64_vals(const int64_t* in_vals) noexcept {
-    for (std::size_t i = 0; i < accum_list_.size(); i++) {
-      accum_list_[i].count = in_vals[i];
-    }
+    this->import_vals(in_vals);
   }
 
   std::size_t n_spatial_bins() const noexcept { return accum_list_.size(); }
@@ -504,6 +530,35 @@ public:
   void import_i64_vals(const int64_t* in_vals) noexcept {
     for (std::size_t i = 0; i < bin_counts_.size(); i++) {
       bin_counts_[i] = in_vals[i];
+    }
+  }
+
+  /// Copies the values of the accumulator to a pre-allocatd buffer
+  template <typename T>
+  void copy_vals(T* out_vals) const noexcept {
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      for (std::size_t i = 0; i < bin_counts_.size(); i++) {
+        out_vals[i] = bin_counts_[i];
+      }
+    } else if constexpr (std::is_same_v<T, double>) {
+      // DO NOTHING!
+    } else {
+      static_assert(dummy_false_v_<T>,
+                    "template T must be double or std::int64_t");
+    }
+  }
+
+  template <typename T>
+  void import_vals(const T* in_vals) noexcept {
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      for (std::size_t i = 0; i < bin_counts_.size(); i++) {
+        bin_counts_[i] = in_vals[i];
+      }
+    } else if constexpr (std::is_same_v<T, double>) {
+      // DO NOTHING!
+    } else {
+      static_assert(dummy_false_v_<T>,
+                    "template T must be double or std::int64_t");
     }
   }
 

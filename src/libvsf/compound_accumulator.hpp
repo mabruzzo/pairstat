@@ -143,6 +143,12 @@ public:
     error("Not Implemented");
   }
 
+  /// Dummy method that needs to be defined to match interface
+  template <typename T>
+  void import_vals(const T* in_vals) noexcept {
+    error("Not Implemented");
+  }
+
 private:
   AccumCollectionTuple accum_collec_tuple_;
 };
