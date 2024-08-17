@@ -18,9 +18,9 @@ find_package(OpenMP OPTIONAL_COMPONENTS CXX)
 include("cmake/use_cython.cmake")
 
 # invoking include_directories is crude, but necessary for add_cython_target
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/libvsf")
 
-add_cython_target(_ArrayDict_cythonization "pyvsf/_ArrayDict_cy.pyx"
+add_cython_target(_ArrayDict_cythonization "src/pyvsf/_ArrayDict_cy.pyx"
   CXX PY3 OUTPUT_VAR _ArrayDict_cxx_file)
 python_add_library(_ArrayDict_cy MODULE ${_ArrayDict_cxx_file} WITH_SOABI)
 
@@ -31,17 +31,17 @@ python_add_library(_ArrayDict_cy MODULE ${_ArrayDict_cxx_file} WITH_SOABI)
 #    -fno-math-errno lets compilers inline the sqrt command (see comments of to
 #    this SO answer) https://stackoverflow.com/a/54642811/4538758
 
-add_cython_target(_kernels_cythonization "pyvsf/_kernels_cy.pyx"
+add_cython_target(_kernels_cythonization "src/pyvsf/_kernels_cy.pyx"
   CXX PY3 OUTPUT_VAR _kernels_cxx_file)
 python_add_library(_kernels_cy MODULE
   ${_kernels_cxx_file}
-  src/accum_handle.cpp src/vsf.cpp
+  src/libvsf/accum_handle.cpp src/libvsf/vsf.cpp
   WITH_SOABI)
 if (OpenMP_CXX_FOUND)
   target_link_libraries(_kernels_cy PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
-add_cython_target(_partition_cythonization "pyvsf/_partition_cy.pyx"
+add_cython_target(_partition_cythonization "src/pyvsf/_partition_cy.pyx"
   CXX PY3 OUTPUT_VAR _partition_cxx_file)
 python_add_library(_partition_cy MODULE ${_partition_cxx_file} WITH_SOABI)
 
