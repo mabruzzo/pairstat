@@ -8,6 +8,29 @@
 
 #include "utils.hpp"  // error
 
+/// compute the total count
+///
+/// @note
+/// There is some question about what the most numerically stable way to do
+/// this actually is. Some of this debate is highlighted inside of this
+/// function...
+inline double consolidate_mean_(double primary_mean, int64_t primary_count,
+                                double other_mean, int64_t other_count,
+                                int64_t total_count) {
+#if 1
+  // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+  // suggests that approach is more stable when the values of
+  // this->count and other.count are approximately the same and large
+  return (primary_count * primary_mean + other_count * other_mean) /
+         total_count;
+#else
+  // in the other limit, (other_count is smaller and close to 1) the following
+  // may be more stable
+  double delta = other_mean - primary_mean;
+  return primary_mean + (delta * other_count / total_count);
+#endif
+}
+
 // The accumulator structs must all satisfy the following properties:
 // - static method called ``flt_val_names`` that returns the names of each
 //   floating point value
@@ -49,7 +72,24 @@ public:  // interface
   }
 
   inline void consolidate_with_other(const MeanAccum& other) noexcept {
-    error("Not Implemented Yet");
+    if (this->count == 0) {
+      (*this) = other;
+    } else if (other.count == 0) {
+      // do nothing
+    } else if (this->count == 1) {  // equiv to copying *this and adding a
+                                    // single entry to this
+      double temp = this->mean;
+      (*this) = other;
+      this->add_entry(temp);
+
+    } else if (other.count == 1) {  // equiv to adding a single entry to *this
+      this->add_entry(other.mean);
+    } else {  // general case
+      double totcount = this->count + other.count;
+      this->mean = consolidate_mean_(this->mean, this->count, other.mean,
+                                     other.count, totcount);
+      this->count = totcount;
+    }
   }
 
 public:  // attributes
@@ -117,18 +157,8 @@ public:  // interface
       double delta2 = delta * delta;
       this->cur_M2 = (this->cur_M2 + other.cur_M2 +
                       delta2 * (this->count * other.count / totcount));
-
-      if (true) {
-        // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-        // suggests that approach is more stable when the values of
-        // this->count and other.count are approximately the same and large
-        this->mean =
-            (this->count * this->mean + other.count * other.mean) / totcount;
-      } else {
-        // in the other, limit, the following may be more stable
-        this->mean = this->mean + (delta * other.mean / totcount);
-      }
-
+      this->mean = consolidate_mean_(this->mean, this->count, other.mean,
+                                     other.count, totcount);
       this->count = totcount;
     }
   }
