@@ -70,6 +70,11 @@ cdef extern from "vsf.hpp":
                         const ParallelSpec parallel_spec,
                         double *out_flt_vals, int64_t *out_i64_vals)
 
+    bint cxx_compiled_with_openmp "compiled_with_openmp"()
+
+def compiled_with_openmp():
+    return bool(cxx_compiled_with_openmp())
+
 
 cdef class PyPointsProps:
     cdef PointProps c_points # wrapped c++ instance

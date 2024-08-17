@@ -430,3 +430,11 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
 
   return true;
 }
+
+bool compiled_with_openmp() {
+#ifdef _OPENMP
+  return true;
+#else
+  return false;
+#endif
+}

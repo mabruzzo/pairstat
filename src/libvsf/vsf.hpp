@@ -82,6 +82,14 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
                     const ParallelSpec parallel_spec,
                     double *out_flt_vals, int64_t *out_i64_vals);
 
+
+/// returns whether the library was compiled with openmp support
+///
+/// @note
+/// if we ever support more kinds of backends, we may want to revisit this
+/// function (we may want to use a more generic function)
+bool compiled_with_openmp(void);
+
 #ifdef __cplusplus
 }
 #endif
