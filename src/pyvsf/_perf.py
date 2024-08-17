@@ -9,8 +9,9 @@ except AttributeError:
     _TIMER = time.monotonic
     _NS_TIMER = False
 
+
 class PerfRegions:
-    def __init__(self, names = []):
+    def __init__(self, names=[]):
         self.times = dict((name, 0) for name in names)
         self._activeset = set()
 
@@ -34,8 +35,9 @@ class PerfRegions:
         if not isinstance(other, PerfRegions):
             return NotImplemented
         elif self.any_active_regions() or other.any_active_regions():
-            raise RuntimeError("__add__ was called for a PerfRegion which has "
-                               "an active region")
+            raise RuntimeError(
+                "__add__ was called for a PerfRegion which has " "an active region"
+            )
         elif len(self.times) != len(other.times):
             raise ValueError("operands don't have the same region names")
 
@@ -65,17 +67,17 @@ class PerfRegions:
         if _NS_TIMER:
             return copy.copy(self.times)
         else:
-            return dict((k,v*1e9) for k,v in self.times.items())
+            return dict((k, v * 1e9) for k, v in self.times.items())
 
     def times_us(self):
-        return dict((k,v/1000) for k,v in self.times_ns().items())
+        return dict((k, v / 1000) for k, v in self.times_ns().items())
 
     def times_sec(self):
-        return dict((k,v/1e9) for k,v in self.times_ns().items())
+        return dict((k, v / 1e9) for k, v in self.times_ns().items())
 
     def summarize_timing_sec(self):
         times = self.times_sec()
-        return '    '.join(f'{key}: {val:>15}' for key,val in times.items())
+        return "    ".join(f"{key}: {val:>15}" for key, val in times.items())
 
     def __getstate__(self):
         """
@@ -85,11 +87,11 @@ class PerfRegions:
         state = self.__dict__.copy()
 
         # remove the unpicklable entries
-        del state['_activeset']
-        del state['_starttimes']
+        del state["_activeset"]
+        del state["_starttimes"]
         return state
 
-    def __setstate__(self,state):
+    def __setstate__(self, state):
         # restore instance attributes
         self.__dict__.update(state)
         # initialize stateful attributes

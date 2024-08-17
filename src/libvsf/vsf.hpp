@@ -10,29 +10,29 @@
 #include <stdint.h>
 #endif
 
-struct PointProps{
+struct PointProps {
   // ith component of jth point (for positions and values) is located at
   // an index of `j + i*spatial_dim_stride`
-  const double * positions;
-  const double * values;
+  const double* positions;
+  const double* values;
   size_t n_points;
   size_t n_spatial_dims;
   size_t spatial_dim_stride;
 };
 
-struct BinSpecification{
-  const double * bin_edges;
+struct BinSpecification {
+  const double* bin_edges;
   size_t n_bins;
 };
 
-struct ParallelSpec{
-  size_t nproc; // a value of 0 should probably fall back to OMP_NUM_THREADS
-  bool force_sequential; // when true, only 1 process is used, but it should
-                         // partition the problem as though there were nproc
+struct ParallelSpec {
+  size_t nproc;  // a value of 0 should probably fall back to OMP_NUM_THREADS
+  bool force_sequential;  // when true, only 1 process is used, but it should
+                          // partition the problem as though there were nproc
 };
 
 /// This is used to specify the statistics that will be computed.
-struct StatListItem{
+struct StatListItem {
   /// The name of the statistic to compute.
   const char* statistic;
 
@@ -72,16 +72,14 @@ extern "C" {
 /// @param[out] out_flt_vals Preallocated arrays to hold the output floating
 ///     point values.
 /// @param[out] out_i64_vals Preallocated array to store the output int64_t
-///     values. 
+///     values.
 ///
 /// @returns This returns ``true`` on success and ``false`` on failure.
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
-                    const char* pairwise_op,
-                    const StatListItem* stat_list, size_t stat_list_len,
-                    const double *bin_edges, size_t nbins,
-                    const ParallelSpec parallel_spec,
-                    double *out_flt_vals, int64_t *out_i64_vals);
-
+                    const char* pairwise_op, const StatListItem* stat_list,
+                    size_t stat_list_len, const double* bin_edges, size_t nbins,
+                    const ParallelSpec parallel_spec, double* out_flt_vals,
+                    int64_t* out_i64_vals);
 
 /// returns whether the library was compiled with openmp support
 ///

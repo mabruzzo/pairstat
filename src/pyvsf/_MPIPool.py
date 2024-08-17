@@ -29,8 +29,10 @@ def _import_mpi(quiet=False, use_dill=False):
     global MPI
     try:
         from mpi4py import MPI as _MPI
+
         if use_dill:
             import dill
+
             _MPI.pickle.__init__(dill.dumps, dill.loads, dill.HIGHEST_PROTOCOL)
         MPI = _MPI
     except ImportError:
@@ -42,12 +44,10 @@ def _import_mpi(quiet=False, use_dill=False):
 
 
 class _DefaultResultCommunication:
-
     @staticmethod
     def receive_result(comm):
         status = MPI.Status()
-        result = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
-                           status=status)
+        result = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status)
         worker = status.source
         taskid = status.tag
         return worker, taskid, result
@@ -56,12 +56,13 @@ class _DefaultResultCommunication:
     def send_result(comm, master_rank, tag, result):
         comm.ssend(result, master_rank, tag)
 
+
 class LargeResultCommunication:
     """
     Communicate results in 2+ synchronous steps to avoid overwhelming the main
     process.
 
-    Some combination of: many messages and large message sizes seem to 
+    Some combination of: many messages and large message sizes seem to
     introduce problems
 
     Parameters
@@ -77,11 +78,12 @@ class LargeResultCommunication:
     with max_message_size dictates the number of subsequent communications.
 
     When max_message_size isn't specified, data is transmitted in 2 stages,
-    The first communication is a dummy message and the second communication 
+    The first communication is a dummy message and the second communication
     holds the actual information
 
     """
-    def __init__(self, max_message_size = None):
+
+    def __init__(self, max_message_size=None):
         if max_message_size is None:
             self.max_message_size = None
             self.pickle_protocol = None
@@ -94,50 +96,53 @@ class LargeResultCommunication:
             # some clever stuff with Buffers. I'm a little worried about
             # getting alignment requirements correct, so we won't use it for
             # now
-            self.pickle_protocol = max(pickle.HIGHEST_PROTOCOL,4)
+            self.pickle_protocol = max(pickle.HIGHEST_PROTOCOL, 4)
 
-    def _throttled_transfer(self, comm, master_rank = None, tag = None,
-                            result = None):
+    def _throttled_transfer(self, comm, master_rank=None, tag=None, result=None):
         assert (master_rank is None) == (tag is None) == (result is None)
 
-        is_worker = (tag is not None)
+        is_worker = tag is not None
 
         # first, construct the buffer to hold the pickled data and communicate
         # the size of the buffer that is need to hold the data
-        pickle_buffer_len = np.array(0, dtype = np.uint64)
+        pickle_buffer_len = np.array(0, dtype=np.uint64)
         if is_worker:
-            pickle_buffer = pickle.dumps(result,
-                                         protocol = self.pickle_protocol)
+            pickle_buffer = pickle.dumps(result, protocol=self.pickle_protocol)
             assert len(pickle_buffer) <= np.iinfo(np.uint64).max
             pickle_buffer_len[...] = len(pickle_buffer)
             comm.Ssend(pickle_buffer_len, master_rank, tag)
             worker, taskid = comm.rank, tag
         else:
             status = MPI.Status()
-            comm.Recv(pickle_buffer_len, source = MPI.ANY_SOURCE,
-                      tag = MPI.ANY_TAG, status = status)
-            assert pickle_buffer_len > 0 # sanity check
+            comm.Recv(
+                pickle_buffer_len, source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status
+            )
+            assert pickle_buffer_len > 0  # sanity check
             pickle_buffer = bytearray(int(pickle_buffer_len))
             worker, taskid = status.source, status.tag
 
         pickle_buffer_len = int(pickle_buffer_len)
-        
+
         # now determine the number of messages that are needed to transmit the
         # contents of the pickle_buffer
-        num_messages = ((pickle_buffer_len // self.max_message_size) +
-                        ((pickle_buffer_len % self.max_message_size) != 0))
+        num_messages = (pickle_buffer_len // self.max_message_size) + (
+            (pickle_buffer_len % self.max_message_size) != 0
+        )
 
-        #if not is_worker:
+        # if not is_worker:
         #    print(f"Nominal pickle buffer length: {pickle_buffer_len}, "
         #          f"Split into {num_messages} msgs")
 
         # now actually receive the messages
         for i in range(num_messages):
-            start_ind = i*self.max_message_size
+            start_ind = i * self.max_message_size
             stop_ind = min(start_ind + self.max_message_size, pickle_buffer_len)
-            view = np.frombuffer(pickle_buffer, dtype = np.byte,
-                                 offset = start_ind,
-                                 count = stop_ind - start_ind)
+            view = np.frombuffer(
+                pickle_buffer,
+                dtype=np.byte,
+                offset=start_ind,
+                count=stop_ind - start_ind,
+            )
 
             # come up with a unique tag (probably unnecessary)
             cur_tag = i + (i >= taskid)
@@ -149,7 +154,7 @@ class LargeResultCommunication:
             else:
                 comm.Recv(view, source=worker, tag=cur_tag)
 
-        #if True: # DEBUG: transmit the entire object
+        # if True: # DEBUG: transmit the entire object
         #    if is_worker:
         #        comm.ssend(result, master_rank, cur_tag)
         #    else:
@@ -160,19 +165,18 @@ class LargeResultCommunication:
         #                np.frombuffer(ref_buffer, dtype = np.byte)).all()
 
         if not is_worker:
-            
             # reconstruct the result from the pickled object
             result = pickle.loads(pickle_buffer)
         return worker, taskid, result
 
     def receive_result(self, comm):
-
         if self.max_message_size is None:
             # first receive the dummy message (openning line for further
             # communication with a given rank)
             status = MPI.Status()
-            dummy_result = comm.recv(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG,
-                                     status=status)
+            dummy_result = comm.recv(
+                source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status
+            )
             worker = status.source
             taskid = status.tag
             assert dummy_result is None
@@ -181,8 +185,9 @@ class LargeResultCommunication:
             result = comm.recv(source=worker, tag=taskid, status=status)
             return worker, taskid, result
         else:
-            return self._throttled_transfer(comm, master_rank = None,
-                                            tag = None, result = None)
+            return self._throttled_transfer(
+                comm, master_rank=None, tag=None, result=None
+            )
 
     def send_result(self, comm, master_rank, tag, result):
         if self.max_message_size is None:
@@ -192,8 +197,10 @@ class LargeResultCommunication:
             # now, send the actual message
             comm.ssend(result, master_rank, tag)
         else:
-            self._throttled_transfer(comm, master_rank = master_rank,
-                                     tag = tag, result = result)
+            self._throttled_transfer(
+                comm, master_rank=master_rank, tag=tag, result=result
+            )
+
 
 class MPIPool(BasePool):
     """A processing pool that distributes tasks using MPI.
@@ -221,9 +228,9 @@ class MPIPool(BasePool):
         specifying True may provide more robust behavior.
     """
 
-    def __init__(self, comm=None, use_dill=False,
-                 result_comm_routines = None,
-                 use_ssend_task = False):
+    def __init__(
+        self, comm=None, use_dill=False, result_comm_routines=None, use_ssend_task=False
+    ):
         MPI = _import_mpi(use_dill=use_dill)
 
         self._use_ssend_task = use_ssend_task
@@ -253,6 +260,7 @@ class MPIPool(BasePool):
                 sys.stderr.flush()
                 # shutdown all mpi tasks:
                 from mpi4py import MPI
+
                 MPI.COMM_WORLD.Abort()
             finally:
                 sys.exit(0)
@@ -262,9 +270,11 @@ class MPIPool(BasePool):
         self.size = self.comm.Get_size() - 1
 
         if self.size == 0:
-            raise ValueError("Tried to create an MPI pool, but there "
-                             "was only one MPI process available. "
-                             "Need at least two.")
+            raise ValueError(
+                "Tried to create an MPI pool, but there "
+                "was only one MPI process available. "
+                "Need at least two."
+            )
 
     @staticmethod
     def enabled():
@@ -290,24 +300,30 @@ class MPIPool(BasePool):
         while True:
             log.log(_VERBOSE, "Worker {0} waiting for task".format(worker))
 
-            task = self.comm.recv(source=self.master, tag=MPI.ANY_TAG,
-                                  status=status)
+            task = self.comm.recv(source=self.master, tag=MPI.ANY_TAG, status=status)
 
             if task is None:
                 log.log(_VERBOSE, "Worker {0} told to quit work".format(worker))
                 break
 
             func, arg = task
-            log.log(_VERBOSE, "Worker {0} got task {1} with tag {2}"
-                    .format(worker, arg, status.tag))
+            log.log(
+                _VERBOSE,
+                "Worker {0} got task {1} with tag {2}".format(worker, arg, status.tag),
+            )
 
             result = func(arg)
 
-            log.log(_VERBOSE, "Worker {0} sending answer {1} with tag {2}"
-                    .format(worker, result, status.tag))
+            log.log(
+                _VERBOSE,
+                "Worker {0} sending answer {1} with tag {2}".format(
+                    worker, result, status.tag
+                ),
+            )
 
-            send_result(comm = self.comm, master_rank = self.master,
-                        tag = status.tag, result = result)
+            send_result(
+                comm=self.comm, master_rank=self.master, tag=status.tag, result=result
+            )
 
         if callback is not None:
             callback()
@@ -357,46 +373,56 @@ class MPIPool(BasePool):
 
         receive_result = self.result_comm_routines.receive_result
 
-        log.log(_VERBOSE,
-                "Master about to start distributing work. There are " +
-                f"{len(self.workers)} workers")
+        log.log(
+            _VERBOSE,
+            "Master about to start distributing work. There are "
+            + f"{len(self.workers)} workers",
+        )
 
         while pending:
             if workerset and tasklist:
                 worker = workerset.pop()
                 taskid, task = tasklist.pop()
-                log.log(_VERBOSE, "Sent task %s to worker %s with tag %s",
-                        task[1], worker, taskid)
-                _send_kwargs = {'dest' : worker, 'tag' : taskid}
+                log.log(
+                    _VERBOSE,
+                    "Sent task %s to worker %s with tag %s",
+                    task[1],
+                    worker,
+                    taskid,
+                )
+                _send_kwargs = {"dest": worker, "tag": taskid}
                 if self._use_ssend_task:
                     self.comm.ssend(task, **_send_kwargs)
                 else:
                     self.comm.send(task, **_send_kwargs)
 
-
             # now check if there is a message waiting to be received
             if workerset and tasklist:
                 # branch performs a non-blocking check for messages
-                log.log(_VERBOSE,
-                        "Master checking if a message has been received from "
-                        + f"a worker (not in {list(workerset)})")
+                log.log(
+                    _VERBOSE,
+                    "Master checking if a message has been received from "
+                    + f"a worker (not in {list(workerset)})",
+                )
                 flag = self.comm.Iprobe(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG)
                 if not flag:
                     continue
             else:
                 # branch blocks until we receive a message
-                log.log(_VERBOSE,
-                        "Master blocking until a message is received from a " +
-                        f"worker (not in {list(workerset)})")
+                log.log(
+                    _VERBOSE,
+                    "Master blocking until a message is received from a "
+                    + f"worker (not in {list(workerset)})",
+                )
                 self.comm.Probe(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG)
-
 
             # now, receive the message (this section of the loop is only
             # executed AFTER a message has been received)
             worker, taskid, result = receive_result(self.comm)
 
-            log.log(_VERBOSE, "Master received from worker %s with tag %s",
-                    worker, taskid)
+            log.log(
+                _VERBOSE, "Master received from worker %s with tag %s", worker, taskid
+            )
 
             callback(result)
 
@@ -407,7 +433,7 @@ class MPIPool(BasePool):
         return resultlist
 
     def close(self):
-        """ Tell all the workers to quit."""
+        """Tell all the workers to quit."""
         if self.is_worker():
             return
 

@@ -1,7 +1,5 @@
 from collections import OrderedDict
 from collections.abc import Sequence
-import functools
-from copy import deepcopy
 import numpy as np
 
 from libc.stdint cimport int64_t, uintptr_t

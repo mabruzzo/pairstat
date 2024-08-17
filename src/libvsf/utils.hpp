@@ -1,11 +1,12 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#include <cstdio>
 #include <execinfo.h>
 
-[[noreturn]] inline void error(const char* message){
-  if (message == nullptr){
+#include <cstdio>
+
+[[noreturn]] inline void error(const char* message) {
+  if (message == nullptr) {
     std::printf("ERROR\n");
   } else {
     std::printf("ERROR: %s\n", message);
