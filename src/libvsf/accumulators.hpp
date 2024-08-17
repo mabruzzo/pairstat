@@ -58,6 +58,8 @@ public:  // interface
 
   static std::vector<std::string> flt_val_names() noexcept { return {"mean"}; }
 
+  static bool requires_weight() noexcept { return false; }
+
   template <typename T>
   const T& access(std::size_t i) const noexcept {
     if constexpr (std::is_same_v<T, std::int64_t>) {
@@ -84,6 +86,9 @@ public:  // interface
     double val_minus_last_mean = val - mean;
     mean += (val_minus_last_mean) / count;
   }
+
+  /// we ignore the weight
+  inline void add_entry(double val, double weight) noexcept { add_entry(val); }
 
   inline void consolidate_with_other(const MeanAccum& other) noexcept {
     if (this->count == 0) {
@@ -124,6 +129,8 @@ public:  // interface
     return {"mean", "variance*count"};
   }
 
+  static bool requires_weight() noexcept { return false; }
+
   template <typename T>
   const T& access(std::size_t i) const noexcept {
     if constexpr (std::is_same_v<T, std::int64_t>) {
@@ -158,6 +165,9 @@ public:  // interface
     double val_minus_cur_mean = val - mean;
     cur_M2 += val_minus_last_mean * val_minus_cur_mean;
   }
+
+  /// we ignore the weight
+  inline void add_entry(double val, double weight) noexcept { add_entry(val); }
 
   inline void consolidate_with_other(const VarAccum& other) noexcept {
     if (this->count == 0) {
@@ -204,6 +214,8 @@ public:  // interface
     return {"weight_sum", "mean"};
   }
 
+  static bool requires_weight() noexcept { return true; }
+
   template <typename T>
   const T& access(std::size_t i) const noexcept {
     if constexpr (std::is_same_v<T, std::int64_t>) {
@@ -229,6 +241,10 @@ public:  // interface
   }
 
   WeightedMeanAccum() : weight_sum(0.0), mean(0.0) {}
+
+  inline void add_entry(double val) noexcept {
+    error("This version of the function won't work!");
+  }
 
   inline void add_entry(double val, double weight) noexcept {
     weight_sum += weight;
@@ -275,6 +291,8 @@ struct ScalarAccumCollection {
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return Accum::stat_name(); }
 
+  static bool requires_weight() noexcept { return Accum::requires_weight(); }
+
   ScalarAccumCollection() noexcept : accum_list_() {}
 
   ScalarAccumCollection(std::size_t n_spatial_bins, void* other_arg) noexcept
@@ -289,6 +307,11 @@ struct ScalarAccumCollection {
 
   inline void add_entry(std::size_t spatial_bin_index, double val) noexcept {
     accum_list_[spatial_bin_index].add_entry(val);
+  }
+
+  inline void add_entry(std::size_t spatial_bin_index, double val,
+                        double weight) noexcept {
+    accum_list_[spatial_bin_index].add_entry(val, weight);
   }
 
   /// Updates the values of `*this` to include the values from `other`
@@ -350,8 +373,11 @@ struct ScalarAccumCollection {
     }
   }
 
-  /// Overwrites the floating point values within each scalar accumulator using
-  /// data from an external buffer.
+  /// Overwrites the values within each scalar accumulator using data from an
+  /// external buffer
+  ///
+  /// This is primarily meant to be passed an external buffer whose values were
+  /// initialized by the copy_vals method.
   template <typename T>
   void import_vals(const T* in_vals) noexcept {
     const std::size_t num_flt_vals = num_type_vals_per_bin_<Accum, T>();
@@ -362,36 +388,6 @@ struct ScalarAccumCollection {
         accum_list_[i].template access<T>(j) = in_vals[i + j * n_bins];
       }
     }
-  }
-
-  /// Copies the floating point values of each scalar accumulator to a
-  /// pre-allocatd buffer
-  void copy_flt_vals(double* out_vals) const noexcept {
-    this->copy_vals(out_vals);
-  }
-
-  /// Copies the int64_t values of each scalar accumulator to a pre-allocatd
-  /// buffer
-  void copy_i64_vals(int64_t* out_vals) const noexcept {
-    this->copy_vals(out_vals);
-  }
-
-  /// Overwrites the floating point values within each scalar accumulator using
-  /// data from an external buffer.
-  ///
-  /// This is primarily meant to be passed an external buffer whose values were
-  /// initialized by the copy_flt_vals method.
-  void import_flt_vals(const double* in_vals) noexcept {
-    this->import_vals(in_vals);
-  }
-
-  /// Overwrites the int64_t values within each scalar accumulator using data
-  /// from an external buffer
-  ///
-  /// This is primarily meant to be passed an external buffer whose values were
-  /// initialized by the copy_i64_vals method.
-  void import_i64_vals(const int64_t* in_vals) noexcept {
-    this->import_vals(in_vals);
   }
 
   std::size_t n_spatial_bins() const noexcept { return accum_list_.size(); }
@@ -477,6 +473,12 @@ public:
     }
   }
 
+  /// we ignore the weight
+  inline void add_entry(std::size_t spatial_bin_index, double val,
+                        double weight) noexcept {
+    add_entry(spatial_bin_index, val);
+  }
+
   /// Updates the values of `*this` to include the values from `other`
   inline void consolidate_with_other(
       const HistogramAccumCollection& other) noexcept {
@@ -508,31 +510,6 @@ public:
     return {{"bin_counts_", n_data_bins_}};
   }
 
-  /// Copies the floating point values of the accumulator (if any) to a
-  /// pre-allocated buffer
-  void copy_flt_vals(double* out_vals) const noexcept {}
-
-  /// Copies the int64_t values of the accumulator to a pre-allocatd buffer
-  void copy_i64_vals(int64_t* out_vals) const noexcept {
-    for (std::size_t i = 0; i < bin_counts_.size(); i++) {
-      out_vals[i] = bin_counts_[i];
-    }
-  }
-
-  /// Dummy method that needs to be defined to match interface
-  void import_flt_vals(const double* in_vals) noexcept {}
-
-  /// Overwrites the accumulator's int64_t values using data from an external
-  /// buffer
-  ///
-  /// This is primarily meant to be passed an external buffer whose values were
-  /// initialized by the copy_i64_vals method.
-  void import_i64_vals(const int64_t* in_vals) noexcept {
-    for (std::size_t i = 0; i < bin_counts_.size(); i++) {
-      bin_counts_[i] = in_vals[i];
-    }
-  }
-
   /// Copies the values of the accumulator to a pre-allocatd buffer
   template <typename T>
   void copy_vals(T* out_vals) const noexcept {
@@ -548,6 +525,10 @@ public:
     }
   }
 
+  /// Overwrites the accumulator's values using data from an external buffer
+  ///
+  /// This is primarily meant to be passed an external buffer whose values were
+  /// initialized by the copy_vals method.
   template <typename T>
   void import_vals(const T* in_vals) noexcept {
     if constexpr (std::is_same_v<T, std::int64_t>) {

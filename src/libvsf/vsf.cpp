@@ -372,9 +372,9 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   std::visit(func, accumulators);
 
   // now copy the results from the accumulators to the output array
-  std::visit([=](auto& accums) { accums.copy_flt_vals(out_flt_vals); },
+  std::visit([=](auto& accums) { accums.copy_vals(out_flt_vals); },
              accumulators);
-  std::visit([=](auto& accums) { accums.copy_i64_vals(out_i64_vals); },
+  std::visit([=](auto& accums) { accums.copy_vals(out_i64_vals); },
              accumulators);
 
   return true;

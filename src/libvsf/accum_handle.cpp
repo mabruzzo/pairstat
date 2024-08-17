@@ -32,8 +32,8 @@ void accumhandle_destroy(void* handle) {
 void accumhandle_export_data(void* handle, double* out_flt_vals,
                              int64_t* out_i64_vals) {
   AccumColVariant* ptr = static_cast<AccumColVariant*>(handle);
-  std::visit([=](auto& accum) { accum.copy_flt_vals(out_flt_vals); }, *ptr);
-  std::visit([=](auto& accum) { accum.copy_i64_vals(out_i64_vals); }, *ptr);
+  std::visit([=](auto& accum) { accum.copy_vals(out_flt_vals); }, *ptr);
+  std::visit([=](auto& accum) { accum.copy_vals(out_i64_vals); }, *ptr);
 }
 
 void accumhandle_restore(void* handle, const double* in_flt_vals,

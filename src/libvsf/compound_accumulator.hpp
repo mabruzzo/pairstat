@@ -31,32 +31,13 @@ constexpr inline void for_each_tuple_entry(T& tuple, UnaryFunction f) {
                                 std::tuple_size_v<T>>::evaluate(tuple, f);
 }
 
-namespace detail {
-
-/// typesafe function that copies data from an AccumCollection to a pointer
-///
-/// We enable the functions based on the return type
-template <typename AccumCollec, typename T>
-typename std::enable_if<std::is_same<T, int64_t>::value, void>::type copy_data_(
-    const AccumCollec& accum_collec, T* dest) noexcept {
-  accum_collec.copy_i64_vals(dest);
-}
-
-template <typename AccumCollec, typename T>
-typename std::enable_if<std::is_same<T, double>::value, void>::type copy_data_(
-    const AccumCollec& accum_collec, T* dest) noexcept {
-  accum_collec.copy_flt_vals(dest);
-}
-
-} /* namespace detail */
-
 template <typename T>
 struct CopyValsHelper_ {
   CopyValsHelper_(T* data_ptr) : data_ptr_(data_ptr), offset_(0) {}
 
   template <class AccumCollec>
   void operator()(const AccumCollec& accum_collec) noexcept {
-    detail::copy_data_(accum_collec, data_ptr_ + offset_);
+    accum_collec.copy_vals(data_ptr_ + offset_);
 
     std::vector<std::pair<std::string, std::size_t>> val_props;
     if (std::is_same<T, int64_t>::value) {
@@ -101,6 +82,13 @@ public:
                          [=](auto& e) { e.add_entry(spatial_bin_index, val); });
   }
 
+  inline void add_entry(std::size_t spatial_bin_index, double val,
+                        double weight) noexcept {
+    for_each_tuple_entry(accum_collec_tuple_, [=](auto& e) {
+      e.add_entry(spatial_bin_index, val, weight);
+    });
+  }
+
   /// Updates the values of `*this` to include the values from `other`
   inline void consolidate_with_other(
       const CompoundAccumCollection& other) noexcept {
@@ -113,13 +101,16 @@ public:
   }
 
   /// Copies the int64_t values of each accumulator to an external buffer
-  void copy_i64_vals(int64_t* out_vals) noexcept {
-    for_each_tuple_entry(accum_collec_tuple_, CopyValsHelper_(out_vals));
-  }
-
-  /// Copies the floating point values of each accumulator to an external buffer
-  void copy_flt_vals(double* out_vals) noexcept {
-    for_each_tuple_entry(accum_collec_tuple_, CopyValsHelper_(out_vals));
+  template <typename T>
+  void copy_vals(T* out_vals) const noexcept {
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      for_each_tuple_entry(accum_collec_tuple_, CopyValsHelper_(out_vals));
+    } else if constexpr (std::is_same_v<T, double>) {
+      for_each_tuple_entry(accum_collec_tuple_, CopyValsHelper_(out_vals));
+    } else {
+      static_assert(dummy_false_v_<T>,
+                    "template T must be double or std::int64_t");
+    }
   }
 
   /// Dummy method that needs to be defined to match interface
@@ -133,14 +124,13 @@ public:
     error("Not Implemented");
   }
 
-  /// Dummy method that needs to be defined to match interface
-  void import_flt_vals(const double* in_vals) noexcept {
-    error("Not Implemented");
-  }
-
-  /// Dummy method that needs to be defined to match interface
-  void import_i64_vals(const int64_t* in_vals) noexcept {
-    error("Not Implemented");
+  /// Specifies whether the add_entry overload with the weight argument
+  /// must be used.
+  bool requires_weight() noexcept {
+    bool out = false;
+    for_each_tuple_entry(accum_collec_tuple_,
+                         [&](auto& e) { out = out || e.requires_weight; });
+    return out;
   }
 
   /// Dummy method that needs to be defined to match interface
