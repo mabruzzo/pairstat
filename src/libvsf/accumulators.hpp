@@ -429,6 +429,8 @@ public:
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return "histogram"; }
 
+  static bool requires_weight() noexcept { return false; }
+
   HistogramAccumCollection() noexcept
       : n_spatial_bins_(), n_data_bins_(), bin_counts_(), data_bin_edges_() {}
 

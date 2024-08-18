@@ -129,7 +129,7 @@ public:
   bool requires_weight() noexcept {
     bool out = false;
     for_each_tuple_entry(accum_collec_tuple_,
-                         [&](auto& e) { out = out || e.requires_weight; });
+                         [&](auto& e) { out = out || e.requires_weight(); });
     return out;
   }
 

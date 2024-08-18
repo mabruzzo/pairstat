@@ -15,6 +15,7 @@ struct PointProps {
   // an index of `j + i*spatial_dim_stride`
   const double* positions;
   const double* values;
+  const double* weights;
   size_t n_points;
   size_t n_spatial_dims;
   size_t spatial_dim_stride;

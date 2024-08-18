@@ -23,11 +23,20 @@
 #include "compound_accumulator.hpp"
 #include "partition.hpp"
 
-enum class PairOperation { vec_diff, correlate };
+enum class PairOperation { vec_diff, vec_diff_with_weights, correlate };
 
 // the anonymous namespace informs the compiler that the contents are only used
 // in the local compilation unit (facillitating more optimizations)
 namespace {  // anonymous namespace
+
+template <bool cond>
+FORCE_INLINE double conditional_get(const double* ptr, std::size_t i) {
+  if constexpr (cond) {
+    return ptr[i];
+  } else {
+    return 0.0;
+  }
+}
 
 FORCE_INLINE double calc_dist_sqr(double x0, double x1, double y0, double y1,
                                   double z0, double z1) noexcept {
@@ -109,7 +118,9 @@ void process_data(const PointProps points_a, const PointProps points_b,
   } else {  // vec_diff case
 
     const double* vel_a = points_a.values;
+    const double* weights_a = points_a.weights;
     const double* vel_b = points_b.values;
+    const double* weights_b = points_b.weights;
 
     for (std::size_t i_a = 0; i_a < n_points_a; i_a++) {
       // When duplicated_points is true, points_a is the same as points_b. In
@@ -124,6 +135,10 @@ void process_data(const PointProps points_a, const PointProps points_b,
       const double vy_a = vel_a[i_a + spatial_dim_stride_a];
       const double vz_a = vel_a[i_a + 2 * spatial_dim_stride_a];
 
+      const double weight_a =
+          conditional_get<choice == PairOperation::vec_diff_with_weights>(
+              weights_a, i_a);
+
       for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++) {
         pair_rslt tmp =
             legacy_calc_pair_rslt(x_a, y_a, z_a, vx_a, vy_a, vz_a, pos_b, vel_b,
@@ -132,7 +147,12 @@ void process_data(const PointProps points_a, const PointProps points_b,
         std::size_t bin_ind =
             identify_bin_index(tmp.dist_sqr, dist_sqr_bin_edges, nbins);
         if (bin_ind < nbins) {
-          accumulators.add_entry(bin_ind, tmp.abs_vdiff);
+          if constexpr (choice == PairOperation::vec_diff_with_weights) {
+            double product = weight_a * weights_b[i_b];
+            accumulators.add_entry(bin_ind, tmp.abs_vdiff, product);
+          } else {
+            accumulators.add_entry(bin_ind, tmp.abs_vdiff);
+          }
         }
       }
     }
@@ -159,6 +179,7 @@ void process_TaskIt_(const PointProps points_a, const PointProps points_b,
                      const double* dist_sqr_bin_edges, std::size_t nbins,
                      AccumCollection& accumulators, bool duplicated_points,
                      TaskIt task_iter) noexcept {
+  const bool ignore_weights = points_a.weights == nullptr;
   while (task_iter.has_next()) {
     const StatTask stat_task = task_iter.next();
 
@@ -171,14 +192,18 @@ void process_TaskIt_(const PointProps points_a, const PointProps points_b,
     const PointProps cur_points_a = {
         points_a.positions + stat_task.start_A,
         points_a.values + stat_task.start_A,
+        ignore_weights ? nullptr : points_a.weights + stat_task.start_A,
         stat_task.stop_A - stat_task.start_A,  // = n_points
-        points_a.n_spatial_dims, points_a.spatial_dim_stride};
+        points_a.n_spatial_dims,
+        points_a.spatial_dim_stride};
 
     const PointProps cur_points_b = {
         points_b.positions + stat_task.start_B,
         points_b.values + stat_task.start_B,
+        ignore_weights ? nullptr : points_b.weights + stat_task.start_B,
         stat_task.stop_B - stat_task.start_B,  // = n_points
-        points_b.n_spatial_dims, points_b.spatial_dim_stride};
+        points_b.n_spatial_dims,
+        points_b.spatial_dim_stride};
 
     if (duplicated_points) {
       if ((stat_task.start_B == stat_task.stop_B) & (stat_task.stop_B == 0)) {
@@ -308,15 +333,8 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
     return false;
   } else if ((points_a.positions == nullptr) || (points_a.values == nullptr)) {
     return false;
-  }
-
-  std::string tmp(pairwise_op);
-  PairOperation operation_choice = PairOperation::vec_diff;
-  if (tmp == "correlate") {
-    operation_choice = PairOperation::correlate;
-  } else if (tmp == "sf") {
-    operation_choice = PairOperation::vec_diff;
-  } else {
+  } else if ((points_a.weights == nullptr) !=
+             (my_points_b.weights == nullptr)) {
     return false;
   }
 
@@ -337,6 +355,25 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   AccumColVariant accumulators =
       build_accum_collection(stat_list, stat_list_len, nbins);
 
+  bool requires_weight =
+      std::visit([](auto& a) { return a.requires_weight(); }, accumulators);
+
+  std::string tmp(pairwise_op);
+  PairOperation operation_choice = PairOperation::vec_diff;
+  if (tmp == "correlate") {
+    if (requires_weight) error("correlation incompatible with weighted stat");
+    operation_choice = PairOperation::correlate;
+  } else if (tmp == "sf") {
+    operation_choice = requires_weight ? PairOperation::vec_diff_with_weights
+                                       : PairOperation::vec_diff;
+  } else {
+    return false;
+  }
+
+  if (requires_weight && (points_a.weights == nullptr)) {
+    return false;
+  }
+
 #ifdef _OPENMP
   const bool use_serial = parallel_spec.nproc == 1;
 #else
@@ -351,6 +388,11 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
         calc_vsf_props_helper_<AccumCollection, PairOperation::vec_diff>(
             points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
             accumulators, duplicated_points);
+      } else if (operation_choice == PairOperation::vec_diff_with_weights) {
+        calc_vsf_props_helper_<AccumCollection,
+                               PairOperation::vec_diff_with_weights>(
+            points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+            accumulators, duplicated_points);
       } else if (operation_choice == PairOperation::correlate) {
         calc_vsf_props_helper_<AccumCollection, PairOperation::correlate>(
             points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
@@ -362,6 +404,12 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
         calc_vsf_props_parallel_<AccumCollection, PairOperation::vec_diff>(
             points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
             parallel_spec, accumulators, duplicated_points);
+      } else if (operation_choice == PairOperation::vec_diff_with_weights) {
+        calc_vsf_props_parallel_<AccumCollection,
+                                 PairOperation::vec_diff_with_weights>(
+            points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+            parallel_spec, accumulators, duplicated_points);
+
       } else if (operation_choice == PairOperation::correlate) {
         calc_vsf_props_parallel_<AccumCollection, PairOperation::correlate>(
             points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,

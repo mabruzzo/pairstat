@@ -17,7 +17,8 @@ using HistVarCompoundAccumCollection =
 using AccumColVariant =
     std::variant<ScalarAccumCollection<MeanAccum>,
                  ScalarAccumCollection<VarAccum>, HistogramAccumCollection,
-                 HistVarCompoundAccumCollection>;
+                 HistVarCompoundAccumCollection,
+                 ScalarAccumCollection<WeightedMeanAccum>>;
 
 /// Construct an instance of AccumColVariant
 inline AccumColVariant build_accum_collection(
