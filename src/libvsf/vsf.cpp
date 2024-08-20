@@ -38,6 +38,31 @@ FORCE_INLINE double conditional_get(const double* ptr, std::size_t i) {
   }
 }
 
+template <int D>
+struct MathVec {
+  static_assert(D >= 1 && D <= 4, "D must be 1, 2, or 3");
+  const double vals[D];
+};
+
+template <int D>
+static FORCE_INLINE MathVec<D> load_vec_(const double* ptr, std::size_t index,
+                                         std::size_t stride) {
+  if constexpr (D == 1) {
+    return {{ptr[index]}};
+  } else if constexpr (D == 2) {
+    return {{ptr[index], ptr[index + stride]}};
+  } else {
+    return {{ptr[index], ptr[index + stride], ptr[index + 2 * stride]}};
+  }
+}
+
+FORCE_INLINE double calc_dist_sqr(MathVec<3> pos_a, MathVec<3> pos_b) noexcept {
+  double dx = pos_a.vals[0] - pos_b.vals[0];
+  double dy = pos_a.vals[1] - pos_b.vals[1];
+  double dz = pos_a.vals[2] - pos_b.vals[2];
+  return dx * dx + dy * dy + dz * dz;
+}
+
 FORCE_INLINE double calc_dist_sqr(double x0, double x1, double y0, double y1,
                                   double z0, double z1) noexcept {
   double dx = x0 - x1;
@@ -51,44 +76,15 @@ struct pair_rslt {
   double abs_vdiff;
 };
 
-/*
-template<int D>
-struct MathVec{
-  static_assert( D >= 1 && D <= 4, "D must be 1, 2, or 3");
-  const double vals[D];
-}
+FORCE_INLINE pair_rslt
+legacy_calc_pair_rslt(const MathVec<3> loc_a, const MathVec<3> v_a,
+                      const double* pos_b, const double* vel_b, std::size_t i_b,
+                      std::size_t spatial_dim_stride_b) noexcept {
+  const MathVec<3> loc_b = load_vec_<3>(pos_b, i_b, spatial_dim_stride_b);
+  const MathVec<3> v_b = load_vec_<3>(vel_b, i_b, spatial_dim_stride_b);
 
-template<int D>
-static FORCE_INLINE MathVec<D> load_vec_(double* ptr, std::size_t index,
-                                         std::size_t stride)
-{
-  if constexpr ( D== 1) {
-    return {{ptr[index]}};
-  } else if constexpr ({
-    return {{ptr[index], ptr[index + stride]}};
-  } else {
-    return {{ptr[index], ptr[index + stride], ptr[index + 2*stride]}};
-  }
-}
-*/
-
-FORCE_INLINE pair_rslt legacy_calc_pair_rslt(
-    double x_a, double y_a, double z_a, double vx_a, double vy_a, double vz_a,
-    const double* pos_b, const double* vel_b, std::size_t i_b,
-    std::size_t spatial_dim_stride_b) noexcept {
-  const double x_b = pos_b[i_b];
-  const double y_b = pos_b[i_b + spatial_dim_stride_b];
-  const double z_b = pos_b[i_b + 2 * spatial_dim_stride_b];
-
-  const double vx_b = vel_b[i_b];
-  const double vy_b = vel_b[i_b + spatial_dim_stride_b];
-  const double vz_b = vel_b[i_b + 2 * spatial_dim_stride_b];
-
-  // const MathVec<3> v_b = load_vec_(vel_b, i_b, spatial_dim_stride_b);
-
-  double dist_sqr = calc_dist_sqr(x_a, x_b, y_a, y_b, z_a, z_b);
-  double abs_vdiff =
-      std::sqrt(calc_dist_sqr(vx_a, vx_b, vy_a, vy_b, vz_a, vz_b));
+  double dist_sqr = calc_dist_sqr(loc_a, loc_b);
+  double abs_vdiff = std::sqrt(calc_dist_sqr(v_a, v_b));
   return {dist_sqr, abs_vdiff};
 };
 
@@ -116,19 +112,13 @@ void process_data(const PointProps points_a, const PointProps points_b,
       // that case, take some care to avoid duplicating pairs
       std::size_t i_b_start = (duplicated_points) ? i_a + 1 : 0;
 
-      const double x_a = pos_a[i_a];
-      const double y_a = pos_a[i_a + spatial_dim_stride_a];
-      const double z_a = pos_a[i_a + 2 * spatial_dim_stride_a];
+      const MathVec<3> loc_a = load_vec_<3>(pos_a, i_a, spatial_dim_stride_a);
       const double scalar_a = values_a[i_a];
 
       for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++) {
-        const double x_b = pos_b[i_b];
-        const double y_b = pos_b[i_b + spatial_dim_stride_b];
-        const double z_b = pos_b[i_b + 2 * spatial_dim_stride_b];
+        const MathVec<3> loc_b = load_vec_<3>(pos_b, i_b, spatial_dim_stride_b);
         const double scalar_b = values_b[i_b];
-
-        pair_rslt tmp = {calc_dist_sqr(x_a, x_b, y_a, y_b, z_a, z_b),
-                         scalar_a * scalar_b};
+        pair_rslt tmp = {calc_dist_sqr(loc_a, loc_b), scalar_a * scalar_b};
 
         std::size_t bin_ind =
             identify_bin_index(tmp.dist_sqr, dist_sqr_bin_edges, nbins);
@@ -150,22 +140,16 @@ void process_data(const PointProps points_a, const PointProps points_b,
       // that case, take some care to avoid duplicating pairs
       std::size_t i_b_start = (duplicated_points) ? i_a + 1 : 0;
 
-      const double x_a = pos_a[i_a];
-      const double y_a = pos_a[i_a + spatial_dim_stride_a];
-      const double z_a = pos_a[i_a + 2 * spatial_dim_stride_a];
-
-      const double vx_a = vel_a[i_a];
-      const double vy_a = vel_a[i_a + spatial_dim_stride_a];
-      const double vz_a = vel_a[i_a + 2 * spatial_dim_stride_a];
+      const MathVec<3> loc_a = load_vec_<3>(pos_a, i_a, spatial_dim_stride_a);
+      const MathVec<3> v_a = load_vec_<3>(vel_a, i_a, spatial_dim_stride_a);
 
       const double weight_a =
           conditional_get<choice == PairOperation::vec_diff_with_weights>(
               weights_a, i_a);
 
       for (std::size_t i_b = i_b_start; i_b < n_points_b; i_b++) {
-        pair_rslt tmp =
-            legacy_calc_pair_rslt(x_a, y_a, z_a, vx_a, vy_a, vz_a, pos_b, vel_b,
-                                  i_b, spatial_dim_stride_b);
+        pair_rslt tmp = legacy_calc_pair_rslt(loc_a, v_a, pos_b, vel_b, i_b,
+                                              spatial_dim_stride_b);
 
         std::size_t bin_ind =
             identify_bin_index(tmp.dist_sqr, dist_sqr_bin_edges, nbins);
