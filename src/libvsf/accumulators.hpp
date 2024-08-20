@@ -58,7 +58,7 @@ public:  // interface
 
   static std::vector<std::string> flt_val_names() noexcept { return {"mean"}; }
 
-  static bool requires_weight() noexcept { return false; }
+  static constexpr bool requires_weight = false;
 
   template <typename T>
   const T& access(std::size_t i) const noexcept {
@@ -129,7 +129,7 @@ public:  // interface
     return {"mean", "variance*count"};
   }
 
-  static bool requires_weight() noexcept { return false; }
+  static constexpr bool requires_weight = false;
 
   template <typename T>
   const T& access(std::size_t i) const noexcept {
@@ -214,7 +214,7 @@ public:  // interface
     return {"weight_sum", "mean"};
   }
 
-  static bool requires_weight() noexcept { return true; }
+  static constexpr bool requires_weight = true;
 
   template <typename T>
   const T& access(std::size_t i) const noexcept {
@@ -291,7 +291,9 @@ struct ScalarAccumCollection {
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept { return Accum::stat_name(); }
 
-  static bool requires_weight() noexcept { return Accum::requires_weight(); }
+  /// Compile-time constant that specifies whether the add_entry overload with
+  /// the weight argument must be used.
+  static constexpr bool requires_weight = Accum::requires_weight;
 
   ScalarAccumCollection() noexcept : accum_list_() {}
 
@@ -436,7 +438,9 @@ public:
     return std::is_same_v<T, std::int64_t> ? "histogram" : "weightedhistogram";
   }
 
-  static bool requires_weight() noexcept { return std::is_same_v<T, double>; }
+  /// Compile-time constant that specifies whether the add_entry overload with
+  /// the weight argument must be used.
+  static constexpr bool requires_weight = std::is_same_v<T, double>;
 
   GenericHistogramAccumCollection() noexcept
       : n_spatial_bins_(), n_data_bins_(), bin_counts_(), data_bin_edges_() {}

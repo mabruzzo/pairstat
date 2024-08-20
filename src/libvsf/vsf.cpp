@@ -56,18 +56,15 @@ static FORCE_INLINE MathVec<D> load_vec_(const double* ptr, std::size_t index,
   }
 }
 
+/// returns the number of dimensions used in a single
+constexpr int val_vec_rank_(PairOperation op) {
+  return op == PairOperation::correlate ? 1 : 3;
+}
+
 FORCE_INLINE double calc_dist_sqr(MathVec<3> pos_a, MathVec<3> pos_b) noexcept {
   double dx = pos_a.vals[0] - pos_b.vals[0];
   double dy = pos_a.vals[1] - pos_b.vals[1];
   double dz = pos_a.vals[2] - pos_b.vals[2];
-  return dx * dx + dy * dy + dz * dz;
-}
-
-FORCE_INLINE double calc_dist_sqr(double x0, double x1, double y0, double y1,
-                                  double z0, double z1) noexcept {
-  double dx = x0 - x1;
-  double dy = y0 - y1;
-  double dz = z0 - z1;
   return dx * dx + dy * dy + dz * dz;
 }
 
@@ -93,6 +90,8 @@ template <class AccumCollection, bool duplicated_points, PairOperation choice>
 void process_data(const PointProps points_a, const PointProps points_b,
                   const double* dist_sqr_bin_edges, std::size_t nbins,
                   AccumCollection& accumulators) {
+  // define a ValueRank
+  using ValueRank = std::integral_constant<int, val_vec_rank_(choice)>;
   // this assumes 3D
 
   const std::size_t n_points_a = points_a.n_points;
@@ -363,7 +362,7 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
       build_accum_collection(stat_list, stat_list_len, nbins);
 
   bool requires_weight =
-      std::visit([](auto& a) { return a.requires_weight(); }, accumulators);
+      std::visit([](auto& a) { return a.requires_weight; }, accumulators);
 
   std::string tmp(pairwise_op);
   PairOperation operation_choice = PairOperation::vec_diff;

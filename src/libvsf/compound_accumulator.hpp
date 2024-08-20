@@ -9,19 +9,35 @@
 
 namespace detail {
 
+/// constexpr helper function used at compile time to determine whether any
+/// accumulator, `Accum` in the specified Tuple type has
+/// ``Accum::requires_weight == true``
+template <typename Tup, std::size_t I = 0>
+constexpr bool requires_weight_() {
+  if constexpr (I < std::tuple_size_v<Tup>) {
+    using CurT = std::tuple_element_t<I, Tup>;
+    return CurT::requires_weight || requires_weight_<Tup, I + 1>();
+  }
+  return false;
+}
+
+} /* namespace detail */
+
+namespace detail {
+
+/// defines machinery for applying a callable to each element of a tuple
 template <typename Tup, class Func, std::size_t countdown>
 struct for_each_tuple_entry_ {
+  /// actually encodes the important logic
   static inline void evaluate(Tup& tuple, Func& f) noexcept {
-    auto& elem = std::get<std::tuple_size_v<Tup> - countdown>(tuple);
-    f(elem);
-    for_each_tuple_entry_<Tup, Func, countdown - 1>::evaluate(tuple, f);
+    if constexpr (countdown > 0) {
+      auto& elem = std::get<std::tuple_size_v<Tup> - countdown>(tuple);
+      f(elem);
+      for_each_tuple_entry_<Tup, Func, countdown - 1>::evaluate(tuple, f);
+    }
   }
 };
 
-template <typename Tup, class Func>
-struct for_each_tuple_entry_<Tup, Func, 0> {
-  static inline void evaluate(Tup& tuple, Func& f) noexcept {}
-};
 } /* namespace detail */
 
 /// Apply a functor to all elements of a tuple
@@ -69,6 +85,11 @@ public:
 
   static_assert(n_accum > 1,
                 "CompoundAccumCollection must be composed of 2+ accumulators.");
+
+  /// Compile-time constant that specifies whether the add_entry overload with
+  /// the weight argument must be used.
+  static constexpr bool requires_weight =
+      detail::requires_weight_<AccumCollectionTuple>();
 
   CompoundAccumCollection() = delete;
 
@@ -122,15 +143,6 @@ public:
   /// Dummy method that needs to be defined to match interface
   std::vector<std::pair<std::string, std::size_t>> i64_val_props() noexcept {
     error("Not Implemented");
-  }
-
-  /// Specifies whether the add_entry overload with the weight argument
-  /// must be used.
-  bool requires_weight() noexcept {
-    bool out = false;
-    for_each_tuple_entry(accum_collec_tuple_,
-                         [&](auto& e) { out = out || e.requires_weight(); });
-    return out;
   }
 
   /// Dummy method that needs to be defined to match interface
