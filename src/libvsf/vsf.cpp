@@ -51,6 +51,27 @@ struct pair_rslt {
   double abs_vdiff;
 };
 
+/*
+template<int D>
+struct MathVec{
+  static_assert( D >= 1 && D <= 4, "D must be 1, 2, or 3");
+  const double vals[D];
+}
+
+template<int D>
+static FORCE_INLINE MathVec<D> load_vec_(double* ptr, std::size_t index,
+                                         std::size_t stride)
+{
+  if constexpr ( D== 1) {
+    return {{ptr[index]}};
+  } else if constexpr ({
+    return {{ptr[index], ptr[index + stride]}};
+  } else {
+    return {{ptr[index], ptr[index + stride], ptr[index + 2*stride]}};
+  }
+}
+*/
+
 FORCE_INLINE pair_rslt legacy_calc_pair_rslt(
     double x_a, double y_a, double z_a, double vx_a, double vy_a, double vz_a,
     const double* pos_b, const double* vel_b, std::size_t i_b,
@@ -62,6 +83,8 @@ FORCE_INLINE pair_rslt legacy_calc_pair_rslt(
   const double vx_b = vel_b[i_b];
   const double vy_b = vel_b[i_b + spatial_dim_stride_b];
   const double vz_b = vel_b[i_b + 2 * spatial_dim_stride_b];
+
+  // const MathVec<3> v_b = load_vec_(vel_b, i_b, spatial_dim_stride_b);
 
   double dist_sqr = calc_dist_sqr(x_a, x_b, y_a, y_b, z_a, z_b);
   double abs_vdiff =

@@ -424,17 +424,25 @@ std::size_t identify_bin_index(T x, const T* bin_edges, std::size_t nbins) {
   }
 }
 
-class HistogramAccumCollection {
+/// Implements a histogram accumulator
+template <typename T>
+class GenericHistogramAccumCollection {
+  static_assert(std::is_same_v<T, std::int64_t> || std::is_same_v<T, double>,
+                "invalid type was used.");
+
 public:
   /// Returns the name of the stat computed by the accumulator
-  static std::string stat_name() noexcept { return "histogram"; }
+  static std::string stat_name() noexcept {
+    return std::is_same_v<T, std::int64_t> ? "histogram" : "weightedhistogram";
+  }
 
-  static bool requires_weight() noexcept { return false; }
+  static bool requires_weight() noexcept { return std::is_same_v<T, double>; }
 
-  HistogramAccumCollection() noexcept
+  GenericHistogramAccumCollection() noexcept
       : n_spatial_bins_(), n_data_bins_(), bin_counts_(), data_bin_edges_() {}
 
-  HistogramAccumCollection(std::size_t n_spatial_bins, void* other_arg) noexcept
+  GenericHistogramAccumCollection(std::size_t n_spatial_bins,
+                                  void* other_arg) noexcept
       : n_spatial_bins_(n_spatial_bins),
         n_data_bins_(),
         bin_counts_(),
@@ -466,24 +474,39 @@ public:
     bin_counts_.resize(n_data_bins_ * n_spatial_bins_, 0);
   }
 
+  /// Add an entry (without a weight)
   inline void add_entry(std::size_t spatial_bin_index, double val) noexcept {
-    std::size_t data_bin_index =
-        identify_bin_index(val, data_bin_edges_.data(), n_data_bins_);
-    if (data_bin_index < n_data_bins_) {
-      std::size_t i = data_bin_index + spatial_bin_index * n_data_bins_;
-      bin_counts_[i]++;
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      std::size_t data_bin_index =
+          identify_bin_index(val, data_bin_edges_.data(), n_data_bins_);
+      if (data_bin_index < n_data_bins_) {
+        std::size_t i = data_bin_index + spatial_bin_index * n_data_bins_;
+        bin_counts_[i]++;
+      }
+    } else {
+      error("a weight must be provided!");
     }
   }
 
-  /// we ignore the weight
+  /// Add an entry (with a weight)
   inline void add_entry(std::size_t spatial_bin_index, double val,
                         double weight) noexcept {
-    add_entry(spatial_bin_index, val);
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      // ignore the weight
+      add_entry(spatial_bin_index, val);
+    } else {
+      std::size_t data_bin_index =
+          identify_bin_index(val, data_bin_edges_.data(), n_data_bins_);
+      if (data_bin_index < n_data_bins_) {
+        std::size_t i = data_bin_index + spatial_bin_index * n_data_bins_;
+        bin_counts_[i] += weight;
+      }
+    }
   }
 
   /// Updates the values of `*this` to include the values from `other`
   inline void consolidate_with_other(
-      const HistogramAccumCollection& other) noexcept {
+      const GenericHistogramAccumCollection<T>& other) noexcept {
     if ((other.n_spatial_bins_ != n_spatial_bins_) ||
         (other.n_data_bins_ != n_data_bins_)) {
       error("There seemed to be a mismatch during consolidation");
@@ -498,9 +521,13 @@ public:
   }
 
   /// Return the Floating Point Value Properties (if any)
-  static std::vector<std::pair<std::string, std::size_t>>
-  flt_val_props() noexcept {
-    return {};
+  std::vector<std::pair<std::string, std::size_t>> flt_val_props()
+      const noexcept {
+    if (std::is_same_v<T, std::int64_t>) {
+      return {};
+    } else {
+      return {{"bin_weights_", n_data_bins_}};
+    }
   }
 
   /// Return the Int64 Value Properties
@@ -509,21 +536,26 @@ public:
   /// of value entries per spatial bin.
   std::vector<std::pair<std::string, std::size_t>> i64_val_props()
       const noexcept {
-    return {{"bin_counts_", n_data_bins_}};
+    if (std::is_same_v<T, std::int64_t>) {
+      return {{"bin_counts_", n_data_bins_}};
+    } else {
+      return {};
+    }
   }
 
   /// Copies the values of the accumulator to a pre-allocatd buffer
-  template <typename T>
-  void copy_vals(T* out_vals) const noexcept {
-    if constexpr (std::is_same_v<T, std::int64_t>) {
+  template <typename Tbuf>
+  void copy_vals(Tbuf* out_vals) const noexcept {
+    if constexpr (std::is_same_v<Tbuf, T>) {
       for (std::size_t i = 0; i < bin_counts_.size(); i++) {
         out_vals[i] = bin_counts_[i];
       }
-    } else if constexpr (std::is_same_v<T, double>) {
+    } else if constexpr (std::is_same_v<Tbuf, std::int64_t> ||
+                         std::is_same_v<Tbuf, double>) {
       // DO NOTHING!
     } else {
-      static_assert(dummy_false_v_<T>,
-                    "template T must be double or std::int64_t");
+      static_assert(dummy_false_v_<Tbuf>,
+                    "template Tbuf must be double or std::int64_t");
     }
   }
 
@@ -531,17 +563,18 @@ public:
   ///
   /// This is primarily meant to be passed an external buffer whose values were
   /// initialized by the copy_vals method.
-  template <typename T>
-  void import_vals(const T* in_vals) noexcept {
-    if constexpr (std::is_same_v<T, std::int64_t>) {
+  template <typename Tbuf>
+  void import_vals(const Tbuf* in_vals) noexcept {
+    if constexpr (std::is_same_v<Tbuf, T>) {
       for (std::size_t i = 0; i < bin_counts_.size(); i++) {
         bin_counts_[i] = in_vals[i];
       }
-    } else if constexpr (std::is_same_v<T, double>) {
+    } else if constexpr (std::is_same_v<Tbuf, std::int64_t> ||
+                         std::is_same_v<Tbuf, double>) {
       // DO NOTHING!
     } else {
       static_assert(dummy_false_v_<T>,
-                    "template T must be double or std::int64_t");
+                    "template Tbuf must be double or std::int64_t");
     }
   }
 
@@ -554,9 +587,14 @@ private:
   // counts_ holds the histogram counts. It holds n_data_bins_*n_spatial_bins_
   // entries. The counts for the ith data bin in the jth spatial bin are stored
   // at index (i + j * n_data_bins_)
-  std::vector<int64_t> bin_counts_;
+  std::vector<T> bin_counts_;
 
   std::vector<double> data_bin_edges_;
 };
+
+// for backwards compatability
+using HistogramAccumCollection = GenericHistogramAccumCollection<std::int64_t>;
+using WeightedHistogramAccumCollection =
+    GenericHistogramAccumCollection<double>;
 
 #endif /* ACCUMULATORS_H */

@@ -33,6 +33,7 @@ cdef extern from "vsf.hpp":
     ctypedef struct PointProps:
         double* positions
         double* values
+        double* weights
         size_t n_points
         size_t n_spatial_dims
         size_t spatial_dim_stride
@@ -80,22 +81,27 @@ cdef class PyPointsProps:
     # of the arrays are consistent with the rest of the object
     cdef object pos_arr
     cdef object val_arr
+    cdef object weights_arr
 
-    def __cinit__(self, pos, val, val_is_vector = True, dtype = np.float64,
-                  allow_null_pair = False):
+    def __cinit__(self, pos, val, weights = None, val_is_vector = True,
+                  dtype = np.float64, allow_null_contents = False):
         assert np.dtype(dtype) == np.float64
 
         cdef double[:,:] pos_memview
         cdef double[:,:] vector_val_memview
         cdef double[:]   scalar_val_memview
+        cdef double[:]   weights_memview
 
-        if allow_null_pair and (pos is None) and (val is None):
+        if (allow_null_contents and (pos is None) and (val is None) and
+            (weights is None)):
             self.pos_arr = None
             self.val_arr = None
+            self.weights_arr = None
 
             # initialize the c_points struct
             self.c_points.positions = NULL
             self.c_points.values = NULL
+            self.c_points.weights = NULL
             self.c_points.n_points = 0
             self.c_points.n_spatial_dims = 0
             self.c_points.spatial_dim_stride = 0
@@ -122,7 +128,6 @@ cdef class PyPointsProps:
                 assert self.val_arr.strides[0] == self.val_arr.itemsize
                 assert self.pos_arr.shape[1] == self.val_arr.shape[0]
 
-
             n_spatial_dims = int(self.pos_arr.shape[0])
             n_points = int(self.pos_arr.shape[1])
 
@@ -133,8 +138,7 @@ cdef class PyPointsProps:
                 assert self.val_arr.strides[0] == (n_points * self.val_arr.itemsize)
             spatial_dim_stride = int(n_points)
 
-
-            # initialize the c_points struct
+            # initialize most of the c_points struct
             pos_memview = self.pos_arr
             self.c_points.positions = &pos_memview[0,0]
 
@@ -149,6 +153,17 @@ cdef class PyPointsProps:
             self.c_points.n_spatial_dims = n_spatial_dims
             self.c_points.spatial_dim_stride = spatial_dim_stride
 
+            # finally, deal with the weights array
+            if weights is None:
+                self.weights_arr = None
+                self.c_points.weights = NULL
+            else:
+                self.weights_arr = np.asarray(weights, dtype = dtype,
+                                              order = 'C')
+                assert self.weights_arr.shape == (n_points,)
+                weights_memview = self.weights_arr
+                self.c_points.weights = &weights_memview[0]
+
     @property
     def n_points(self): return self.c_points.n_points
 
@@ -158,6 +173,13 @@ cdef class PyPointsProps:
     @property
     def spatial_dim_stride(self):  return self.c_points.spatial_dim_stride
 
+    def has_weights(self):
+        return self.weights_arr is not None
+
+    def has_non_positive_weights(self):
+        if self.weights_arr is None:
+            return False
+        return not np.all(self.weights_arr > 0)
 
 cdef class _WrappedVoidPtr: # this is just a helper class
     cdef void* ptr
@@ -358,7 +380,7 @@ def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
         # now, update StatList
         if len(stat_kw) == 0:
             stat_list.append(statistic_name = stat_name, statistic_arg = None)
-        elif stat_name == 'histogram':
+        elif stat_name in ['histogram', 'weightedhistogram']:
             assert list(stat_kw) == ['val_bin_edges']
             val_bin_edges = np.asanyarray(stat_kw['val_bin_edges'],
                                           dtype = 'f8')
@@ -390,6 +412,7 @@ def _validate_stat_kw_pairs(arg):
 
 
 def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
+                        weights_a = None, weights_b = None,
                         pairwise_op = "sf",
                         stat_kw_pairs = [('variance', {})],
                         nproc = 1, force_sequential = False,
@@ -397,14 +420,12 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     _validate_stat_kw_pairs(stat_kw_pairs)
 
     val_is_vector = (pairwise_op == "sf")
-    cdef PyPointsProps points_a = PyPointsProps(pos_a, val_a,
-                                                val_is_vector = val_is_vector,
-                                                dtype = 'f8',
-                                                allow_null_pair = False)
-    cdef PyPointsProps points_b = PyPointsProps(pos_b, val_b,
-                                                val_is_vector = val_is_vector,
-                                                dtype = 'f8',
-                                                allow_null_pair = True)
+    cdef PyPointsProps points_a = PyPointsProps(
+            pos_a, val_a, weights = weights_a, val_is_vector = val_is_vector,
+            dtype = 'f8', allow_null_contents = False)
+    cdef PyPointsProps points_b = PyPointsProps(
+            pos_b, val_b, weights = weights_b, val_is_vector = val_is_vector,
+            dtype = 'f8', allow_null_contents = True)
 
     # do some basic argument checking
     if (pos_b is None) and (points_a.n_points <= 1):
@@ -420,6 +441,27 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
             "structure function properties for sets of points with 3 spatial "
             "dimensions"
         )
+    elif (pos_b is not None) and ((weights_a is None) != (weights_b is None)):
+        raise ValueError(
+            "when pos_b is not None, then you must either: \n"
+            "  - set weights_a and weights_b to None OR\n"
+            "  - provide non-None values for both weights_a and weights_b")
+    elif (weights_a is not None) and (pairwise_op != "sf"):
+        raise ValueError("you can't provide weights_a unless you are using "
+                         "pariwise_op == 'sf'")
+    elif (points_a.has_non_positive_weights() or
+          points_b.has_non_positive_weights()):
+        raise ValueError("you can't provide non-positive weights")
+
+    # check if any statistics requre weights
+    requires_weights = any(get_sf_kernel(name).requires_weights
+                           for name, _ in stat_kw_pairs)
+    if requires_weights and (weights_a is None):
+        raise ValueError("one of the statistics requires weights, but no "
+                         "weights were provided")
+    elif (not requires_weights) and (weights_a is not None):
+        raise ValueError("it is an error to provide weights when no stats "
+                         "require them")
 
     # check validity of dist_bin_edges (and do any necessary coercion)
     dist_bin_edges = np.asanyarray(dist_bin_edges, dtype = np.float64)
@@ -484,7 +526,8 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
 
 
 def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
-              *, stat_kw_pairs = [('variance', {})],
+              *, weights_a = None, weights_b = None,
+              stat_kw_pairs = [('variance', {})],
               nproc = 1, force_sequential = False,
               postprocess_stat = True):
     """
@@ -509,6 +552,12 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         1D array of monotonically increasing values that represent edges for 
         distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
         interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
+    weights_a, weights_b : array_like, optional
+        optional 1D arrays that can be used to specify weights for point. When
+        specified, the size of ``weights_a`` should match 
+        ``np.shape(pos_a)[1]`` and the size of ``weights_b`` should match
+        ``np.shape(pos_b)[1]``. It is an error to specify weights when no
+        statistics will be computed that use them.
     stat_kw_pairs : sequence of (str, dict) tuples
         Each entry is a tuple holding the name of a statistic to compute and a
         dictionary of kwargs needed to compute that statistic. A list of valid
@@ -541,11 +590,14 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
           keyword must be specified alongside this statistic. It should be
           associated with a 1D monotonic array that specifies the bin edges
           along axis 1.
+        - 'weightedmean': just like 'mean', but weights are used
+        - 'weightedhistogram': just like 'histogram', but weights are used
     """
 
     return _core_pairwise_work(
         pos_a = pos_a, pos_b = pos_b, val_a = vel_a, val_b = vel_b,
-        dist_bin_edges = dist_bin_edges, pairwise_op = "sf",
+        dist_bin_edges = dist_bin_edges, 
+        weights_a = weights_a, weights_b = weights_b, pairwise_op = "sf",
         stat_kw_pairs = stat_kw_pairs, nproc = nproc,
         force_sequential = force_sequential,
         postprocess_stat = postprocess_stat)
@@ -577,7 +629,8 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
     stat_kw_pairs : sequence of (str, dict) tuples, optional
         The default choice is most meaningful for the 2pcf. In practice, this
-        can accept the same arguments accepted by :py:func:`vsf_props`.
+        can accept the same arguments (other than the weighted arguments)
+        accepted by :py:func:`vsf_props`.
     nproc : int, optional
         Number of processes to use for parallelizing this calculation. Default
         is 1. If the problem is small enough, the program may ignore this
@@ -593,10 +646,9 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
 
     return _core_pairwise_work(
         pos_a = pos_a, pos_b = pos_b, val_a = val_a, val_b = val_b,
-        dist_bin_edges = dist_bin_edges, pairwise_op = "correlate",
-        stat_kw_pairs = stat_kw_pairs, nproc = nproc,
-        force_sequential = force_sequential,
-        postprocess_stat = True)
+        dist_bin_edges = dist_bin_edges, weights_a = None, weights_b = None,
+        pairwise_op = "correlate", stat_kw_pairs = stat_kw_pairs, nproc = nproc,
+        force_sequential = force_sequential, postprocess_stat = True)
 
 #==============================================================================
 # It's been a long time since I've looked at the next chunk of code, but I
@@ -813,43 +865,47 @@ def _allocate_unintialized_rslt_dict(kernel, dist_bin_edges, kwargs = {}):
         out[name] = np.empty(shape = shape, dtype = dtype)
     return out
 
+def _check_bin_edges_arg(arg, arg_description):
+    if np.size(arg) < 2 or np.ndim(arg) != 1:
+        raise ValueError(f"The {arg_description} must specify a 1D array with "
+                         "2 or more elements")
+
+def _check_dist_bin_edges(dist_bin_edges):
+    _check_bin_edges_arg(dist_bin_edges, "'dist_bin_edges' argument")
+
+# define functionality shared by both kinds of histograms
+# histograms
+
+def _hist_dset_props(kernel, dist_bin_edges, kwargs):
+    if list(kwargs.keys()) != ['val_bin_edges']:
+        raise ValueError("'val_bin_edges' is required as the single kwarg for "
+                         "computing histogram-statistics")
+    val_bin_edges = kwargs['val_bin_edges']
+    _check_bin_edges_arg(val_bin_edges, "'val_bin_edges' kwarg")
+    _check_dist_bin_edges(dist_bin_edges)
+
+    assert len(kernel.output_keys) == 1
+    n = kernel.output_keys[0]
+    if kernel.requires_weights:
+        t = np.float64
+    else:
+        t = np.int64
+    return [(n, t, (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1))]
 
 
-class Histogram:
-    name = "histogram"
-    output_keys = ('2D_counts',)
-    commutative_consolidate = True
-    operate_on_pairs = True
-    non_vsf_func = None
+def _validate_hist_results(kernel, rslt, dist_bin_edges, kwargs,
+                           used_points = None):
 
-    @classmethod
-    def n_ghost_ax_end(cls):
-        return 0
-    
-    @classmethod
-    def get_extra_fields(cls, kwargs = {}):
-        return None
+    _validate_basic_quan_props(kernel, rslt, dist_bin_edges, kwargs)
 
-    @classmethod
-    def consolidate_stats(cls, *rslts):
-        raise RuntimeError("THIS SHOULD NOT BE CALLED")
-
-    @classmethod
-    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        assert list(kwargs.keys()) == ['val_bin_edges']
-        val_bin_edges = kwargs['val_bin_edges']
-        assert np.size(val_bin_edges) >= 2 and np.ndim(val_bin_edges) == 1
-        assert np.size(dist_bin_edges) >= 2 and np.ndim(dist_bin_edges) == 1
-        return [('2D_counts', np.int64,
-                 (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1))]
-
-    @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {},
-                      used_points = None):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
-
-        # do some extra validation
-        hist_counts = rslt['2D_counts']
+    # do some extra validation
+    key = kernel.output_keys[0]
+    if kernel.requires_weights:
+        bin_weights = rslt[key]
+        if (bin_weights < 0).any():
+            raise ValueError("The histogram can't contain negative weights")
+    else:
+        hist_counts = rslt[key]
         if (hist_counts < 0).any():
             raise ValueError("The histogram can't contain negative counts")
 
@@ -869,6 +925,52 @@ class Histogram:
                     f"points. In reality, it has {n_pairs} pairs."
                 )
 
+def _zero_initialize_hist_rslt(kernel, dist_bin_edges, kwargs,
+                               postprocess_rslt):
+    # basically create a result object for a dataset that didn't have any
+    # pairs at all
+    rslt = _allocate_unintialized_rslt_dict(kernel, dist_bin_edges, kwargs)
+    for k in rslt.keys():
+        rslt[k][...] = 0
+    if postprocess_rslt:
+        kernel.postprocess_rslt(rslt)
+    return rslt
+
+
+
+
+class Histogram:
+    name = "histogram"
+    output_keys = ('2D_counts',)
+    commutative_consolidate = True
+    operate_on_pairs = True
+    requires_weights = False
+    non_vsf_func = None
+
+    @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
+    
+    @classmethod
+    def get_extra_fields(cls, kwargs = {}):
+        return None
+
+    @classmethod
+    def consolidate_stats(cls, *rslts):
+        raise RuntimeError("THIS SHOULD NOT BE CALLED")
+
+    @classmethod
+    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
+        return _hist_dset_props(kernel = cls, dist_bin_edges = dist_bin_edges,
+                                kwargs = kwargs)
+
+    @classmethod
+    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {},
+                      used_points = None):
+        _validate_hist_results(kernel = cls, rslt = rslt,
+                               dist_bin_edges = dist_bin_edges,
+                               kwargs = kwargs, used_points = used_points)
+
     @classmethod
     def postprocess_rslt(cls, rslt):
         pass # do nothing
@@ -878,18 +980,63 @@ class Histogram:
                              postprocess_rslt = True):
         # basically create a result object for a dataset that didn't have any
         # pairs at all
-        rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges, kwargs)
-        for k in rslt.keys():
-            rslt[k][...] = 0
-        if postprocess_rslt:
-            cls.postprocess_rslt(rslt)
-        return rslt
+        return _zero_initialize_hist_rslt(kernel = cls,
+                                          dist_bin_edges = dist_bin_edges,
+                                          kwargs = kwargs,
+                                          postprocess_rslt = postprocess_rslt)
+
+class WeightedHistogram:
+    name = "weightedhistogram"
+    output_keys = ('2D_weight_sums',)
+    commutative_consolidate = True
+    operate_on_pairs = True
+    requires_weights = True
+    non_vsf_func = None
+
+    @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
+    
+    @classmethod
+    def get_extra_fields(cls, kwargs = {}):
+        return None
+
+    @classmethod
+    def consolidate_stats(cls, *rslts):
+        raise RuntimeError("THIS SHOULD NOT BE CALLED")
+
+    @classmethod
+    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
+        return _hist_dset_props(kernel = cls, dist_bin_edges = dist_bin_edges,
+                                kwargs = kwargs)
+
+    @classmethod
+    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {},
+                      used_points = None):
+        _validate_hist_results(kernel = cls, rslt = rslt,
+                               dist_bin_edges = dist_bin_edges,
+                               kwargs = kwargs, used_points = used_points)
+
+    @classmethod
+    def postprocess_rslt(cls, rslt):
+        pass # do nothing
+
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
+                             postprocess_rslt = True):
+        # basically create a result object for a dataset that didn't have any
+        # pairs at all
+        return _zero_initialize_hist_rslt(kernel = cls,
+                                          dist_bin_edges = dist_bin_edges,
+                                          kwargs = kwargs,
+                                          postprocess_rslt = postprocess_rslt)
 
 
-def _set_empty_count_locs_to_NaN(rslt_dict):
-    w_mask = (rslt_dict['counts']  == 0)
+
+def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
+    w_mask = (rslt_dict[key]  == 0)
     for k,v in rslt_dict.items():
-        if k == 'counts':
+        if k == key:
             continue
         else:
             v[w_mask] = np.nan
@@ -902,6 +1049,7 @@ class Variance:
     output_keys = ('counts', 'mean', 'variance')
     commutative_consolidate = False
     operate_on_pairs = True
+    requires_weights = False
     non_vsf_func = None
 
     @classmethod
@@ -958,6 +1106,7 @@ class Mean:
     output_keys = ('counts', 'mean')
     commutative_consolidate = False
     operate_on_pairs = True
+    requires_weights = False
     non_vsf_func = None
 
     @classmethod
@@ -992,6 +1141,47 @@ class Mean:
                              postprocess_rslt = True):
         raise NotImplementedError()
 
+class WeightedMean:
+    name = "weightedmean"
+    output_keys = ('weight_sum', 'mean')
+    commutative_consolidate = False
+    operate_on_pairs = True
+    requires_weights = True
+    non_vsf_func = None
+
+    @classmethod
+    def n_ghost_ax_end(cls):
+        return 0
+
+    @classmethod
+    def get_extra_fields(cls, kwargs = {}):
+        return None
+
+    @classmethod
+    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
+        assert kwargs == {}
+        assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
+        return [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
+                ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
+
+    @classmethod
+    def consolidate_stats(cls, *rslts):
+        raise RuntimeError("THIS SHOULD NOT BE CALLED")
+
+    @classmethod
+    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
+        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
+
+    @classmethod
+    def postprocess_rslt(cls, rslt):
+        _set_empty_count_locs_to_NaN(rslt, 'weight_sum')
+
+    @classmethod
+    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
+                             postprocess_rslt = True):
+        raise NotImplementedError()
+
+
 
 class KernelRegistry:
     def __init__(self, itr):
@@ -1004,7 +1194,7 @@ class KernelRegistry:
             raise ValueError(f"Unknown Statistic: {statistic}") from None
 
 # sequence of kernels related to the structure function
-_SF_KERNEL_TUPLE = (Mean, Variance, Histogram)
+_SF_KERNEL_TUPLE = (Mean, Variance, Histogram, WeightedMean, WeightedHistogram,)
 _SF_KERNEL_REGISTRY = KernelRegistry(_SF_KERNEL_TUPLE)
 
 def get_sf_kernel(statistic):
