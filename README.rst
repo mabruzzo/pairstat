@@ -64,9 +64,103 @@ If you want to use OpenMP on macOS, you will need to install a C++ compiler that
 
 - NOTE: on macOS simply typing ``g++`` aliases the default clang++ compiler (``g++-14`` invokes a different compiler)
 
-***********
-Description
-***********
+
+*****
+Usage
+*****
+
+The primary 2 functions offered by this package are: ``pyvsf.vsf_props`` and ``pyvsf.twopoint_correlation``.
+The former computes the structure function (we typically use it for the velocity structure function, but it could work with any vector-quantity).
+The latter computes the two-point correlation function.
+
+Each function operates on pairs of points, where each point has an associated value and spatial location.
+In more detail, each function is associated with a distinct "pairwise-operation" that computes a scalar quantity associated with a pair of points. [#f1]_
+The pairs of points can be grouped into discrete bins based on the spatial separation between the points in a pair.
+For each separation bin, these functions computes a set of statistics describing the distribution of "pairwise-operation" values computed from every pair of points in the bin.
+
+When this package is compiled with OpenMP support, the function can be parallelized.
+
+In the next few subsections, we discuss:
+- how to specify points
+- how to specify the separation bins
+- the available statistics
+
+Specifying the points
+=====================
+
+They functions support 2 primary operation-modes:
+
+1. Consider a single collection of points.
+   In this case, the functions compute the "auto" structure function and the two-point auto-correlation function.
+   The positions are specified via the ``pos_a`` argument and the values at each point are provided with the ``val_a`` argument.
+   The caller must explicitly pass ``None`` to the ``pos_b`` and ``val_b`` arguments.
+
+2. Consider 2 separate collections of points.
+   In this case, the function computes "cross" structure function and the "cross"-two-point cross-correlation function.
+   Like before, the positions and values for each point in the first collection are provided with ``pos_a`` and ``val_a``.
+   The positions and values for each point the other collection are specified with ``pos_b`` and ``val_b``.
+
+In both cases, positions should be specified in a 2D array, with a shape ``(3,N)``, where ``N`` specifies the number of points and ``3`` specifies the number of dimensions.
+
+.. note::
+
+   For now, we require 3-dimensional positions.
+   To use the functions with 2-dimensional or 1-dimensional positions, just set the values along the unused dimension to a constant value.
+
+When using ``pyvsf.vsf_props``, the values specify vector quantities (usually velocity) that have the same number of dimensions as the position.
+In this case, the shape of ``val_a`` must match ``pos_a.shape`` and (if applicable) the shape of ``val_b`` must match ``pos_b.shape``.
+
+When using ``pyvsf.twopoint_correlation``, the values specify scalar quantities.
+In this case, ``val_a``  should be a 1D array with a shape ``(pos_a.shape[1],)``.
+When it isn't ``None``, ``val_b`` should be a 1D array with a shape ``(pos_b.shape[1],)``.
+
+Specify the Separation Bins
+===========================
+
+*[ NEEDS TO BE ADDED ]*
+
+Available Statistics
+====================
+
+*[ NEEDS MORE UPDATES ]*
+
+The statistics are specified via the ``"stat_kw_pairs"`` keyword argument.
+This expects a list of 1 or more pairs of statistic-kwarg pairs.
+(This is a little clunky right now, for now you should just specify the name of a single statistic unless we explicitly note that a combination is supported.
+
+
+Options include:
+
+
+.. list-table:: Available Statistics
+   :widths: 15 15 30
+   :header-rows: 1
+
+   * - name
+     - ``stat_kw_pairs`` example
+     - Description
+   * - ``"mean"``
+     - ``[("mean", {})]`` 
+     - Computes the number of pairs and the mean
+   * - ``"variance"``
+     - ``[("variances", {})]`` 
+     - Computes the number of pairs, the mean, and the variance.
+   * - ``"histogram"``
+     - ``[("histogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
+     - Bins the value computed for each pair of bins based on the specified ``"val_bin_edges"`` argument.
+       Not currently supported by ``pyvsf.twopoint_correlation``
+
+``pyvsf.vsf_props`` supports ``"mean"``, ``"variance"`` and ``"histogram"``.
+When you specify ``"histogram"``, you need to specify the bin-edges for the magnitudes of the vector differences.
+Other features:
+- You can also have the function compute both the ``"mean"`` and ``"histogram"`` or ``"variance"`` and ``"histogram"`` in the same invocation.
+- Additionally, you can compute ``"weightedmean"`` or ``"weightedhistogram"``.
+
+``pyvsf.twopoint_correlation`` currently just supports ``"mean"`` and ``"variance"``
+
+*******
+Details
+*******
 
 The main function, ``pyvsf.vsf_props``, currently employs a naive
 brute-force algorithm. The user specifies a set of distance bins and
@@ -83,7 +177,6 @@ the distance bin that this pair is a member of. The function returns
 statistical properties (e.g. count, mean, variance) for the absolute
 velocity differences in each bin.
 
-When this package is compiled with OpenMP support, the function can be parallelized.
 
 ***************
 Developer Guide
@@ -121,3 +214,8 @@ Need for Refactoring
 ====================
 This module evolved very organically (features were added as they were needed). 
 A fair amount of refactoring could be done to simplify/improve certain aspects.
+
+.. rubric:: Footnotes
+
+.. [#f1] The "pairwise-operation" for ``vsf_props`` computes the magnitude of the difference between 2 vectors. 
+         For ``twopoint_correlation``, the "pairwise-operation" takes the product of 2 scalars.
