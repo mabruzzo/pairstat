@@ -17,17 +17,17 @@ _vsf_scalar_python_dict = {
 
 
 def _vsf_props_python(
-    pos_a, pos_b, vel_a, vel_b, dist_bin_edges, stat_kw_pairs=[("variance", {})]
+    pos_a, pos_b, val_a, val_b, dist_bin_edges, stat_kw_pairs=[("variance", {})]
 ):
     if len(stat_kw_pairs) == 0:
         raise ValueError("At least one statistic must be specified")
 
-    if pos_b is None and vel_b is None:
+    if pos_b is None and val_b is None:
         distances = pdist(pos_a.T, "euclidean")
-        vdiffs = pdist(vel_a.T, "euclidean")
+        vdiffs = pdist(val_a.T, "euclidean")
     else:
         distances = cdist(pos_a.T, pos_b.T, "euclidean")
-        vdiffs = cdist(vel_a.T, vel_b.T, "euclidean")
+        vdiffs = cdist(val_a.T, val_b.T, "euclidean")
 
     num_bins = dist_bin_edges.size - 1
     bin_indices = np.digitize(x=distances, bins=dist_bin_edges)
@@ -190,8 +190,8 @@ def _compare_vsf_implementation_single_rslt(
 def compare_vsf_implementations(
     pos_a,
     pos_b,
-    vel_a,
-    vel_b,
+    val_a,
+    val_b,
     dist_bin_edges,
     stat_kw_pairs,
     atol=0.0,
@@ -213,8 +213,8 @@ def compare_vsf_implementations(
     alt_rslt_l = alt_impl_func(
         pos_a=pos_a,
         pos_b=pos_b,
-        vel_a=vel_a,
-        vel_b=vel_b,
+        val_a=val_a,
+        val_b=val_b,
         dist_bin_edges=dist_bin_edges,
         stat_kw_pairs=stat_kw_pairs,
     )
@@ -222,8 +222,8 @@ def compare_vsf_implementations(
     actual_rslt_l = pyvsf.vsf_props(
         pos_a=pos_a,
         pos_b=pos_b,
-        vel_a=vel_a,
-        vel_b=vel_b,
+        val_a=val_a,
+        val_b=val_b,
         dist_bin_edges=dist_bin_edges,
         stat_kw_pairs=stat_kw_pairs,
     )
@@ -270,9 +270,9 @@ def test_vsf_two_collections():
     )
 
     if True:  # simple case!
-        x_a, vel_a = (np.arange(6.0).reshape(3, 2), np.arange(-3.0, 3.0).reshape(3, 2))
+        x_a, val_a = (np.arange(6.0).reshape(3, 2), np.arange(-3.0, 3.0).reshape(3, 2))
 
-        x_b, vel_b = (
+        x_b, val_b = (
             np.arange(6.0, 24.0).reshape(3, 6),
             np.arange(-9.0, 9.0).reshape(3, 6),
         )
@@ -289,8 +289,8 @@ def test_vsf_two_collections():
             compare_vsf_implementations(
                 pos_a=x_a,
                 pos_b=x_b,
-                vel_a=vel_a,
-                vel_b=vel_b,
+                val_a=val_a,
+                val_b=val_b,
                 dist_bin_edges=bin_edges,
                 stat_kw_pairs=[(statistic, kwargs)],
                 atol=atol,
@@ -303,8 +303,8 @@ def test_vsf_two_collections():
         compare_vsf_implementations(
             pos_a=x_a,
             pos_b=x_b,
-            vel_a=vel_a,
-            vel_b=vel_b,
+            val_a=val_a,
+            val_b=val_b,
             dist_bin_edges=bin_edges,
             stat_kw_pairs=stat_kw_pairs,
             atol=atol_l,
@@ -315,8 +315,8 @@ def test_vsf_two_collections():
         MY_SEED = 156
         generator = np.random.RandomState(seed=MY_SEED)
 
-        x_a, vel_a = _generate_vals((3, 1000), generator)
-        x_b, vel_b = _generate_vals((3, 2000), generator)
+        x_a, val_a = _generate_vals((3, 1000), generator)
+        x_b, val_b = _generate_vals((3, 2000), generator)
         bin_edges = np.arange(11.0) / 10
         _stat_quadruple = [
             ("variance", {}, 0.0, {"mean": 2e-14, "variance": 3e-14}),
@@ -328,8 +328,8 @@ def test_vsf_two_collections():
             compare_vsf_implementations(
                 pos_a=x_a,
                 pos_b=x_b,
-                vel_a=vel_a,
-                vel_b=vel_b,
+                val_a=val_a,
+                val_b=val_b,
                 dist_bin_edges=bin_edges,
                 stat_kw_pairs=[(statistic, kwargs)],
                 atol=atol,
@@ -342,8 +342,8 @@ def test_vsf_two_collections():
         compare_vsf_implementations(
             pos_a=x_a,
             pos_b=x_b,
-            vel_a=vel_a,
-            vel_b=vel_b,
+            val_a=val_a,
+            val_b=val_b,
             dist_bin_edges=bin_edges,
             stat_kw_pairs=stat_kw_pairs,
             atol=atol_l,
@@ -357,7 +357,7 @@ def test_vsf_single_collection():
     )
 
     if True:
-        x_a, vel_a = (
+        x_a, val_a = (
             np.arange(6.0, 24.0).reshape(3, 6),
             np.arange(-9.0, 9.0).reshape(3, 6),
         )
@@ -373,8 +373,8 @@ def test_vsf_single_collection():
             compare_vsf_implementations(
                 pos_a=x_a,
                 pos_b=None,
-                vel_a=vel_a,
-                vel_b=None,
+                val_a=val_a,
+                val_b=None,
                 dist_bin_edges=bin_edges,
                 stat_kw_pairs=[(statistic, kwargs)],
                 atol=atol,
@@ -387,8 +387,8 @@ def test_vsf_single_collection():
         compare_vsf_implementations(
             pos_a=x_a,
             pos_b=None,
-            vel_a=vel_a,
-            vel_b=None,
+            val_a=val_a,
+            val_b=None,
             dist_bin_edges=bin_edges,
             stat_kw_pairs=stat_kw_pairs,
             atol=atol_l,
@@ -399,7 +399,7 @@ def test_vsf_single_collection():
         MY_SEED = 156
         generator = np.random.RandomState(seed=MY_SEED)
 
-        x_a, vel_a = _generate_vals((3, 1000), generator)
+        x_a, val_a = _generate_vals((3, 1000), generator)
         bin_edges = np.arange(11.0) / 10
 
         _stat_quadruple = [
@@ -412,8 +412,8 @@ def test_vsf_single_collection():
             compare_vsf_implementations(
                 pos_a=x_a,
                 pos_b=None,
-                vel_a=vel_a,
-                vel_b=None,
+                val_a=val_a,
+                val_b=None,
                 dist_bin_edges=bin_edges,
                 stat_kw_pairs=[(statistic, kwargs)],
                 atol=atol,
@@ -426,8 +426,8 @@ def test_vsf_single_collection():
         compare_vsf_implementations(
             pos_a=x_a,
             pos_b=None,
-            vel_a=vel_a,
-            vel_b=None,
+            val_a=val_a,
+            val_b=None,
             dist_bin_edges=bin_edges,
             stat_kw_pairs=stat_kw_pairs,
             atol=atol_l,
@@ -454,8 +454,8 @@ def extra_multiple_stats_test(
     for seed in [4162, 2354, 7468, 3563, 88567]:
         generator = np.random.RandomState(seed=seed)
 
-        x_a, vel_a = _generate_vals((3, 1000), generator)
-        x_b, vel_b = _generate_vals((3, 2000), generator)
+        x_a, val_a = _generate_vals((3, 1000), generator)
+        x_b, val_b = _generate_vals((3, 2000), generator)
         bin_edges = np.arange(11.0) / 10
         _stat_quadruple = [
             ("variance", {}, 0.0, {"mean": 3.5e-14, "variance": 3e-14}),
@@ -469,13 +469,13 @@ def extra_multiple_stats_test(
 
         # auto-structure-function
         if not skip_auto_sf:
-            # use x_b and vel_b to make sure that we use multiple processes
+            # use x_b and val_b to make sure that we use multiple processes
             # when nproc>1
             compare_vsf_implementations(
                 pos_a=x_b,
                 pos_b=None,
-                vel_a=vel_b,
-                vel_b=None,
+                val_a=val_b,
+                val_b=None,
                 dist_bin_edges=bin_edges,
                 stat_kw_pairs=stat_kw_pairs,
                 atol=atol,
@@ -487,8 +487,8 @@ def extra_multiple_stats_test(
         compare_vsf_implementations(
             pos_a=x_a,
             pos_b=x_b,
-            vel_a=vel_a,
-            vel_b=vel_b,
+            val_a=val_a,
+            val_b=val_b,
             dist_bin_edges=bin_edges,
             stat_kw_pairs=stat_kw_pairs,
             atol=atol,
@@ -505,19 +505,19 @@ def benchmark(
 ):
     generator = np.random.RandomState(seed=seed)
 
-    pos_a, vel_a = _generate_vals(shape_a, generator)
+    pos_a, val_a = _generate_vals(shape_a, generator)
     if shape_b is None:
-        pos_b, vel_b = None, None
+        pos_b, val_b = None, None
     else:
-        pos_b, vel_b = _generate_vals(shape_b, generator)
+        pos_b, val_b = _generate_vals(shape_b, generator)
 
     # first, benchmark pyvsf.vsf_props
     pyvsf.vsf_props(
-        pos_a=pos_a, pos_b=pos_b, vel_a=vel_a, vel_b=vel_b, nproc=nproc, **kwargs
+        pos_a=pos_a, pos_b=pos_b, val_a=val_a, val_b=val_b, nproc=nproc, **kwargs
     )
     t0 = time.perf_counter()
     pyvsf.vsf_props(
-        pos_a=pos_a, pos_b=pos_b, vel_a=vel_a, vel_b=vel_b, nproc=nproc, **kwargs
+        pos_a=pos_a, pos_b=pos_b, val_a=val_a, val_b=val_b, nproc=nproc, **kwargs
     )
     t1 = time.perf_counter()
     dt = t1 - t0
@@ -525,9 +525,9 @@ def benchmark(
 
     if not skip_python_version:
         # second, benchmark scipy/numpy version:
-        _vsf_props_python(pos_a=pos_a, pos_b=pos_b, vel_a=vel_a, vel_b=vel_b, **kwargs)
+        _vsf_props_python(pos_a=pos_a, pos_b=pos_b, val_a=val_a, val_b=val_b, **kwargs)
         t0 = time.perf_counter()
-        _vsf_props_python(pos_a=pos_a, pos_b=pos_b, vel_a=vel_a, vel_b=vel_b, **kwargs)
+        _vsf_props_python(pos_a=pos_a, pos_b=pos_b, val_a=val_a, val_b=val_b, **kwargs)
         t1 = time.perf_counter()
         dt = t1 - t0
         print(f"Scipy/Numpy version: {dt} seconds")

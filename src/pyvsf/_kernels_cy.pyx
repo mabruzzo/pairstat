@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from collections.abc import Sequence
 import numpy as np
+import warnings
 
 from libc.stdint cimport int64_t, uintptr_t
 from libc.stddef cimport size_t
@@ -524,15 +525,23 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
 
     return out
 
+# this is an object used to denote that an argument wasn't provided while we
+# deprecate an old interface
+_unspecified = object()
 
-def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
-              *, weights_a = None, weights_b = None,
+# as in twopoint_correlation, you can use val_a, val_b, dist_bin_edges as
+# positional arguments
+def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
+              vel_a = _unspecified, vel_b = _unspecified,
+              dist_bin_edges = _unspecified,
+              weights_a = None, weights_b = None,
               stat_kw_pairs = [('variance', {})],
               nproc = 1, force_sequential = False,
               postprocess_stat = True):
     """
-    Calculates properties pertaining to the velocity structure function for 
-    pairs of points.
+    Calculates properties pertaining to the vector structure function for 
+    pairs of points. It's commonly used for the velocity structure function in 
+    particular.
 
     If you set both ``pos_b`` and ``vel_b`` to ``None`` then the velocity 
     structure properties will only be computed for unique pairs of the points
@@ -544,10 +553,12 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         2D arrays holding the positions of each point. Axis 0 should be the 
         number of spatial dimensions must be consistent for each array. Axis 1
         can be different for each array
+    val_a, val_b : array_like
+        2D arrays holding the vector values at each point. The shape of 
+        ``val_a`` should match ``pos_a`` and the shape of ``val_b`` should 
+        match ``pos_b``.
     vel_a, vel_b : array_like
-        2D arrays holding the velocities at each point. The shape of ``vel_a`` 
-        should match ``pos_a`` and the shape of ``vel_b`` should match
-        ``pos_b``.
+        Parameters that are deprecated in favor of ``val_a`` and ``val_b``.
     dist_bin_edges : array_like
         1D array of monotonically increasing values that represent edges for 
         distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
@@ -594,8 +605,68 @@ def vsf_props(pos_a, pos_b, vel_a, vel_b, dist_bin_edges,
         - 'weightedhistogram': just like 'histogram', but weights are used
     """
 
+
+    # do some messy work to help us deprecate vel_a and vel_b
+
+    # Step 1: we do some basic preperation
+    is_provided = lambda arg: arg is not _unspecified
+    _names = ("val_a", "val_b", "dist_bin_edges")
+    _val_a, _val_b = _unspecified, _unspecified
+    if is_provided(val_a) or is_provided(val_b):
+        if is_provided(vel_a) or is_provided(vel_b):
+            raise ValueError("Don't mix val_a,val_b with vel_a,vel_b")
+        _val_a, _val_b = val_a, val_b
+    elif is_provided(vel_a) or is_provided(vel_b):
+        _val_a, _val_b = vel_a, vel_b
+        _names = ("vel_a", "vel_b", "dist_bin_edges")
+
+    # Step 2: do the main checks
+    if is_provided(_val_a):
+        if len(args) != 0:
+            raise ValueError(f"the {_names[0]} argument was specified more "
+                             "than once")
+        elif _val_b is _unspecified:
+            raise ValueError(f"missing the {_names[1]} argument")
+        elif dist_bin_edges is _unspecified:
+            raise ValueError(f"missing the {_names[2]} argument")
+        # do nothing
+
+    elif is_provided(_val_b):  # _val_a is NOT a kwarg
+        if len(args) > 1:
+            raise ValueError(f"the {_names[1]} argument was specified more "
+                             "than once")
+        elif len(args) == 0:
+            raise ValueError(f"missing the {_names[0]} argument")
+        elif dist_bin_edges is _unspecified:
+            raise ValueError(f"missing the {_names[2]} argument")
+        _val_a = args[0]
+
+    elif is_provided(dist_bin_edges):  # _val_a & _val_b are NOT kwargs
+        if len(args) > 2:
+            raise ValueError(f"the {_names[2]} argument was specified more "
+                             "than once")
+        elif len(args) < 2:
+            raise ValueError(f"missing the {_names[len(args)]} argument")
+        _val_a, _val_b = args
+
+    else:  # _val_a, _val_b, & dist_bin_edges are NOT kwargs
+        if len(args) > 3:
+            raise ValueError("received too many positional arguments")
+        _val_a, _val_b, dist_bin_edges = args
+
+    # Step 3: Warn people if they use deprecated kwargs
+    if "vel_a" in _names:
+        warnings.warn(
+            "The vel_a and vel_b kwargs are deprecated in favor of val_a and "
+            "val_b", DeprecationWarning)
+
+    # sanity check
+    assert _val_a is not _unspecified
+    assert _val_b is not _unspecified
+    assert dist_bin_edges is not _unspecified
+
     return _core_pairwise_work(
-        pos_a = pos_a, pos_b = pos_b, val_a = vel_a, val_b = vel_b,
+        pos_a = pos_a, pos_b = pos_b, val_a = _val_a, val_b = _val_b,
         dist_bin_edges = dist_bin_edges, 
         weights_a = weights_a, weights_b = weights_b, pairwise_op = "sf",
         stat_kw_pairs = stat_kw_pairs, nproc = nproc,
