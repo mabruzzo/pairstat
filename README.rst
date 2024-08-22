@@ -119,18 +119,17 @@ Specify the Separation Bins
 
 *[ NEEDS TO BE ADDED ]*
 
+Set by the ``dist_bin_edges`` kwarg
+
 Available Statistics
 ====================
 
-*[ NEEDS MORE UPDATES ]*
-
 The statistics are specified via the ``"stat_kw_pairs"`` keyword argument.
 This expects a list of 1 or more pairs of statistic-kwarg pairs.
-(This is a little clunky right now, for now you should just specify the name of a single statistic unless we explicitly note that a combination is supported.
+(This is a little clunky right now).
+For now, you should just specify the name of a single statistic unless we explicitly note that a combination is supported.
 
-
-Options include:
-
+Supported statistics include:
 
 .. list-table:: Available Statistics
    :widths: 15 15 30
@@ -147,16 +146,24 @@ Options include:
      - Computes the number of pairs, the mean, and the variance.
    * - ``"histogram"``
      - ``[("histogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
-     - Bins the value computed for each pair of bins based on the specified ``"val_bin_edges"`` argument.
+     - Tracks the number of value computed for each pair of bins based on the specified ``"val_bin_edges"`` kwarg.
+       The result is effectively a 2D histogram (the other axis is set by ``dist_bin_edges``.
+       Not currently supported by ``pyvsf.twopoint_correlation``
+   * - ``"weightedmean"``
+     - ``[("weightedmean", {})]`` 
+     - Computes the total weight and the weighted mean.
+       Not supported by ``pyvsf.twopoint_correlation``
+   * - ``"weightedhistogram"``
+     - ``[("weightedhistogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
+     - Tracks the total weight for all pairs of values that lie in the specified ``"val_bin_edges"`` bins.
+       The result is effectively a 2D histogram (the other axis is set by ``dist_bin_edges``.
        Not currently supported by ``pyvsf.twopoint_correlation``
 
-``pyvsf.vsf_props`` supports ``"mean"``, ``"variance"`` and ``"histogram"``.
-When you specify ``"histogram"``, you need to specify the bin-edges for the magnitudes of the vector differences.
-Other features:
-- You can also have the function compute both the ``"mean"`` and ``"histogram"`` or ``"variance"`` and ``"histogram"`` in the same invocation.
-- Additionally, you can compute ``"weightedmean"`` or ``"weightedhistogram"``.
+At the moment, you can chain together:
+- ``"mean"`` and ``"histogram"``
+- ``"variance"`` and ``"histogram"``
+- ``"weightedmean"`` and ``"wightedhistogram"``
 
-``pyvsf.twopoint_correlation`` currently just supports ``"mean"`` and ``"variance"``
 
 *******
 Details
