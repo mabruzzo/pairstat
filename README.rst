@@ -2,9 +2,9 @@
 pyvsf
 #####
 
-.. include:: doc/source/fragment-overview.rst
+.. literalinclude:: doc/source/fragment-overview.rst
 
-.. include:: doc/source/Install.rst
+.. literalinclude:: doc/source/Install.rst
 
-.. include:: doc/source/Usage.rst
+.. literalinclude:: doc/source/Usage.rst
 
