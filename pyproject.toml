@@ -60,8 +60,10 @@ Tracker = 'https://github.com/mabruzzo/pyvsf/issues'
 docs = [
   "sphinx>=7.0",
   "furo>=2024.01.29",
+  'ipykernel',
+  'matplotlib',
+  'nbsphinx',
   "numpydoc>=1.8.0",
-  #'matplotlib' will be needed once we start using nbsphinx
 ]
 
 # these are for tests

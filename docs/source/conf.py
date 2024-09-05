@@ -19,7 +19,7 @@ release = get_version(project)
 
 extensions = [
     "sphinx.ext.autodoc",
-    #"sphinx.ext.napoleon"
+    "nbsphinx",
     "numpydoc"
 ]
 

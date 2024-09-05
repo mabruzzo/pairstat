@@ -16,6 +16,7 @@ Welcome to pyvsf's documentation!
 
    Install
    Usage
+   pages/Example
    API
    Developing
 
