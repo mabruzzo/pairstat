@@ -16,7 +16,7 @@ Welcome to pyvsf's documentation!
 
    Install
    Usage
-   api
+   API
    Developing
 
 License
