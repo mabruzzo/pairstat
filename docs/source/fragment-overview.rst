@@ -5,6 +5,8 @@ This is a python package that implements C++ accelerated functions for computing
 
 These quantities are useful for characterizing the properties of turbulence.
 
+The GitHub repository holding the source code can be found ``here <https://github.com/mabruzzo/pyvsf>``__ .
+
 **********
 Motivation
 **********

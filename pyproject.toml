@@ -18,15 +18,17 @@ authors = [
 ]
 # I need to revisit the following
 dependencies = [
-  'numpy', 'h5py', 'cython', 'matplotlib',
-  'yt', "schwimmbad", "pydantic"
+  'numpy',
+  # not sure we actually need the following (taken from yt)
+  # https://github.com/numpy/numpy/issues/27037
+  "numpy!=2.0.1 ; platform_machine=='arm64' and platform_system=='Darwin'",
+  'cython',
 ]
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: BSD License",
     "Operating System :: MacOS :: MacOS X",
-    "Operating System :: POSIX :: AIX",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Unix",
     "Natural Language :: English",
@@ -42,6 +44,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 
+[project.readme]
+file = "README.rst"
 
 [project.license]
 text = "BSD 3-Clause"
@@ -56,9 +60,25 @@ Tracker = 'https://github.com/mabruzzo/pyvsf/issues'
 docs = [
   "sphinx>=7.0",
   "furo>=2024.01.29",
-  "numpydoc>=1.8.0"  
+  "numpydoc>=1.8.0",
+  #'matplotlib' will be needed once we start using nbsphinx
 ]
 
+# these are for tests
+dev = [
+  'scipy'
+]
+
+# these are dependencies for extraneous features that are not currently
+# documented. We will either start documenting these features, or we will
+# remove them before the first release
+extra-features = [
+  'h5py',
+  'pydantic',
+  'schwimmbad',
+  'scipy', # only needed for tests
+  'yt',
+]
 
 [tool.scikit-build]
 # if the following version of CMake isn't found, scikit-build-core will

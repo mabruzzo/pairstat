@@ -22,7 +22,20 @@ Alternatively, you can clone the repository and invoke the following from the re
 
    $ python -m pip install -v .
 
-OpenMP is used automatically used (if the compiler supports it). To check if the package was compiled with OpenMP, you can invoke the following from the command-line (and check if the printed statement mentions OpenMP)
+The above command installs the minimum required dependencies.
+To install extra dependencies:
+
+  * for testing, replace ``.`` in the above statement with ``.[dev]``.
+  * for some of the undocumented functionality, replace ``.`` with ``.[extra-features]``.
+  * for building docs, replace ``.`` with ``.[docs]``.
+  * If you use Z shell (the default shell on modern versions of macOS) you may need to put these snippets inside of single quotes (e.g. ``'.[dev]'``).
+
+.. note::
+
+   In the future, we plan to support installation from PYPI
+
+OpenMP is used automatically used (if the compiler supports it).
+To check if the package was compiled with OpenMP, you can invoke the following from the command-line (and check if the printed statement mentions OpenMP)
 
 .. code-block:: shell-session
 
@@ -31,7 +44,8 @@ OpenMP is used automatically used (if the compiler supports it). To check if the
 Using OpenMP for parallelization on macOS
 =========================================
 
-If you want to use OpenMP on macOS, you will need to install a C++ compiler that supports it. The default C++ compiler on macOS is an apple-specific version of clang++.
+If you want to use OpenMP on macOS, you will need to install a C++ compiler that supports it.
+The default C++ compiler on macOS is an apple-specific version of clang++.
 
 - The easiest way to get a different compiler is use homebrew to install a version of g++.
 
