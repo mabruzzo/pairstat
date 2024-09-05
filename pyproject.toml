@@ -5,13 +5,13 @@ requires=[
   # the minimum build-requirement for scikit-build-core controls some default
   # behaviors when newer versions of scikit-build-core are installed
   # (we should keep an eye on this and keep increasing it over time)
-  "scikit-build-core>=0.9"
+  "scikit-build-core>=0.10"
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "pyvsf"
-version = "0.1.0"
+version = "0.2.0"
 description = "Module for computing velocity structure function properties"
 authors = [
   {name = "Matthew Abruzzo", email = "matthewabruzzo@gmail.com" },
@@ -21,9 +21,44 @@ dependencies = [
   'numpy', 'h5py', 'cython', 'matplotlib',
   'yt', "schwimmbad", "pydantic"
 ]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: AIX",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Unix",
+    "Natural Language :: English",
+    "Programming Language :: C++",
+    "Programming Language :: Cython",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+
+[project.license]
+text = "BSD 3-Clause"
 
 [project.urls]
 Homepage = 'https://github.com/mabruzzo/pyvsf'
+Documentation = 'https://pyvsf.readthedocs.io/en/latest/'
+Source = 'https://github.com/mabruzzo/pyvsf'
+Tracker = 'https://github.com/mabruzzo/pyvsf/issues'
+
+[project.optional-dependencies]
+docs = [
+  "sphinx>=7.0",
+  "furo>=2024.01.29",
+  "numpydoc>=1.8.0"  
+]
+
 
 [tool.scikit-build]
 # if the following version of CMake isn't found, scikit-build-core will
@@ -35,6 +70,7 @@ cmake.version = ">=3.16"
 cmake.build-type = "Release"
 
 # since this is set, this provides a method for backward compatibility.
-minimum-version = "0.9" # change to "build-system.requires" in next version
+minimum-version = "build-system.requires"
 
+wheel.exclude = ["**.pyx"]
 
