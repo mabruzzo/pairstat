@@ -22,6 +22,7 @@ extensions = [
     "nbsphinx",
     "numpydoc"
 ]
+source_suffix = [".rst"]
 
 templates_path = ['_templates']
 exclude_patterns = []

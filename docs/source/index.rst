@@ -17,6 +17,7 @@ Welcome to pyvsf's documentation!
    Install
    Usage
    pages/Example
+   pages/Example-simulation
    API
    Developing
 
