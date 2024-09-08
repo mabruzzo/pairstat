@@ -83,6 +83,13 @@ extra-features = [
   'yt',
 ]
 
+[tool.pytest.ini_options]
+norecursedirs = ["other"]
+testpaths = [
+  "tests",
+]
+
+
 [tool.scikit-build]
 # if the following version of CMake isn't found, scikit-build-core will
 # download and use a compatible CMake-verison
