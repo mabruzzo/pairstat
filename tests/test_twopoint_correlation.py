@@ -16,7 +16,7 @@ def _twopoint_correlation_python(pos_a, pos_b, val_a, val_b, dist_bin_edges):
                 ind = n_points * i + j - ((i + 2) * (i + 1)) // 2
                 products[ind] = val_a[i] * val_a[j]
     else:
-        distances = cdist(pos_a.T, pos_b.T, 'euclidean')
+        distances = cdist(pos_a.T, pos_b.T, "euclidean")
         products = np.outer(val_a, val_b)
         assert distances.shape == products.shape
 
@@ -56,16 +56,11 @@ def test_twopoint_autocorrelation():
 
 
 def test_twopoint_crosscorrelation():
-
     x_a, val_a = np.arange(6.0).reshape(3, 2), np.array([-3.0, 1.0])
 
-    x_b, val_b = (
-        np.arange(6.0, 24.0).reshape(3, 6),
-        np.arange(7.0, 13.0)
-    )
+    x_b, val_b = (np.arange(6.0, 24.0).reshape(3, 6), np.arange(7.0, 13.0))
 
     bin_edges = np.array([17.0, 21.0, 25.0])
-
 
     actual = pyvsf.twopoint_correlation(x_a, x_b, val_a, val_b, bin_edges)
     ref = _twopoint_correlation_python(x_a, x_b, val_a, val_b, bin_edges)
