@@ -16,9 +16,9 @@ def _twopoint_correlation_python(pos_a, pos_b, val_a, val_b, dist_bin_edges):
                 ind = n_points * i + j - ((i + 2) * (i + 1)) // 2
                 products[ind] = val_a[i] * val_a[j]
     else:
-        raise NotImplementedError("NOT SUPPORTED YET")
-        # distances = cdist(pos_a.T, pos_b.T, 'euclidean')
-        # products
+        distances = cdist(pos_a.T, pos_b.T, 'euclidean')
+        products = np.outer(val_a, val_b)
+        assert distances.shape == products.shape
 
     num_bins = dist_bin_edges.size - 1
     bin_indices = np.digitize(x=distances, bins=dist_bin_edges)
@@ -41,14 +41,13 @@ def _twopoint_correlation_python(pos_a, pos_b, val_a, val_b, dist_bin_edges):
     return [val_dict]
 
 
-def test_twopoint_correlation():
+def test_twopoint_autocorrelation():
     val_bin_edges = np.array(
         [0] + np.geomspace(start=1e-16, stop=100, num=100).tolist()
     )
 
-    if True:
-        x_a, val_a = (np.arange(6.0, 24.0).reshape(3, 6), np.arange(-9.0, 9.0, 3.0))
-        bin_edges = np.array([0.0, 5.0, 10.0])
+    x_a, val_a = (np.arange(6.0, 24.0).reshape(3, 6), np.arange(-9.0, 9.0, 3.0))
+    bin_edges = np.array([0.0, 5.0, 10.0])
 
     ref = _twopoint_correlation_python(x_a, None, val_a, None, bin_edges)
     actual = pyvsf.twopoint_correlation(x_a, None, val_a, None, bin_edges)
@@ -56,5 +55,19 @@ def test_twopoint_correlation():
         assert np.all(ref[0][key] == actual[0][key])
 
 
-if __name__ == "__main__":
-    test_twopoint_correlation()
+def test_twopoint_crosscorrelation():
+
+    x_a, val_a = np.arange(6.0).reshape(3, 2), np.array([-3.0, 1.0])
+
+    x_b, val_b = (
+        np.arange(6.0, 24.0).reshape(3, 6),
+        np.arange(7.0, 13.0)
+    )
+
+    bin_edges = np.array([17.0, 21.0, 25.0])
+
+
+    actual = pyvsf.twopoint_correlation(x_a, x_b, val_a, val_b, bin_edges)
+    ref = _twopoint_correlation_python(x_a, x_b, val_a, val_b, bin_edges)
+    for key in ["mean", "counts"]:
+        assert np.all(ref[0][key] == actual[0][key])
