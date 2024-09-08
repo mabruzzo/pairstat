@@ -19,20 +19,20 @@ jobs:
           - "3.10"
           - "3.11"
           - "3.12"
-  name: Check Python ${{ matrix.python-version }}
-  steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0 # Only needed if using setuptools-scm
+    name: Check Python ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Only needed if using setuptools-scm
 
-    - name: Setup Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        allow-prereleases: true
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
 
-    - name: Install package
-      run: python -m pip install -e .[dev]
+      - name: Install package
+        run: python -m pip install -e .[dev]
 
-    - name: Test package
-      run: python -m pytest
+      - name: Test package
+        run: python -m pytest
