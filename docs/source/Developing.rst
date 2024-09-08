@@ -2,39 +2,30 @@
 Developer Guide
 ***************
 
-This page documents some areas where the package needs work.
+Overview
+========
 
-Optimization Opportunities
-==========================
+This page documents some areas where the package needs work (contributions are welcomed)
 
-Faster algorithms, involving kdtrees/octrees, should definitely be
-considered for larger problem sizes (the optimizations file briefly
-talks about why these alternative approaches might be beneficial).
+There are 2 main points worth highlighting:
 
-Another faster algorithm for regularly-spaced grid-based data would be
-a stencil-based approach that allows you to determine the sparation
-between pairs of points without actually calculating distances. An added
-perk of this is that you can entirely remove the branching that is present
-in the currently algorithm. As a consequence, vectorization would provide
-a significant speed improvement.
+1. This module evolved very organically (features were added as they were needed). 
+   A fair amount of refactoring could be done to simplify/improve certain aspects.
+   Some of the required refactoring is described `here <https://github.com/mabruzzo/pyvsf/issues/1>`__.
+
+2. There are a handful of oportunities for optimizing the performance of the package (most of them require significant structural changes).
+   A description of som of these opportunities can be found `here <https://github.com/mabruzzo/pyvsf/issues/2>`__.
+
 
 Undocumented Functionality
 ==========================
 
-This module also provides another primary function,
-``pyvsf.small_dist_sf_props.small_dist_sf_props`` that can be used to
-compute statistics for an astrophysical simulation. This function
-decomposes the simulation into smaller subvolumes (the size of each
-subvolume is related to the maximum separation). This can considerably
-reduce the complexity of the calculation.
+This module also provides another primary function, ``pyvsf.small_dist_sf_props.small_dist_sf_props`` that can be used to compute statistics for an astrophysical simulation.
+This function decomposes the simulation into smaller subvolumes (the size of each subvolume is related to the maximum separation).
+This can considerably reduce the complexity of the calculation.
 
 ``pyvsf.small_dist_sf_props.small_dist_sf_props`` also offers parallelization
 using MPI/multiprocessing, using ``MPIPool`` or ``MultiPool`` from the ``schwimmbad`` package.
 A modified `MPIPool` is also provided to work around some MPI issues on some computing clusters.
 
-Need for Refactoring
-====================
-This module evolved very organically (features were added as they were needed). 
-A fair amount of refactoring could be done to simplify/improve certain aspects.
-
-
+The plan is to move most of this undocumented functionality to a separate development branch prior to a 1.0 release.
