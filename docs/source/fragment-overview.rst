@@ -1,7 +1,7 @@
 ********
 Overview
 ********
-This is a python package that implements C++ accelerated functions for computing the velocity structure function and the two-point correlation function for arbitrary sets of points.
+This is a python package that implements C++ accelerated functions for computing the structure function and the two-point correlation function for arbitrary sets of points.
 These functions can be used for computing 1D, 2D, or 3D structure functions and correlation functions in numerical simulations and observations.
 These quantities are useful for characterizing the properties of turbulence.
 

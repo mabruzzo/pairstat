@@ -13,3 +13,6 @@ pyvsf/**.c
 # artifacts produced by python builds
 /pyvsf.egg-info
 /build
+
+# artifact by local build of documentation
+**/_build
