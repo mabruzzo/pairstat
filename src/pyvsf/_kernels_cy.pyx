@@ -577,9 +577,9 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
     pairs of points. It's commonly used for the velocity structure function in 
     particular.
 
-    If you set both ``pos_b`` and ``vel_b`` to ``None`` then the velocity 
-    structure properties will only be computed for unique pairs of the points
-    specified by ``pos_a`` and ``vel_a``
+    If you set both ``pos_b`` and ``val_b`` to ``None`` then the structure
+    function properties will only be computed for unique pairs of the
+    points specified by ``pos_a`` and ``val_a``
 
     Parameters
     ----------
@@ -591,8 +591,6 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
         2D arrays holding the vector values at each point. The shape of 
         ``val_a`` should match ``pos_a`` and the shape of ``val_b`` should 
         match ``pos_b``.
-    vel_a, vel_b : array_like
-        Parameters that are deprecated in favor of ``val_a`` and ``val_b``.
     dist_bin_edges : array_like
         1D array of monotonically increasing values that represent edges for 
         distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
@@ -623,18 +621,20 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
         Users directly employing this function should almost always set this
         kwarg to `True` (the default). This option is only provided to simplify
         the process of consolidating results from multiple calls to vsf_props.
+    vel_a, vel_b : array_like
+        Parameters that are deprecated in favor of ``val_a`` and ``val_b``.
 
     Notes
     -----
     Currently recognized statistic names include:
-        - 'mean': calculate the 1st order VSF.
-        - 'variance': calculate the 1st and 2nd order VSFs
-        - 'histogram': this constructs a 2D histogram. The bin edges along axis
-          0 are given by the `dist_bin_edges` argument. The magnitudes of the 
-          velocity differences are binned along axis 1. The 'val_bin_edges'
-          keyword must be specified alongside this statistic. It should be
-          associated with a 1D monotonic array that specifies the bin edges
-          along axis 1.
+        - 'mean': calculate the 1st order structure function.
+        - 'variance': calculate the 1st and 2nd order structure functions
+        - 'histogram': this constructs a 2D histogram. The bin edges along
+          axis 0 are given by the `dist_bin_edges` argument. The
+          magnitudes of the vector differences are binned along axis 1.
+          The 'val_bin_edges' keyword must be specified alongside this
+          statistic name (to specify the bin edges along axis 1). It
+          should be associated with a 1D monotonic array.
         - 'weightedmean': just like 'mean', but weights are used
         - 'weightedhistogram': just like 'histogram', but weights are used
     """
@@ -747,6 +747,19 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         floating point results should be bitwise identical to an identical
         function call where this is `False`. (This is primarily provided for
         debugging purposes)
+
+    Notes
+    -----
+    Currently recognized statistic names include:
+        - 'mean': the typical correlation function
+        - 'variance': the variance of the products of the pairs of scalar
+          values are computed for all pairs of values in a given bin.
+        - 'histogram': this constructs a 2D histogram. The bin edges along
+          axis 0 are given by the `dist_bin_edges` argument. The products
+          of the pairs of scalar values are binned along axis 1. The
+          'val_bin_edges' keyword must be specified alongside this
+          statistic name (to specify the bin edges along axis 1). It
+          should be associated with a 1D monotonic array.
     """
 
     return _core_pairwise_work(
