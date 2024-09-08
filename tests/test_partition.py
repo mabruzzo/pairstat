@@ -122,8 +122,3 @@ def test_auto_partition():
 
         for nproc in range(1, 61):  # hard limit in the code for now is 60
             _run_test(vals, [], nproc, ref_vals=ref_vals)
-
-
-if __name__ == "__main__":
-    test_cross_partition()
-    test_auto_partition()

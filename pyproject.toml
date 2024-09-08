@@ -69,7 +69,8 @@ docs = [
 
 # these are for tests
 dev = [
-  'scipy'
+  'scipy',
+  'pytest'
 ]
 
 # these are dependencies for extraneous features that are not currently
@@ -82,6 +83,14 @@ extra-features = [
   'scipy', # only needed for tests
   'yt',
 ]
+
+[tool.pytest.ini_options]
+norecursedirs = ["other"]
+xfail_strict = true
+testpaths = [
+  "tests",
+]
+
 
 [tool.scikit-build]
 # if the following version of CMake isn't found, scikit-build-core will

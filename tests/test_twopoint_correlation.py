@@ -1,10 +1,5 @@
-from collections.abc import Sequence
-from functools import partial
-
-from more_itertools import always_iterable, zip_equal
 import numpy as np
 from scipy.spatial.distance import pdist, cdist
-
 
 import pyvsf
 

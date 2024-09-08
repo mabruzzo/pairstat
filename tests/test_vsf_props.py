@@ -1,9 +1,20 @@
 from collections.abc import Sequence
 from functools import partial
+import time
 
-from more_itertools import always_iterable, zip_equal
 import numpy as np
 from scipy.spatial.distance import pdist, cdist
+
+
+def zip_equal(*args):
+    # more_itertools.zip_always started warning about deprecated and I like
+    # that it eagerly evaluates so we implement our own version of it
+    if len(args) > 1:
+        nominal_length = len(args[0])
+        for i, arg in enumerate(args):
+            if len(arg) != nominal_length:
+                raise ValueError(f"argument {i} doesn't have the same length as arg 0")
+    return zip(*args)
 
 
 import pyvsf
@@ -261,10 +272,8 @@ def _generate_vals(shape, generator):
     return pos, vel
 
 
-# now define the actual tests!
-
-
 def test_vsf_two_collections():
+    print("running tests against python implementation")
     val_bin_edges = np.array(
         [-1.7976931348623157e308, 1e-8, 1e-4, 1.7976931348623157e308]
     )
@@ -352,6 +361,7 @@ def test_vsf_two_collections():
 
 
 def test_vsf_single_collection():
+    print("running tests against python implementation")
     val_bin_edges = np.array(
         [0] + np.geomspace(start=1e-16, stop=100, num=100).tolist()
     )
@@ -497,7 +507,25 @@ def extra_multiple_stats_test(
         )
 
 
-import time
+def test_bundle_stats():
+    print("running extra tests to check for problems with bundling stats")
+    extra_multiple_stats_test()
+
+
+def test_smp():
+    print("checking partitioning for shared-memory multiprocessing")
+    extra_multiple_stats_test(
+        alt_implementation_key="actual-3proc-seq",
+        skip_variance=False,
+        skip_auto_sf=False,
+        use_tol=True,
+    )
+    extra_multiple_stats_test(
+        alt_implementation_key="actual-3proc",
+        skip_variance=False,
+        skip_auto_sf=False,
+        use_tol=True,
+    )
 
 
 def benchmark(
@@ -533,55 +561,37 @@ def benchmark(
         print(f"Scipy/Numpy version: {dt} seconds")
 
 
-if __name__ == "__main__":
-    print("running tests against python implementation")
-    test_vsf_single_collection()
-    test_vsf_two_collections()
+def test_benchmark(capsys):
+    with capsys.disabled():
+        print("running a short auto-vsf benchmark. This takes ~7 s on a 4 core system")
+        val_bin_edges = np.geomspace(start=1e-16, stop=2.0, num=100, dtype=np.float64)
+        val_bin_edges[0] = 0.0
+        val_bin_edges[-1] = np.finfo(np.float64).max
+        benchmark(
+            (3, 20000),
+            shape_b=None,
+            seed=156,
+            dist_bin_edges=np.arange(101.0) / 100,
+            stat_kw_pairs=[
+                ("histogram", {"val_bin_edges": val_bin_edges}),
+                ("variance", {}),
+            ],
+            nproc=4,
+            skip_python_version=True,
+        )
 
-    print("running extra tests to check for problems with bundling stats")
-    extra_multiple_stats_test()
-
-    print("checking partitioning for shared-memory multiprocessing")
-    extra_multiple_stats_test(
-        alt_implementation_key="actual-3proc-seq",
-        skip_variance=False,
-        skip_auto_sf=False,
-        use_tol=True,
-    )
-    extra_multiple_stats_test(
-        alt_implementation_key="actual-3proc",
-        skip_variance=False,
-        skip_auto_sf=False,
-        use_tol=True,
-    )
-
-    print("running a short benchmark. This takes ~7 s on a 4 core system")
-    val_bin_edges = np.geomspace(start=1e-16, stop=2.0, num=100, dtype=np.float64)
-    val_bin_edges[0] = 0.0
-    val_bin_edges[-1] = np.finfo(np.float64).max
-    benchmark(
-        (3, 20000),
-        shape_b=None,
-        seed=156,
-        dist_bin_edges=np.arange(101.0) / 100,
-        stat_kw_pairs=[
-            ("histogram", {"val_bin_edges": val_bin_edges}),
-            ("variance", {}),
-        ],
-        nproc=4,
-        skip_python_version=True,
-    )
-
-    print("running a short benchmark. This takes ~10 s on a 4 core system")
-    benchmark(
-        (3, 20000),
-        shape_b=(3, 20000),
-        seed=156,
-        dist_bin_edges=np.arange(101.0) / 100,
-        stat_kw_pairs=[
-            ("histogram", {"val_bin_edges": val_bin_edges}),
-            ("variance", {}),
-        ],  # [:1],
-        nproc=4,
-        skip_python_version=True,
-    )
+        print(
+            "running a short cross-vsf benchmark. This takes ~10 s on a 4 core system"
+        )
+        benchmark(
+            (3, 20000),
+            shape_b=(3, 20000),
+            seed=156,
+            dist_bin_edges=np.arange(101.0) / 100,
+            stat_kw_pairs=[
+                ("histogram", {"val_bin_edges": val_bin_edges}),
+                ("variance", {}),
+            ],
+            nproc=4,
+            skip_python_version=True,
+        )
