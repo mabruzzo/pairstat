@@ -65,6 +65,7 @@ docs = [
   'matplotlib',
   'nbsphinx',
   "numpydoc>=1.8.0",
+  "sphinx-tabs>=3.0.0"
 ]
 
 # these are for tests
