@@ -46,7 +46,7 @@ Contributions and Feature requests are welcome!
 
 .. rubric:: Footnotes
 
-.. [#of1] Crude benchmarking (see ``tests/vsf_props.py``) suggests that this package's functions are ~9 times faster for ~4e8 pairs (than the pure python equivalents)
+.. [#of1] Crude benchmarking (see ``tests/test_vsf_props.py``) suggests that this package's functions are ~9 times faster for ~4e8 pairs (than the pure python equivalents)
           For larger number of pairs of points, the performance gap may narrow to some extent, but this is regime where the pure python approach becomes untenable due to memory consumption.
 
 
