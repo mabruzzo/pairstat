@@ -89,17 +89,15 @@ def _test_consolidate_variance(vals, mean_rtol=0.0, variance_rtol=0.0):
             rtol=variance_rtol,
         )
 
+
 def test_consolidate_variance_simple():
-    pytest.xfail(
-        "the internals of the _Variance kernel changed since this was written"
-    )
+    pytest.xfail("the internals of the _Variance kernel changed since this was written")
     vals = np.arange(6.0)
     _test_consolidate_variance(vals)
 
+
 def test_consolidate_variance_random():
-    pytest.xfail(
-        "the internals of the _Variance kernel changed since this was written"
-    )
+    pytest.xfail("the internals of the _Variance kernel changed since this was written")
     generator = np.random.RandomState(seed=2562642346)
 
     vals = generator.uniform(

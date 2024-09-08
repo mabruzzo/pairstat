@@ -13,11 +13,8 @@ def zip_equal(*args):
         nominal_length = len(args[0])
         for i, arg in enumerate(args):
             if len(arg) != nominal_length:
-                raise ValueError(
-                    f"argument {i} doesn't have the same length as arg 0"
-                )
+                raise ValueError(f"argument {i} doesn't have the same length as arg 0")
     return zip(*args)
-
 
 
 import pyvsf
@@ -509,12 +506,13 @@ def extra_multiple_stats_test(
             alt_implementation_key=alt_implementation_key,
         )
 
+
 def test_bundle_stats():
     print("running extra tests to check for problems with bundling stats")
     extra_multiple_stats_test()
 
-def test_smp():
 
+def test_smp():
     print("checking partitioning for shared-memory multiprocessing")
     extra_multiple_stats_test(
         alt_implementation_key="actual-3proc-seq",
@@ -528,9 +526,6 @@ def test_smp():
         skip_auto_sf=False,
         use_tol=True,
     )
-
-
-
 
 
 def benchmark(
@@ -585,7 +580,9 @@ def test_benchmark(capsys):
             skip_python_version=True,
         )
 
-        print("running a short cross-vsf benchmark. This takes ~10 s on a 4 core system")
+        print(
+            "running a short cross-vsf benchmark. This takes ~10 s on a 4 core system"
+        )
         benchmark(
             (3, 20000),
             shape_b=(3, 20000),
