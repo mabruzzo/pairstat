@@ -17,7 +17,7 @@ release = get_version(project)
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx.ext.autodoc", "nbsphinx", "numpydoc"]
+extensions = ["sphinx.ext.autodoc", "sphinx_tabs.tabs", "nbsphinx", "numpydoc"]
 source_suffix = [".rst"]
 
 templates_path = ["_templates"]
