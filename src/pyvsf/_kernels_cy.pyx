@@ -404,12 +404,10 @@ def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
     # are also initialized in alphabetical order
     for stat_name, stat_kw in sorted(stat_kw_pairs, key = lambda pair: pair[0]):
         # load kernel object, which stores metadata
-        kernel = get_statconf(stat_name)
-        if kernel.non_vsf_func is not None:
-            raise ValueError(f"'{stat_name}' can't be computed by vsf_props")
+        kernel = get_statconf(stat_name, stat_kw)
 
         # first, look at output quantities associated with stat_name
-        prop_l = kernel.get_dset_props(dist_bin_edges, kwargs = stat_kw)
+        prop_l = kernel.get_dset_props(dist_bin_edges)
         for quan_name, dtype, shape in prop_l:
             key = (stat_name, quan_name)
             assert (key not in int64_quans) and (key not in float64_quans)
@@ -497,8 +495,8 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         raise ValueError("you can't provide non-positive weights")
 
     # check if any statistics requre weights
-    requires_weights = any(get_statconf(name).requires_weights
-                           for name, _ in stat_kw_pairs)
+    requires_weights = any(get_statconf(name, kw).requires_weights
+                           for name, kw in stat_kw_pairs)
     if requires_weights and (weights_a is None):
         raise ValueError("one of the statistics requires weights, but no "
                          "weights were provided")
@@ -557,11 +555,11 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         raise RuntimeError("Something went wrong while in calc_vsf_props")
 
     out = []
-    for stat_name, _ in stat_kw_pairs:
+    for stat_name, kw in stat_kw_pairs:
         val_dict = rslt_container.extract_statistic_dict(stat_name)
 
         if postprocess_stat:
-            kernel = get_statconf(stat_name)
+            kernel = get_statconf(stat_name, kw)
             kernel.postprocess_rslt(val_dict)
         out.append(val_dict)
 
@@ -910,12 +908,11 @@ cdef class SFConsolidator:
         accumhandle_destroy(self.secondary_handle)
 
     def _get_entry_spec(self):
-        return self.kernel.get_dset_props(self.dist_bin_edges,
-                                          kwargs = self.kwargs)
+        return self.kernel.get_dset_props(self.dist_bin_edges)
 
     def _purge_values(self):
         # come up with some zero-initialized values
-        tmp = self.kernel.zero_initialize_rslt(self.dist_bin_edges, self.kwargs,
+        tmp = self.kernel.zero_initialize_rslt(self.dist_bin_edges,
                                                postprocess_rslt = False)
 
         # convert tmp so that it's an instance of ArrayDict
@@ -964,8 +961,8 @@ def build_consolidater(dist_bin_edges, kernel, kwargs):
     return PyConsolidator(kernel)
 
 
-def _validate_basic_quan_props(kernel, rslt, dist_bin_edges, kwargs = {}):
-    quan_props = kernel.get_dset_props(dist_bin_edges, kwargs)
+def _validate_basic_quan_props(kernel, rslt, dist_bin_edges):
+    quan_props = kernel.get_dset_props(dist_bin_edges)
     assert len(quan_props) == len(rslt)
     for name, dtype, shape in quan_props:
         if name not in quan_props:
@@ -984,8 +981,8 @@ def _validate_basic_quan_props(kernel, rslt, dist_bin_edges, kwargs = {}):
                 f"have a shape of {shape}, not of {rslt[name].shape}"
             )
 
-def _allocate_unintialized_rslt_dict(kernel, dist_bin_edges, kwargs = {}):
-    quan_props = kernel.get_dset_props(dist_bin_edges, kwargs = kwargs)
+def _allocate_unintialized_rslt_dict(kernel, dist_bin_edges):
+    quan_props = kernel.get_dset_props(dist_bin_edges)
     out = {}
     for name, dtype, shape in quan_props:
         out[name] = np.empty(shape = shape, dtype = dtype)
@@ -1002,12 +999,8 @@ def _check_dist_bin_edges(dist_bin_edges):
 # define functionality shared by both kinds of histograms
 # histograms
 
-def _hist_dset_props(kernel, dist_bin_edges, kwargs):
-    if list(kwargs.keys()) != ['val_bin_edges']:
-        raise ValueError("'val_bin_edges' is required as the single kwarg for "
-                         "computing histogram-statistics")
-    val_bin_edges = kwargs['val_bin_edges']
-    _check_bin_edges_arg(val_bin_edges, "'val_bin_edges' kwarg")
+def _hist_dset_props(kernel, dist_bin_edges):
+    val_bin_edges = kernel.val_bin_edges
     _check_dist_bin_edges(dist_bin_edges)
 
     assert len(kernel.output_keys) == 1
@@ -1019,10 +1012,9 @@ def _hist_dset_props(kernel, dist_bin_edges, kwargs):
     return [(n, t, (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1))]
 
 
-def _validate_hist_results(kernel, rslt, dist_bin_edges, kwargs,
-                           used_points = None):
+def _validate_hist_results(kernel, rslt, dist_bin_edges, used_points = None):
 
-    _validate_basic_quan_props(kernel, rslt, dist_bin_edges, kwargs)
+    _validate_basic_quan_props(kernel, rslt, dist_bin_edges)
 
     # do some extra validation
     key = kernel.output_keys[0]
@@ -1051,21 +1043,16 @@ def _validate_hist_results(kernel, rslt, dist_bin_edges, kwargs,
                     f"points. In reality, it has {n_pairs} pairs."
                 )
 
-def _zero_initialize_hist_rslt(kernel, dist_bin_edges, kwargs,
+def _zero_initialize_hist_rslt(kernel, dist_bin_edges,
                                postprocess_rslt):
     # basically create a result object for a dataset that didn't have any
     # pairs at all
-    rslt = _allocate_unintialized_rslt_dict(kernel, dist_bin_edges, kwargs)
+    rslt = _allocate_unintialized_rslt_dict(kernel, dist_bin_edges)
     for k in rslt.keys():
         rslt[k][...] = 0
     if postprocess_rslt:
         kernel.postprocess_rslt(rslt)
     return rslt
-
-
-
-
-
 
 
 class Histogram:
@@ -1074,30 +1061,30 @@ class Histogram:
     commutative_consolidate = True
     requires_weights = False
 
-    @classmethod
-    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        return _hist_dset_props(kernel = cls, dist_bin_edges = dist_bin_edges,
-                                kwargs = kwargs)
+    def __init__(self, kwargs):
+        if list(kwargs.keys()) != ['val_bin_edges']:
+            raise ValueError("'val_bin_edges' is required as the single kwarg for "
+                             "computing histogram-statistics")
+        self.val_bin_edges = kwargs['val_bin_edges']
+        _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
 
-    @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {},
-                      used_points = None):
-        _validate_hist_results(kernel = cls, rslt = rslt,
+    def get_dset_props(self, dist_bin_edges):
+        return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
+
+    def validate_rslt(self, rslt, dist_bin_edges, used_points = None):
+        _validate_hist_results(kernel = self, rslt = rslt,
                                dist_bin_edges = dist_bin_edges,
-                               kwargs = kwargs, used_points = used_points)
+                               used_points = used_points)
 
     @classmethod
     def postprocess_rslt(cls, rslt):
         pass # do nothing
 
-    @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
-                             postprocess_rslt = True):
+    def zero_initialize_rslt(self, dist_bin_edges, postprocess_rslt = True):
         # basically create a result object for a dataset that didn't have any
         # pairs at all
-        return _zero_initialize_hist_rslt(kernel = cls,
+        return _zero_initialize_hist_rslt(kernel = self,
                                           dist_bin_edges = dist_bin_edges,
-                                          kwargs = kwargs,
                                           postprocess_rslt = postprocess_rslt)
 
 class WeightedHistogram:
@@ -1106,30 +1093,30 @@ class WeightedHistogram:
     commutative_consolidate = False
     requires_weights = True
 
-    @classmethod
-    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        return _hist_dset_props(kernel = cls, dist_bin_edges = dist_bin_edges,
-                                kwargs = kwargs)
+    def __init__(self, kwargs):
+        if list(kwargs.keys()) != ['val_bin_edges']:
+            raise ValueError("'val_bin_edges' is required as the single kwarg for "
+                             "computing histogram-statistics")
+        self.val_bin_edges = kwargs['val_bin_edges']
+        _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
 
-    @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {},
-                      used_points = None):
-        _validate_hist_results(kernel = cls, rslt = rslt,
+    def get_dset_props(self, dist_bin_edges):
+        return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
+
+    def validate_rslt(self, rslt, dist_bin_edges, used_points = None):
+        _validate_hist_results(kernel = self, rslt = rslt,
                                dist_bin_edges = dist_bin_edges,
-                               kwargs = kwargs, used_points = used_points)
+                               used_points = used_points)
 
     @classmethod
     def postprocess_rslt(cls, rslt):
         pass # do nothing
 
-    @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
-                             postprocess_rslt = True):
+    def zero_initialize_rslt(self, dist_bin_edges, postprocess_rslt = True):
         # basically create a result object for a dataset that didn't have any
         # pairs at all
-        return _zero_initialize_hist_rslt(kernel = cls,
+        return _zero_initialize_hist_rslt(kernel = self,
                                           dist_bin_edges = dist_bin_edges,
-                                          kwargs = kwargs,
                                           postprocess_rslt = postprocess_rslt)
 
 
@@ -1151,17 +1138,20 @@ class Variance:
     commutative_consolidate = False
     requires_weights = False
 
+    def __init__(self, kwargs):
+        if (kwargs is not None) and (len(kwargs) > 0):
+            raise ValueError("variance takes no kwargs")
+
     @classmethod
-    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        assert kwargs == {}
+    def get_dset_props(cls, dist_bin_edges):
         assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
         return [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
                 ('mean',     np.float64, (np.size(dist_bin_edges) - 1,)),
                 ('variance', np.float64, (np.size(dist_bin_edges) - 1,))]
 
     @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
+    def validate_rslt(cls, rslt, dist_bin_edges):
+        _validate_basic_quan_props(cls, rslt, dist_bin_edges)
 
     @classmethod
     def postprocess_rslt(cls, rslt):
@@ -1174,11 +1164,10 @@ class Variance:
         _set_empty_count_locs_to_NaN(rslt)
 
     @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
-                             postprocess_rslt = True):
+    def zero_initialize_rslt(cls, dist_bin_edges, postprocess_rslt = True):
         # basically create a result object for a dataset that didn't have any
         # pairs at all
-        rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges, kwargs)
+        rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges)
         for k in rslt.keys():
             if k == 'counts':
                 rslt['counts'][...] = 0
@@ -1194,60 +1183,62 @@ class Mean:
     commutative_consolidate = False
     requires_weights = False
 
+    def __init__(self, kwargs):
+        if (kwargs is not None) and (len(kwargs) > 0):
+            raise ValueError("mean takes no kwargs")
+
     @classmethod
-    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        assert kwargs == {}
+    def get_dset_props(cls, dist_bin_edges):
         assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
         return [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
                 ('mean',     np.float64, (np.size(dist_bin_edges) - 1,))]
 
     @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
+    def validate_rslt(cls, rslt, dist_bin_edges):
+        _validate_basic_quan_props(cls, rslt, dist_bin_edges)
 
     @classmethod
     def postprocess_rslt(cls, rslt):
         _set_empty_count_locs_to_NaN(rslt)
 
     @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
-                             postprocess_rslt = True):
+    def zero_initialize_rslt(cls, dist_bin_edges, postprocess_rslt = True):
         raise NotImplementedError()
 
 class WeightedMean:
     name = "weightedmean"
     output_keys = ('weight_sum', 'mean')
     commutative_consolidate = False
-    operate_on_pairs = True
     requires_weights = True
-    non_vsf_func = None
+
+    def __init__(self, kwargs):
+        if (kwargs is not None) and (len(kwargs) > 0):
+            raise ValueError("weightedmean takes no kwargs")
 
     @classmethod
-    def get_dset_props(cls, dist_bin_edges, kwargs = {}):
-        assert kwargs == {}
+    def get_dset_props(cls, dist_bin_edges):
         assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
         return [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
                 ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
 
     @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges, kwargs = {}):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
+    def validate_rslt(cls, rslt, dist_bin_edges):
+        _validate_basic_quan_props(cls, rslt, dist_bin_edges)
 
     @classmethod
     def postprocess_rslt(cls, rslt):
         _set_empty_count_locs_to_NaN(rslt, 'weight_sum')
 
     @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, kwargs = {},
-                             postprocess_rslt = True):
+    def zero_initialize_rslt(cls, dist_bin_edges, postprocess_rslt = True):
         raise NotImplementedError()
 
 class StatConfFactory:
     def __init__(self, itr):
         self._kdict = dict((kernel.name, kernel) for kernel in set(itr))
-    def get_kernel(self, statistic):
+    def get_kernel(self, statistic, kwargs):
         try:
-            return self._kdict[statistic]
+            return self._kdict[statistic](kwargs)
         except KeyError:
             # the `from None` clause avoids exception chaining
             raise ValueError(f"Unknown Statistic: {statistic}") from None
@@ -1255,5 +1246,5 @@ class StatConfFactory:
 _SF_STATCONF_TUPLE = (Mean, Variance, Histogram, WeightedMean, WeightedHistogram,)
 _SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_TUPLE)
 
-def get_statconf(statistic):
-    return _SF_STATCONF_REGISTRY.get_kernel(statistic)
+def get_statconf(statistic, kwargs):
+    return _SF_STATCONF_REGISTRY.get_kernel(statistic, kwargs)
