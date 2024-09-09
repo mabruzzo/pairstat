@@ -439,7 +439,7 @@ def _coerce_stat_list(arg):
 
 
     def is_statconf(elem):
-        return isinstance(elem, _SF_STATCONF_TUPLE)
+        return isinstance(elem, _SF_STATCONF_REGISTRY.unique_class_tuple)
 
     def is_statkw_pair(elem):
         try:
@@ -1098,10 +1098,10 @@ def _zero_initialize_hist_rslt(kernel, dist_bin_edges,
 
 
 class Histogram:
-    # the extended kernel machinery doesn't require name to be a class variable
-    name = "histogram"
 
-    def __init__(self, kwargs):
+    def __init__(self, name, kwargs):
+        self.name = name
+        assert name == "histogram"
         if list(kwargs.keys()) != ['val_bin_edges']:
             raise ValueError("'val_bin_edges' is required as the single kwarg for "
                              "computing histogram-statistics")
@@ -1131,11 +1131,10 @@ class Histogram:
                                           postprocess_rslt = postprocess_rslt)
 
 class WeightedHistogram:
-    # the extended kernel machinery doesn't require name to be a class variable
-    name = "weightedhistogram"
 
-
-    def __init__(self, kwargs):
+    def __init__(self, name, kwargs):
+        self.name = name
+        assert name == "weightedhistogram"
         if list(kwargs.keys()) != ['val_bin_edges']:
             raise ValueError("'val_bin_edges' is required as the single kwarg for "
                              "computing histogram-statistics")
@@ -1178,10 +1177,9 @@ class Variance:
     # technically the result returned by pyvsf.vsf_props for 'variance' when
     # post-processing is disabled is variance*counts.
 
-    # the extended kernel machinery doesn't require name to be a class variable 
-    name = "variance"
-
-    def __init__(self, kwargs):
+    def __init__(self, name, kwargs):
+        self.name = name
+        assert name == "variance"
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("variance takes no kwargs")
         self.requires_weights = False
@@ -1223,10 +1221,9 @@ class Variance:
 
 class Mean:
 
-    # the extended kernel machinery doesn't require name to be a class variable 
-    name = "mean"
-
-    def __init__(self, kwargs):
+    def __init__(self, name, kwargs):
+        self.name = name
+        assert self.name == "mean"
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("mean takes no kwargs")
         self.requires_weights = False
@@ -1251,10 +1248,9 @@ class Mean:
 
 class WeightedMean:
 
-    # the extended kernel machinery doesn't require name to be a class variable 
-    name = "weightedmean"
-
-    def __init__(self, kwargs):
+    def __init__(self, name, kwargs):
+        self.name = name
+        assert name == "weightedmean"
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("weightedmean takes no kwargs")
         self.requires_weights = True
@@ -1279,16 +1275,27 @@ class WeightedMean:
 
 class StatConfFactory:
     def __init__(self, itr):
-        self._kdict = dict((kernel.name, kernel) for kernel in set(itr))
+        self._kdict = {}
+        tmp = []
+        for name, klass in set(itr):
+            self._kdict[name] = klass
+            if klass not in tmp:
+                tmp.append(klass)
+        self.unique_class_tuple = tuple(tmp)
+
     def get_kernel(self, statistic, kwargs):
         try:
-            return self._kdict[statistic](kwargs)
+            return self._kdict[statistic](statistic, kwargs)
         except KeyError:
             # the `from None` clause avoids exception chaining
             raise ValueError(f"Unknown Statistic: {statistic}") from None
 
-_SF_STATCONF_TUPLE = (Mean, Variance, Histogram, WeightedMean, WeightedHistogram,)
-_SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_TUPLE)
+_SF_STATCONF_PAIRS = (
+    ('mean', Mean), ('variance', Variance), ('histogram', Histogram), 
+    ('weightedmean', WeightedMean), ('weightedhistogram', WeightedHistogram)
+)
+
+_SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_PAIRS)
 
 def get_statconf(statistic, kwargs):
     return _SF_STATCONF_REGISTRY.get_kernel(statistic, kwargs)

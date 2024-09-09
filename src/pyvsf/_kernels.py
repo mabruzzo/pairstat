@@ -1,4 +1,3 @@
-from functools import partial
 from types import new_class
 import inspect
 
@@ -10,7 +9,7 @@ type of Structure Function object that can be used to abstract over
 consolidation and such...
 """
 
-from ._kernels_cy import _SF_STATCONF_TUPLE
+from ._kernels_cy import _SF_STATCONF_PAIRS
 
 from ._kernels_nonsf import BulkAverage, BulkVariance
 from .grid_scale._kernels import GridscaleVdiffHistogram
@@ -21,8 +20,11 @@ from .grid_scale._kernels import GridscaleVdiffHistogram
 
 
 class _MethodForwarder:
-    def __init__(self, fn_name, fallback_fn, statconf_cls, forbid_fallback=False):
+    def __init__(
+        self, fn_name, fallback_fn, statconf_name, statconf_cls, forbid_fallback=False
+    ):
         self.fn_name = fn_name
+        self.statconf_name = statconf_name
         self.statconf_cls = statconf_cls
         self.signature = inspect.signature(fallback_fn)
         # we only forward to instance if kwargs is part of the signature
@@ -62,7 +64,7 @@ class _MethodForwarder:
             statconf_cls = self.statconf_cls
 
             if self.forward_to_instance:
-                obj = statconf_cls(as_kwargs.pop("kwargs"))
+                obj = statconf_cls(self.statconf_name, as_kwargs.pop("kwargs"))
                 return getattr(obj, self.fn_name)(obj, **as_kwargs)
             else:
                 # we don't need to pass statconf_cls as an argument
@@ -100,7 +102,7 @@ def _default_zero_initialize_rslt(
 
 
 # sequence of StatInfo names
-def _make_kernel_class_callback(cls, statconf_cls):
+def _make_kernel_class_callback(cls, statname, statconf_cls):
     """
     The existing implementation of Kernels as collections of functions doesn't make a
     ton of sense any more. It has become apparent that it makes more sense for them to
@@ -113,21 +115,33 @@ def _make_kernel_class_callback(cls, statconf_cls):
 
     forwarders = (
         _MethodForwarder(
-            "n_ghost_ax_end", _default_n_ghost_ax_end, statconf_cls, False
+            "n_ghost_ax_end", _default_n_ghost_ax_end, statname, statconf_cls, False
         ),
         _MethodForwarder(
-            "get_extra_field", _default_get_extra_fields, statconf_cls, False
-        ),
-        _MethodForwarder("get_dset_props", _stub_get_dset_props, statconf_cls, True),
-        _MethodForwarder(
-            "consolidate_stats", _default_consolidate_stats, statconf_cls, False
-        ),
-        _MethodForwarder("validate_rslt", _stub_validate_rslt, statconf_cls, True),
-        _MethodForwarder(
-            "postprocess_rslt", _stub_postprocess_rslt, statconf_cls, True
+            "get_extra_field", _default_get_extra_fields, statname, statconf_cls, False
         ),
         _MethodForwarder(
-            "zero_initialize_rslt", _default_zero_initialize_rslt, statconf_cls, False
+            "get_dset_props", _stub_get_dset_props, statname, statconf_cls, True
+        ),
+        _MethodForwarder(
+            "consolidate_stats",
+            _default_consolidate_stats,
+            statname,
+            statconf_cls,
+            False,
+        ),
+        _MethodForwarder(
+            "validate_rslt", _stub_validate_rslt, statname, statconf_cls, True
+        ),
+        _MethodForwarder(
+            "postprocess_rslt", _stub_postprocess_rslt, statname, statconf_cls, True
+        ),
+        _MethodForwarder(
+            "zero_initialize_rslt",
+            _default_zero_initialize_rslt,
+            statname,
+            statconf_cls,
+            False,
         ),
     )
     for forwarder_obj in forwarders:
@@ -144,11 +158,12 @@ def _make_kernel_class_callback(cls, statconf_cls):
 
 def _make_kernel_classes():
     out = []
-    for statconf_cls in _SF_STATCONF_TUPLE:
-        callback = partial(_make_kernel_class_callback, statconf_cls=statconf_cls)
+    for statname, statconf_cls in _SF_STATCONF_PAIRS:
         name = "SFKernel" + statconf_cls.__name__
         out.append(new_class(name))
-        callback(out[-1])
+        make_kernel_class_callback(
+            out[-1], statname=statname, statconf_cls=statconf_cls
+        )
     return out
 
 
