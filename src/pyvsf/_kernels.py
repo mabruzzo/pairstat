@@ -16,7 +16,8 @@ from ._kernels_nonsf import BulkAverage, BulkVariance
 from .grid_scale._kernels import GridscaleVdiffHistogram
 
 # here we will do our best to dynamically generate the legacy Kernel types
-
+# - this autogeneration machinery has not been tested beyond some really basic checks
+# - it's plausible that there are bugs!
 
 class _MethodForwarder:
     def __init__(self, fn_name, fallback_fn, statconf_cls, forbid_fallback=False):
