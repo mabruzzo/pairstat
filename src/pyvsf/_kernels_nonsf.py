@@ -127,10 +127,11 @@ class BulkAverage:
     """
 
     name = "bulkaverage"
-    output_keys = ("weight_total", "average")
     commutative_consolidate = False
     operate_on_pairs = False
     non_vsf_func = compute_bulkaverage
+    # the following isn't a required class attribute, it's just a common choice
+    output_keys = ("weight_total", "average")
 
     @classmethod
     def n_ghost_ax_end(cls):
@@ -173,7 +174,7 @@ class BulkAverage:
     @classmethod
     def consolidate_stats(cls, *rslts):
         out = {}
-        num_keys = len(cls.output_keys)
+        num_keys = 2
 
         # we could run into overflow problems.
         # We're using a compensated summation
@@ -418,10 +419,11 @@ class BulkVariance:
     """
 
     name = "bulkvariance"
-    output_keys = ("weight_total", "average", "variance")
     commutative_consolidate = False
     operate_on_pairs = False
     non_vsf_func = compute_bulk_variance
+    # the following isn't a required class attribute, it's just a common choice
+    output_keys = ("weight_total", "average", "variance")
 
     @classmethod
     def n_ghost_ax_end(cls):

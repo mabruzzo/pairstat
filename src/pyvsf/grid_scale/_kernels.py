@@ -217,15 +217,17 @@ class GridscaleVdiffHistogram:
     # the velocity differences are normalized by sound speed...
 
     name = "grid_vdiff_histogram"
+    commutative_consolidate = True
+    operate_on_pairs = True
+    non_vsf_func = neighbor_vdiffs
+    structured_grid_inputs = True
+
+    # the following isn't a required class attribute, it's just a common choice
     output_keys = (
         "aligned_vdiff_counts",
         "transverse_vdiff_counts",
         "mag_vdiff_counts",
     )
-    commutative_consolidate = True
-    operate_on_pairs = True
-    non_vsf_func = neighbor_vdiffs
-    structured_grid_inputs = True
 
     @classmethod
     def n_ghost_ax_end(cls):

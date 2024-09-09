@@ -1099,7 +1099,6 @@ def _zero_initialize_hist_rslt(kernel, dist_bin_edges,
 
 class Histogram:
     name = "histogram"
-    output_keys = ('2D_counts',)
     commutative_consolidate = True
     requires_weights = False
 
@@ -1109,6 +1108,8 @@ class Histogram:
                              "computing histogram-statistics")
         self.val_bin_edges = kwargs['val_bin_edges']
         _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
+        # historically, the following was a class attribute, but that's unnecessary
+        self.output_keys = ('2D_counts',)
 
     def get_dset_props(self, dist_bin_edges):
         return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
@@ -1131,7 +1132,6 @@ class Histogram:
 
 class WeightedHistogram:
     name = "weightedhistogram"
-    output_keys = ('2D_weight_sums',)
     commutative_consolidate = False
     requires_weights = True
 
@@ -1141,6 +1141,8 @@ class WeightedHistogram:
                              "computing histogram-statistics")
         self.val_bin_edges = kwargs['val_bin_edges']
         _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
+        # historically, the following was a class attribute, but that's unnecessary
+        self.output_keys = ('2D_weight_sums',)
 
     def get_dset_props(self, dist_bin_edges):
         return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
@@ -1176,9 +1178,11 @@ class Variance:
     # post-processing is disabled is variance*counts.
 
     name = "variance"
-    output_keys = ('counts', 'mean', 'variance')
     commutative_consolidate = False
     requires_weights = False
+
+    # the following isn't a required class attribute, it's just a common choice
+    output_keys = ('counts', 'mean', 'variance')
 
     def __init__(self, kwargs):
         if (kwargs is not None) and (len(kwargs) > 0):
@@ -1221,13 +1225,16 @@ class Variance:
 
 class Mean:
     name = "mean"
-    output_keys = ('counts', 'mean')
     commutative_consolidate = False
     requires_weights = False
+
+    # the following isn't a required class attribute, it's just a common choice
+    output_keys = ('counts', 'mean')
 
     def __init__(self, kwargs):
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("mean takes no kwargs")
+
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges):
@@ -1249,9 +1256,11 @@ class Mean:
 
 class WeightedMean:
     name = "weightedmean"
-    output_keys = ('weight_sum', 'mean')
     commutative_consolidate = False
     requires_weights = True
+
+    # the following isn't a required class attribute, it's just a common choice
+    output_keys = ('weight_sum', 'mean')
 
     def __init__(self, kwargs):
         if (kwargs is not None) and (len(kwargs) > 0):
