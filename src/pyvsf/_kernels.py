@@ -135,7 +135,6 @@ def _make_kernel_class_callback(cls, statconf_cls):
 
     # now let's deal with the class variable
     cls.name = statconf_cls.name
-    cls.commutative_consolidate = statconf_cls.commutative_consolidate
     cls.operate_on_pairs = getattr(statconf_cls, "operate_on_pairs", True)
     cls.requires_weights = statconf_cls.requires_weights
     cls.non_vsf_func = getattr(statconf_cls, "non_vsf_func", None)

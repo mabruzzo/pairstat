@@ -127,7 +127,6 @@ class BulkAverage:
     """
 
     name = "bulkaverage"
-    commutative_consolidate = False
     operate_on_pairs = False
     non_vsf_func = compute_bulkaverage
     # the following isn't a required class attribute, it's just a common choice
@@ -419,7 +418,6 @@ class BulkVariance:
     """
 
     name = "bulkvariance"
-    commutative_consolidate = False
     operate_on_pairs = False
     non_vsf_func = compute_bulk_variance
     # the following isn't a required class attribute, it's just a common choice

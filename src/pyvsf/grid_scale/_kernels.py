@@ -217,7 +217,6 @@ class GridscaleVdiffHistogram:
     # the velocity differences are normalized by sound speed...
 
     name = "grid_vdiff_histogram"
-    commutative_consolidate = True
     operate_on_pairs = True
     non_vsf_func = neighbor_vdiffs
     structured_grid_inputs = True

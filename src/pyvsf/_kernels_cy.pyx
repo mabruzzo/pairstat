@@ -1099,7 +1099,6 @@ def _zero_initialize_hist_rslt(kernel, dist_bin_edges,
 
 class Histogram:
     name = "histogram"
-    commutative_consolidate = True
     requires_weights = False
 
     def __init__(self, kwargs):
@@ -1132,7 +1131,6 @@ class Histogram:
 
 class WeightedHistogram:
     name = "weightedhistogram"
-    commutative_consolidate = False
     requires_weights = True
 
     def __init__(self, kwargs):
@@ -1178,7 +1176,6 @@ class Variance:
     # post-processing is disabled is variance*counts.
 
     name = "variance"
-    commutative_consolidate = False
     requires_weights = False
 
     # the following isn't a required class attribute, it's just a common choice
@@ -1225,7 +1222,6 @@ class Variance:
 
 class Mean:
     name = "mean"
-    commutative_consolidate = False
     requires_weights = False
 
     # the following isn't a required class attribute, it's just a common choice
@@ -1256,7 +1252,6 @@ class Mean:
 
 class WeightedMean:
     name = "weightedmean"
-    commutative_consolidate = False
     requires_weights = True
 
     # the following isn't a required class attribute, it's just a common choice

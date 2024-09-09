@@ -326,8 +326,15 @@ class _PoolCallback:
         self.total_num_points_arr = np.array([0 for _ in range(n_cut_regions)])
 
         self.accum_rslt = {}
-        for stat_ind, (stat_name, _) in enumerate(stat_kw_pairs):
-            if get_kernel(stat_name).commutative_consolidate:
+        for stat_ind, (stat_name, stat_kw) in enumerate(stat_kw_pairs):
+            # check if consolidation is commutative
+            dset_props = get_kernel(stat_name).get_dset_props(
+                dist_bin_edges=dist_bin_edges, kwargs=stat_kw
+            )
+            commutative_consolidate = all(
+                np.issubdtype(dtype, np.integer) for name, dtype, shape in dest_props
+            )
+            if commutative_consolidate:
                 self.accum_rslt[stat_ind] = [{} for _ in range(n_cut_regions)]
 
         self.cumulative_count = -1
