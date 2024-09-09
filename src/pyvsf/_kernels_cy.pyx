@@ -1098,8 +1098,8 @@ def _zero_initialize_hist_rslt(kernel, dist_bin_edges,
 
 
 class Histogram:
+    # the extended kernel machinery doesn't require name to be a class variable
     name = "histogram"
-    requires_weights = False
 
     def __init__(self, kwargs):
         if list(kwargs.keys()) != ['val_bin_edges']:
@@ -1109,6 +1109,7 @@ class Histogram:
         _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
         # historically, the following was a class attribute, but that's unnecessary
         self.output_keys = ('2D_counts',)
+        self.requires_weights = False
 
     def get_dset_props(self, dist_bin_edges):
         return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
@@ -1130,8 +1131,9 @@ class Histogram:
                                           postprocess_rslt = postprocess_rslt)
 
 class WeightedHistogram:
+    # the extended kernel machinery doesn't require name to be a class variable
     name = "weightedhistogram"
-    requires_weights = True
+
 
     def __init__(self, kwargs):
         if list(kwargs.keys()) != ['val_bin_edges']:
@@ -1139,6 +1141,7 @@ class WeightedHistogram:
                              "computing histogram-statistics")
         self.val_bin_edges = kwargs['val_bin_edges']
         _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
+        self.requires_weights = True
         # historically, the following was a class attribute, but that's unnecessary
         self.output_keys = ('2D_weight_sums',)
 
@@ -1175,15 +1178,13 @@ class Variance:
     # technically the result returned by pyvsf.vsf_props for 'variance' when
     # post-processing is disabled is variance*counts.
 
+    # the extended kernel machinery doesn't require name to be a class variable 
     name = "variance"
-    requires_weights = False
-
-    # the following isn't a required class attribute, it's just a common choice
-    output_keys = ('counts', 'mean', 'variance')
 
     def __init__(self, kwargs):
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("variance takes no kwargs")
+        self.requires_weights = False
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges):
@@ -1221,16 +1222,14 @@ class Variance:
         return rslt
 
 class Mean:
-    name = "mean"
-    requires_weights = False
 
-    # the following isn't a required class attribute, it's just a common choice
-    output_keys = ('counts', 'mean')
+    # the extended kernel machinery doesn't require name to be a class variable 
+    name = "mean"
 
     def __init__(self, kwargs):
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("mean takes no kwargs")
-
+        self.requires_weights = False
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges):
@@ -1251,15 +1250,14 @@ class Mean:
         raise NotImplementedError()
 
 class WeightedMean:
-    name = "weightedmean"
-    requires_weights = True
 
-    # the following isn't a required class attribute, it's just a common choice
-    output_keys = ('weight_sum', 'mean')
+    # the extended kernel machinery doesn't require name to be a class variable 
+    name = "weightedmean"
 
     def __init__(self, kwargs):
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("weightedmean takes no kwargs")
+        self.requires_weights = True
 
     @classmethod
     def get_dset_props(cls, dist_bin_edges):

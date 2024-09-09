@@ -134,14 +134,12 @@ def _make_kernel_class_callback(cls, statconf_cls):
         setattr(cls, forwarder_obj.fn_name, classmethod(forwarder_obj))
 
     # now let's deal with the class variable
-    cls.name = statconf_cls.name
     cls.operate_on_pairs = getattr(statconf_cls, "operate_on_pairs", True)
-    cls.requires_weights = statconf_cls.requires_weights
     cls.non_vsf_func = getattr(statconf_cls, "non_vsf_func", None)
 
-    # output_keys is a common class attribute, but it's definitely NOT required
-    # (this is important for generating dynamically generating StatConfig instances
-    # from the C++ accumulators)
+    # name and output_keys are common class attributes, but they definitely NOT
+    # required (this is important for generating dynamically generating StatConfig
+    # instances from the C++ accumulators)
 
 
 def _make_kernel_classes():

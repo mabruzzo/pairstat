@@ -18,7 +18,7 @@ from ._utils import _top_level_grid_indices, get_left_edge
 
 from .._perf import PerfRegions
 from .._kernels import get_kernel
-from ._kernels import TrailingGhostSpec
+from ._kernels import TrailingGhostSpec, GridscaleVdiffHistogram
 
 
 class WorkerStructuredGrid(_BaseWorker):
@@ -174,7 +174,11 @@ class WorkerStructuredGrid(_BaseWorker):
 
         # compute the number of available points (need to be a little careful
         # about this to avoid double-counting in the ghost zones)
-        assert [k.name for k in kernels] == ["grid_vdiff_histogram"]
+        assert len(kernels) == 1
+        assert (
+            isinstance(kernels[0], GridscaleVdiffHistogram)
+            or kernels[0] is GridscaleVdiffHistogram
+        )
         idx = trailing_ghost_spec.active_zone_idx()
         for cr_ind, cr_ind_rslt in cr_map.items():
             main_subvol_available_points[cr_ind] = cr_ind_rslt[idx].sum()
