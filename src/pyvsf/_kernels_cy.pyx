@@ -75,129 +75,47 @@ cdef extern from "vsf.hpp":
 def compiled_with_openmp():
     return bool(cxx_compiled_with_openmp())
 
+cdef double* _array_to_ptr(object arr) except*:
+
+    cdef double[:, ::1] view_2D
+    cdef double[::1] view_1D
+    cdef double* out
+    if arr is None:
+        out = NULL
+    elif arr.ndim == 1:
+        view_1D = arr
+        out = &view_1D[0]
+    elif arr.ndim == 2:
+        view_2D = arr
+        out = &view_2D[0,0]
+    else:
+        raise ValueError("arr must be None, 1D or 2D")
+    return out
 
 cdef class PyPointsProps:
+    """A simple wrapper class
+
+    The structe draws a lot of inspiration from
+    https://docs.cython.org/en/latest/src/userguide/extension_types.html#instantiation-from-existing-c-c-pointers
+    """
+
     cdef PointProps c_points # wrapped c++ instance
-    # the following 2 attributes are intended to ensure that the lifetimes
+    # the following attribute is intended to hold the numpy arrays that manage
     # of the arrays are consistent with the rest of the object
-    cdef object pos_arr
-    cdef object val_arr
-    cdef object weights_arr
+    cdef list refs
 
-    def __cinit__(self, pos, val, weights = None, val_is_vector = True,
-                  dtype = np.float64, allow_null_contents = False):
-        assert np.dtype(dtype) == np.float64
+    def __init__(self):
+        # Prevent instantiation from normal Python code
+        raise TypeError("This class cannot be instantiated directly.")
 
-        cdef double[:,:] pos_memview
-        cdef double[:,:] vector_val_memview
-        cdef double[:]   scalar_val_memview
-        cdef double[:]   weights_memview
-
-        if allow_null_contents:
-            # just used to format errors
-            pos_name, val_name, weights_name = "pos_a", "val_a", "weights_a"
-        else:
-            pos_name, val_name, weights_name = "pos_b", "val_b", "weights_b"
-
-        if (allow_null_contents and (pos is None) and (val is None) and
-            (weights is None)):
-            self.pos_arr = None
-            self.val_arr = None
-            self.weights_arr = None
-
-            # initialize the c_points struct
-            self.c_points.positions = NULL
-            self.c_points.values = NULL
-            self.c_points.weights = NULL
-            self.c_points.n_points = 0
-            self.c_points.n_spatial_dims = 0
-            self.c_points.spatial_dim_stride = 0
-
-        elif (pos is None) or (val is None):
-            raise ValueError(f"{pos_name} and {val_name} must not be None")
-
-        else:
-            # we store pos_arr and val_arr as attributes to ensure that the
-            # arrays are not freed while the pointers are in use
-
-            self.pos_arr = np.asarray(pos, dtype = dtype, order = 'C')
-            if self.pos_arr.ndim != 2:
-                raise ValueError(
-                    f"the only valid array shape for {pos_name} is 2D")
-
-
-            n_spatial_dims = int(self.pos_arr.shape[0])
-            n_points = int(self.pos_arr.shape[1])
-
-            self.val_arr = np.asarray(val, dtype = dtype, order = 'C')
-            if val_is_vector:
-                if self.val_arr.ndim != 2:
-                    raise ValueError(
-                        f"since {val_name} specifies a vector, it must be a 2D array"
-                    )
-                elif self.pos_arr.shape != self.val_arr.shape:
-                    raise ValueError(
-                        f"since {pos_name} specifies {n_points} points and {val_name} "
-                        f"represents a vector, {val_name} must be an array of shape "
-                        f"{self.pos_arr.shape}"
-                    )
-
-                assert self.val_arr.strides[1] == self.val_arr.itemsize
-            else:
-                if self.val_arr.ndim != 1:
-                    raise ValueError(
-                        f"since {val_name} specifies a scalar, it must be a 1D array"
-                    )
-                elif self.pos_arr.shape[1] != self.val_arr.shape[0]:
-                    raise ValueError(
-                        f"since {pos_name} specifies {n_points} points and {val_name} "
-                        f"represents a scalar, {val_name} must be an array of shape "
-                        f"({n_points},)"
-                    )
-
-            # Here we perform some sanity checks on the length scale
-            # -> these first 2 checks may be redundant with np.array(..., order = 'C')
-            assert self.pos_arr.strides[1] == self.pos_arr.itemsize
-            assert self.val_arr.strides[-1] == self.val_arr.itemsize
-
-            # in the future, consider relaxing the following conditions (to
-            # facillitate better data alignment)
-            assert self.pos_arr.strides[0] == (n_points * self.pos_arr.itemsize)
-            if val_is_vector:
-                assert self.val_arr.strides[0] == (n_points * self.val_arr.itemsize)
-
-            spatial_dim_stride = int(n_points)
-
-            # initialize most of the c_points struct
-            pos_memview = self.pos_arr
-            self.c_points.positions = &pos_memview[0,0]
-
-            if val_is_vector:
-                vector_val_memview = self.val_arr
-                self.c_points.values = &vector_val_memview[0,0]
-            else:
-                scalar_val_memview = self.val_arr
-                self.c_points.values = &scalar_val_memview[0]
-
-            self.c_points.n_points = n_points
-            self.c_points.n_spatial_dims = n_spatial_dims
-            self.c_points.spatial_dim_stride = spatial_dim_stride
-
-            # finally, deal with the weights array
-            if weights is None:
-                self.weights_arr = None
-                self.c_points.weights = NULL
-            else:
-                self.weights_arr = np.asarray(weights, dtype = dtype,
-                                              order = 'C')
-                if self.weights_arr.shape != (n_points,):
-                    raise ValueError(
-                        f"since {pos_name} specifies {n_points} points, {weights_name} "
-                        f"must be an array of shape ({n_points},) or it must be None"
-                    )
-
-                weights_memview = self.weights_arr
-                self.c_points.weights = &weights_memview[0]
+    @staticmethod
+    cdef PyPointsProps factory(PointProps c_points, list refs):
+        """factory method"""
+        # Fast call to __new__() that bypasses the __init__() constructor.
+        cdef PyPointsProps out = PyPointsProps.__new__(PyPointsProps)
+        out.c_points = c_points
+        out.refs = refs
+        return out
 
     @property
     def n_points(self): return self.c_points.n_points
@@ -209,12 +127,102 @@ cdef class PyPointsProps:
     def spatial_dim_stride(self):  return self.c_points.spatial_dim_stride
 
     def has_weights(self):
-        return self.weights_arr is not None
+        return self.c_points.weights != NULL
 
     def has_non_positive_weights(self):
-        if self.weights_arr is None:
+        if self.c_points.weights == NULL:
             return False
-        return not np.all(self.weights_arr > 0)
+        cdef Py_ssize_t i
+        for i in range(self.c_points.n_points):
+            if self.c_points.weights[i] <= 0:
+                return True
+        return False
+
+def _construct_pointprops(pos, val, weights = None, val_is_vector = True,
+                          dtype = np.float64, allow_null_contents = False):
+    """A Helper function that is used to construct the point properties"""
+    cdef PointProps c_points
+    assert np.dtype(dtype) == np.float64
+
+    if allow_null_contents:
+        # just used to format errors
+        pos_name, val_name, weights_name = "pos_a", "val_a", "weights_a"
+    else:
+        pos_name, val_name, weights_name = "pos_b", "val_b", "weights_b"
+
+    # handle the 2 simple cases
+    if allow_null_contents and (pos is None) and (val is None):
+        if weights is not None:
+            raise ValueError(f"{weights_name} must be None when {pos_name} is None")
+
+        # initialize the c_points struct
+        c_points.positions = NULL
+        c_points.values = NULL
+        c_points.weights = NULL
+        c_points.n_points = 0
+        c_points.n_spatial_dims = 0
+        c_points.spatial_dim_stride = 0
+        return PyPointsProps.factory(c_points, [])
+
+    elif (pos is None) or (val is None):
+        raise ValueError(f"{pos_name} and {val_name} must not be None")
+
+    # down here, we handle the general case:
+
+    pos_arr = np.asarray(pos, dtype = dtype, order = 'C')
+    if pos_arr.ndim != 2:
+        raise ValueError(f"the only valid array shape for {pos_name} is 2D")
+
+    n_spatial_dims, n_points = pos_arr.shape
+
+    val_arr = np.asarray(val, dtype = dtype, order = 'C')
+    if val_is_vector and (pos_arr.shape != val_arr.shape):
+        if val_arr.ndim != 2:
+            raise ValueError(f"since {val_name} specifies a vector, it must be 2D")
+        raise ValueError(
+            f"since {pos_name} specifies {n_points} points and {val_name} represents "
+            f"a vector, {val_name} must be an array of shape {pos_arr.shape}"
+        )
+    elif (not val_is_vector) and ((n_points,) != val_arr.shape):
+        if val_arr.ndim != 1:
+            raise ValueError(f"since {val_name} specifies a scalar, it must be 1D")
+        raise ValueError(
+            f"since {pos_name} specifies {n_points} points and {val_name} represents "
+            f"a scalar, {val_name} must be an array of shape ({n_points},)"
+        )
+
+    # Here we perform some sanity checks on the length scale
+    # -> these first 2 checks may be redundant with np.array(..., order = 'C')
+    assert pos_arr.strides[1] == pos_arr.itemsize
+    assert val_arr.strides[-1] == val_arr.itemsize
+
+    # in the future, consider relaxing the following conditions (to maybe 
+    # facillitate better data alignment)
+    assert pos_arr.strides[0] == (n_points * pos_arr.itemsize)
+    if val_is_vector:
+        assert val_arr.strides[0] == (n_points * val_arr.itemsize)
+    spatial_dim_stride = int(n_points)
+
+    
+    weights_arr = None
+    if weights is not None:
+        weights_arr = np.asarray(weights, dtype = dtype, order = 'C')
+        if weights_arr.shape != (n_points,):
+            raise ValueError(
+                f"since {pos_name} specifies {n_points} points, {weights_name} "
+                f"must be an array of shape ({n_points},) or it must be None"
+            )
+
+    # initialize most of the c_points struct
+    c_points.positions = _array_to_ptr(pos_arr)
+    c_points.values = _array_to_ptr(val_arr)
+    c_points.weights = _array_to_ptr(weights_arr)
+    c_points.n_points = n_points
+    c_points.n_spatial_dims = n_spatial_dims
+    c_points.spatial_dim_stride = spatial_dim_stride
+    return PyPointsProps.factory(c_points, [pos_arr, val_arr, weights_arr])
+
+
 
 cdef class _WrappedVoidPtr: # this is just a helper class
     cdef void* ptr
@@ -455,10 +463,10 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     _validate_stat_kw_pairs(stat_kw_pairs)
 
     val_is_vector = (pairwise_op == "sf")
-    cdef PyPointsProps points_a = PyPointsProps(
+    cdef PyPointsProps points_a = _construct_pointprops(
             pos_a, val_a, weights = weights_a, val_is_vector = val_is_vector,
             dtype = 'f8', allow_null_contents = False)
-    cdef PyPointsProps points_b = PyPointsProps(
+    cdef PyPointsProps points_b = _construct_pointprops(
             pos_b, val_b, weights = weights_b, val_is_vector = val_is_vector,
             dtype = 'f8', allow_null_contents = True)
 
