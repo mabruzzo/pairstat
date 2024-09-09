@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from pyvsf._kernels_cy import Variance as _Variance
+from pyvsf._kernels_cy import get_statconf
 
 
 def _prep_entries(vals, add_empty_entries=True):
@@ -22,6 +22,7 @@ def _prep_entries(vals, add_empty_entries=True):
 
 
 def calc_variance_from_kernels(vals, add_empty_entries=True, pre_accumulate_idx_l=[]):
+    _Variance = get_statconf("variance", {})
     if len(pre_accumulate_idx_l) != 0:
         vals = np.array(vals)
         num_vals = vals.shape[0]

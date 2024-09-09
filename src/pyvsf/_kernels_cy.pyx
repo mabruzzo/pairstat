@@ -1173,105 +1173,63 @@ def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
         else:
             v[w_mask] = np.nan
 
-class Variance:
-    # technically the result returned by pyvsf.vsf_props for 'variance' when
-    # post-processing is disabled is variance*counts.
+class CentralMomentStatConf:
+    """
+    This class is used to represent "weightedmean", "mean", and "variance"
+    """
 
     def __init__(self, name, kwargs):
         self.name = name
-        assert name == "variance"
+        assert name in ["weightedmean", "mean", "variance"]
         if (kwargs is not None) and (len(kwargs) > 0):
-            raise ValueError("variance takes no kwargs")
-        self.requires_weights = False
+            raise ValueError("takes no kwargs")
+        self.requires_weights = name == "weightedmean"
 
-    @classmethod
-    def get_dset_props(cls, dist_bin_edges):
+    def get_dset_props(self, dist_bin_edges):
         assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
-        return [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
-                ('mean',     np.float64, (np.size(dist_bin_edges) - 1,)),
-                ('variance', np.float64, (np.size(dist_bin_edges) - 1,))]
+        if self.name == "weightedmean":
+            return [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
+                    ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
+        else:
+            out = [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
+                    ('mean',    np.float64, (np.size(dist_bin_edges) - 1,))]
+            if self.name == "variance":
+                out.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
+        return out
 
-    @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges)
+    def validate_rslt(self, rslt, dist_bin_edges):
+        _validate_basic_quan_props(self, rslt, dist_bin_edges)
 
     @classmethod
     def postprocess_rslt(cls, rslt):
         if rslt == {}:
             return
-        w = (rslt['counts'] > 1)
-        # it may not make any sense to use Bessel's correction
-        rslt['variance'][w] /= (rslt['counts'][w] - 1)
-        rslt['variance'][~w] = 0.0
-        _set_empty_count_locs_to_NaN(rslt)
+        elif 'variance' in rslt:
+            # technically the result returned by pyvsf.vsf_props for 'variance' when
+            # post-processing is disabled is variance*counts.
 
-    @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, postprocess_rslt = True):
+            w = (rslt['counts'] > 1)
+            # it may not make any sense to use Bessel's correction
+            rslt['variance'][w] /= (rslt['counts'][w] - 1)
+            rslt['variance'][~w] = 0.0
+            _set_empty_count_locs_to_NaN(rslt)
+
+    def zero_initialize_rslt(self, dist_bin_edges, postprocess_rslt = True):
         # basically create a result object for a dataset that didn't have any
         # pairs at all
-        rslt = _allocate_unintialized_rslt_dict(cls, dist_bin_edges)
-        for k in rslt.keys():
-            if k == 'counts':
-                rslt['counts'][...] = 0
-            else:
-                rslt[k][...] = 0
+        if self.name == "variance":
+            rslt = _allocate_unintialized_rslt_dict(self, dist_bin_edges)
+            for k in rslt.keys():
+                if k == 'counts':
+                    rslt['counts'][...] = 0
+                else:
+                    rslt[k][...] = 0
+        else:
+            raise NotImplementedError()
+
         if postprocess_rslt:
-            cls.postprocess_rslt(rslt)
+            self.postprocess_rslt(rslt)
         return rslt
-
-class Mean:
-
-    def __init__(self, name, kwargs):
-        self.name = name
-        assert self.name == "mean"
-        if (kwargs is not None) and (len(kwargs) > 0):
-            raise ValueError("mean takes no kwargs")
-        self.requires_weights = False
-
-    @classmethod
-    def get_dset_props(cls, dist_bin_edges):
-        assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
-        return [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
-                ('mean',     np.float64, (np.size(dist_bin_edges) - 1,))]
-
-    @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges)
-
-    @classmethod
-    def postprocess_rslt(cls, rslt):
-        _set_empty_count_locs_to_NaN(rslt)
-
-    @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, postprocess_rslt = True):
-        raise NotImplementedError()
-
-class WeightedMean:
-
-    def __init__(self, name, kwargs):
-        self.name = name
-        assert name == "weightedmean"
-        if (kwargs is not None) and (len(kwargs) > 0):
-            raise ValueError("weightedmean takes no kwargs")
-        self.requires_weights = True
-
-    @classmethod
-    def get_dset_props(cls, dist_bin_edges):
-        assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
-        return [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
-                ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
-
-    @classmethod
-    def validate_rslt(cls, rslt, dist_bin_edges):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges)
-
-    @classmethod
-    def postprocess_rslt(cls, rslt):
-        _set_empty_count_locs_to_NaN(rslt, 'weight_sum')
-
-    @classmethod
-    def zero_initialize_rslt(cls, dist_bin_edges, postprocess_rslt = True):
-        raise NotImplementedError()
 
 class StatConfFactory:
     def __init__(self, itr):
@@ -1291,8 +1249,11 @@ class StatConfFactory:
             raise ValueError(f"Unknown Statistic: {statistic}") from None
 
 _SF_STATCONF_PAIRS = (
-    ('mean', Mean), ('variance', Variance), ('histogram', Histogram), 
-    ('weightedmean', WeightedMean), ('weightedhistogram', WeightedHistogram)
+    ('mean', CentralMomentStatConf),
+    ('variance', CentralMomentStatConf),
+    ('histogram', Histogram), 
+    ('weightedmean', CentralMomentStatConf),
+    ('weightedhistogram', WeightedHistogram)
 )
 
 _SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_PAIRS)
