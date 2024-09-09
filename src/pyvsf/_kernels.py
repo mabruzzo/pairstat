@@ -19,6 +19,7 @@ from .grid_scale._kernels import GridscaleVdiffHistogram
 # - this autogeneration machinery has not been tested beyond some really basic checks
 # - it's plausible that there are bugs!
 
+
 class _MethodForwarder:
     def __init__(self, fn_name, fallback_fn, statconf_cls, forbid_fallback=False):
         self.fn_name = fn_name
