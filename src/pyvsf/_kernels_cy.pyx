@@ -387,7 +387,7 @@ class VSFPropsRsltContainer:
     def get_i64_vals_arr(self):
         return self.int64_arr
 
-def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
+def _process_statistic_args(statconf_l, dist_bin_edges):
     """
     Construct the appropriate instance of StatList as well as information about
     the output data
@@ -402,15 +402,15 @@ def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
     # it's important that we consider the entries of stat_kw_pairs in
     # alphabetical order of the statistic names so that the stat_list entries
     # are also initialized in alphabetical order
-    for stat_name, stat_kw in sorted(stat_kw_pairs, key = lambda pair: pair[0]):
-        # load kernel object, which stores metadata
-        kernel = get_statconf(stat_name, stat_kw)
+    for statconf in sorted(statconf_l, key = lambda statconf: statconf.name):
 
         # first, look at output quantities associated with stat_name
-        prop_l = kernel.get_dset_props(dist_bin_edges)
+        prop_l = statconf.get_dset_props(dist_bin_edges)
         for quan_name, dtype, shape in prop_l:
-            key = (stat_name, quan_name)
-            assert (key not in int64_quans) and (key not in float64_quans)
+            key = (statconf.name, quan_name)
+            if (key in int64_quans) or (key in float64_quans):
+                raise ValueError(f"{key} already appears as an output for a "
+                                 "different statistic")
             if dtype == np.int64:
                 int64_quans[key] = shape
             elif dtype == np.float64:
@@ -419,29 +419,74 @@ def _process_statistic_args(stat_kw_pairs, dist_bin_edges):
                 raise ValueError(f"can't handle datatype: {dtype}")
 
         # now, update StatList
-        if len(stat_kw) == 0:
-            stat_list.append(statistic_name = stat_name, statistic_arg = None)
-        elif stat_name in ['histogram', 'weightedhistogram']:
-            assert list(stat_kw) == ['val_bin_edges']
-            val_bin_edges = np.asanyarray(stat_kw['val_bin_edges'],
-                                          dtype = 'f8')
+        if statconf.name in ['histogram', 'weightedhistogram']:
+            val_bin_edges = np.asanyarray(statconf.val_bin_edges, dtype = 'f8')
             if not _verify_bin_edges(val_bin_edges):
                 raise ValueError(
                     'kwargs["val_bin_edges"] must be a 1D monotonically '
                     'increasing array with 2 or more values'
                 )
             val_bin_spec = PyBinSpecification(bin_edges = val_bin_edges)
-            stat_list.append(stat_name, val_bin_spec)
+            stat_list.append(statconf.name, val_bin_spec)
         else:
-            raise RuntimeError(f"There's no support for adding '{stat_name}' "
-                               "to stat_list")
+            stat_list.append(statistic_name = statconf.name, statistic_arg = None)
 
     return stat_list, VSFPropsRsltContainer(int64_quans = int64_quans,
                                             float64_quans = float64_quans)
 
+def _coerce_stat_list(arg):
+    argname = 'stat_kw_pairs'
+
+
+    def is_statconf(elem):
+        return isinstance(elem, _SF_STATCONF_TUPLE)
+
+    def is_statkw_pair(elem):
+        try:
+            length = len(elem)
+        except TypeError:
+            return False
+        return (
+            (length == 2) and isinstance(elem[0], str) and isinstance(elem[1], dict)
+        )
+
+    err_prefix = (
+        f"the elements of {argname} must be StatConf instances or 2-tuples specifying "
+        "statname-kwarg pairs (i.e. a str-dict pair):"
+    )
+
+    try:
+        first_elem = arg[0]
+    except TypeError:
+        raise TypeError(f"{argname} must be a sequence") from None
+    except IndexError:
+        raise ValueError(f"{argname} must be a non-empty sequence") from None
+
+    if is_statconf(first_elem):
+        for i, elem in enumerate(arg[1:]):
+            if is_statkw_pair(elem):
+                raise ValueError(f"{err_prefix} You can't mix!")
+            elif not is_statconf(elem):
+                raise TypeError(f"{err_prefix} element {i+1}, {elem!r}, has wrong type")
+        return arg
+
+    elif is_statkw_pair(first_elem):
+        out = [get_statconf(*first_elem)]
+        for i,elem in enumerate(arg[1:]):
+            if is_statconf(elem):
+                raise ValueError(f"{err_prefix} You can't mix!")
+            elif not is_statkw_pair(elem):
+                raise TypeError(f"{err_prefix} element {i+1}, {elem!r}, has wrong type")
+            out.append(get_statconf(*elem))
+        return out
+
+    else:
+        raise TypeError(f"{err_prefix} Element 0, {first_elem!r} has the wrong type")
+
 def _validate_stat_kw_pairs(arg):
     if not isinstance(arg, Sequence):
         raise ValueError("stat_kw_pairs must be a sequence")
+
     for elem in arg:
         if len(elem) != 2:
             raise ValueError("Each element in stat_kw_pairs must hold 2"
@@ -458,7 +503,7 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
                         stat_kw_pairs = [('variance', {})],
                         nproc = 1, force_sequential = False,
                         postprocess_stat = True):
-    _validate_stat_kw_pairs(stat_kw_pairs)
+    statconf_l = _coerce_stat_list(stat_kw_pairs)
 
     val_is_vector = (pairwise_op == "sf")
     cdef PyPointsProps points_a = _construct_pointprops(
@@ -495,8 +540,7 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         raise ValueError("you can't provide non-positive weights")
 
     # check if any statistics requre weights
-    requires_weights = any(get_statconf(name, kw).requires_weights
-                           for name, kw in stat_kw_pairs)
+    requires_weights = any(statconf.requires_weights for statconf in statconf_l)
     if requires_weights and (weights_a is None):
         raise ValueError("one of the statistics requires weights, but no "
                          "weights were provided")
@@ -517,8 +561,7 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     cdef const double[::1] bin_edges_view = dist_bin_edges
 
     # construct stat_list and rslt_container
-    stat_list, rslt_container = _process_statistic_args(stat_kw_pairs,
-                                                        dist_bin_edges)
+    stat_list, rslt_container = _process_statistic_args(statconf_l, dist_bin_edges)
 
     cdef ParallelSpec parallel_spec
     parallel_spec.nproc = nproc
@@ -555,12 +598,11 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         raise RuntimeError("Something went wrong while in calc_vsf_props")
 
     out = []
-    for stat_name, kw in stat_kw_pairs:
-        val_dict = rslt_container.extract_statistic_dict(stat_name)
+    for statconf in statconf_l:
+        val_dict = rslt_container.extract_statistic_dict(statconf.name)
 
         if postprocess_stat:
-            kernel = get_statconf(stat_name, kw)
-            kernel.postprocess_rslt(val_dict)
+            statconf.postprocess_rslt(val_dict)
         out.append(val_dict)
 
     return out
