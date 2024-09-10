@@ -1071,109 +1071,72 @@ def _check_dist_bin_edges(dist_bin_edges):
 # define functionality shared by both kinds of histograms
 # histograms
 
-def _hist_dset_props(kernel, dist_bin_edges):
-    val_bin_edges = kernel.val_bin_edges
-    _check_dist_bin_edges(dist_bin_edges)
-
-    assert len(kernel.output_keys) == 1
-    n = kernel.output_keys[0]
-    if kernel.requires_weights:
-        t = np.float64
-    else:
-        t = np.int64
-    return [(n, t, (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1))]
-
-
-def _validate_hist_results(kernel, rslt, dist_bin_edges, used_points = None):
-
-    _validate_basic_quan_props(kernel, rslt, dist_bin_edges)
-
-    # do some extra validation
-    key = kernel.output_keys[0]
-    if kernel.requires_weights:
-        bin_weights = rslt[key]
-        if (bin_weights < 0).any():
-            raise ValueError("The histogram can't contain negative weights")
-    else:
-        hist_counts = rslt[key]
-        if (hist_counts < 0).any():
-            raise ValueError("The histogram can't contain negative counts")
-
-        if used_points is not None:
-            # compute the maximum number of pairs of points (make sure to
-            # to compute this with python integers (to avoid overflows)
-            max_pairs = int(used_points)*max(int(used_points-1),0)//2
-
-            if max_pairs > np.iinfo(hist_counts.dtype).max:
-                n_pairs = sum(int(e) for e in hist_counts)
-            else:
-                n_pairs = np.sum(hist_counts)
-            if n_pairs > max_pairs:
-                raise ValueError(
-                    f"The dataset made use of {used_points} points. The "
-                    f"histogram should hold no more than {max_pairs} pairs of "
-                    f"points. In reality, it has {n_pairs} pairs."
-                )
-
-class Histogram:
+class GenericHistogramStatConf:
 
     def __init__(self, name, kwargs):
         self.name = name
-        assert name == "histogram"
+        assert name in ["histogram", "weightedhistogram"]
         if list(kwargs.keys()) != ['val_bin_edges']:
             raise ValueError("'val_bin_edges' is required as the single kwarg for "
                              "computing histogram-statistics")
         self.val_bin_edges = kwargs['val_bin_edges']
         _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
-        # historically, the following was a class attribute, but that's unnecessary
-        self.output_keys = ('2D_counts',)
-        self.requires_weights = False
+        if self.name == "histogram":
+            self.output_keys = ('2D_counts',)
+            self.requires_weights = False
+        else:
+            self.output_keys = ('2D_weight_sums',)
+            self.requires_weights = True
+
 
     def _kwargs(self):
         return {'val_bin_edges' : self.val_bin_edges}
 
     def get_dset_props(self, dist_bin_edges):
-        return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
+        val_bin_edges = self.val_bin_edges
+        _check_dist_bin_edges(dist_bin_edges)
+
+        assert len(self.output_keys) == 1
+        n = self.output_keys[0]
+        if self.requires_weights:
+            t = np.float64
+        else:
+            t = np.int64
+        return [(n, t, (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1))]
 
     def validate_rslt(self, rslt, dist_bin_edges, used_points = None):
-        _validate_hist_results(kernel = self, rslt = rslt,
-                               dist_bin_edges = dist_bin_edges,
-                               used_points = used_points)
+        _validate_basic_quan_props(self, rslt, dist_bin_edges)
+
+        # do some extra validation
+        key = self.output_keys[0]
+        if self.requires_weights:
+            bin_weights = rslt[key]
+            if (bin_weights < 0).any():
+                raise ValueError("The histogram can't contain negative weights")
+        else:
+            hist_counts = rslt[key]
+            if (hist_counts < 0).any():
+                raise ValueError("The histogram can't contain negative counts")
+
+            if used_points is not None:
+                # compute the maximum number of pairs of points (make sure to
+                # to compute this with python integers (to avoid overflows)
+                max_pairs = int(used_points)*max(int(used_points-1),0)//2
+
+                if max_pairs > np.iinfo(hist_counts.dtype).max:
+                    n_pairs = sum(int(e) for e in hist_counts)
+                else:
+                    n_pairs = np.sum(hist_counts)
+                if n_pairs > max_pairs:
+                    raise ValueError(
+                        f"The dataset made use of {used_points} points. The "
+                        f"histogram should hold no more than {max_pairs} pairs of "
+                        f"points. In reality, it has {n_pairs} pairs."
+                    )
 
     @classmethod
     def postprocess_rslt(cls, rslt):
         pass # do nothing
-
-
-class WeightedHistogram:
-
-    def __init__(self, name, kwargs):
-        self.name = name
-        assert name == "weightedhistogram"
-        if list(kwargs.keys()) != ['val_bin_edges']:
-            raise ValueError("'val_bin_edges' is required as the single kwarg for "
-                             "computing histogram-statistics")
-        self.val_bin_edges = kwargs['val_bin_edges']
-        _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
-        self.requires_weights = True
-        # historically, the following was a class attribute, but that's unnecessary
-        self.output_keys = ('2D_weight_sums',)
-
-    def _kwargs(self):
-        return {'val_bin_edges' : self.val_bin_edges}
-
-    def get_dset_props(self, dist_bin_edges):
-        return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
-
-    def validate_rslt(self, rslt, dist_bin_edges, used_points = None):
-        _validate_hist_results(kernel = self, rslt = rslt,
-                               dist_bin_edges = dist_bin_edges,
-                               used_points = used_points)
-
-    @classmethod
-    def postprocess_rslt(cls, rslt):
-        pass # do nothing
-
 
 
 def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
@@ -1248,9 +1211,9 @@ class StatConfFactory:
 _SF_STATCONF_PAIRS = (
     ('mean', CentralMomentStatConf),
     ('variance', CentralMomentStatConf),
-    ('histogram', Histogram), 
+    ('histogram', GenericHistogramStatConf), 
     ('weightedmean', CentralMomentStatConf),
-    ('weightedhistogram', WeightedHistogram)
+    ('weightedhistogram', GenericHistogramStatConf)
 )
 
 _SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_PAIRS)
