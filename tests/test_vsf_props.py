@@ -563,7 +563,9 @@ def benchmark(
 
 def test_benchmark(capsys):
     with capsys.disabled():
-        print("running a short auto-vsf benchmark. This takes ~7 s on a 4 core system")
+        print(
+            "\nrunning a short auto-vsf benchmark. This takes ~7 s on a 4 core system"
+        )
         val_bin_edges = np.geomspace(start=1e-16, stop=2.0, num=100, dtype=np.float64)
         val_bin_edges[0] = 0.0
         val_bin_edges[-1] = np.finfo(np.float64).max
@@ -581,7 +583,7 @@ def test_benchmark(capsys):
         )
 
         print(
-            "running a short cross-vsf benchmark. This takes ~10 s on a 4 core system"
+            "\nrunning a short cross-vsf benchmark. This takes ~10 s on a 4 core system"
         )
         benchmark(
             (3, 20000),
