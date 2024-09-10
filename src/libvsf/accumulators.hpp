@@ -76,7 +76,7 @@ public:  // interface
 
   template <typename T>
   T& access(std::size_t i) noexcept {
-    return const_cast<T&>(const_cast<MeanAccum*>(this)->access<T>(i));
+    return const_cast<T&>(const_cast<const MeanAccum*>(this)->access<T>(i));
   }
 
   MeanAccum() : count(0), mean(0.0) {}
@@ -153,7 +153,7 @@ public:  // interface
 
   template <typename T>
   T& access(std::size_t i) noexcept {
-    return const_cast<T&>(const_cast<VarAccum*>(this)->access<T>(i));
+    return const_cast<T&>(const_cast<const VarAccum*>(this)->access<T>(i));
   }
 
   VarAccum() : count(0), mean(0.0), cur_M2(0.0) {}
