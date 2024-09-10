@@ -1,7 +1,9 @@
 from collections import OrderedDict
 from collections.abc import Sequence
-import numpy as np
+import dataclasses
 import warnings
+
+import numpy as np
 
 from libc.stdint cimport int64_t, uintptr_t
 from libc.stddef cimport size_t
@@ -1034,8 +1036,10 @@ def _test_evaluate_statconf(statconf, values, weights = None):
     return out
 
 def _validate_basic_quan_props(statconf, rslt, dist_bin_edges):
+    """Helper function that performs some basic checks"""
     quan_props = statconf.get_dset_props(dist_bin_edges)
-    assert len(quan_props) == len(rslt)
+    if len(quan_props) != len(rslt):
+        raise ValueError("The rslt doesn't have the expected number of entries")
     for name, dtype, shape in quan_props:
         if name not in quan_props:
             raise ValueError(
@@ -1053,12 +1057,37 @@ def _validate_basic_quan_props(statconf, rslt, dist_bin_edges):
                 f"have a shape of {shape}, not of {rslt[name].shape}"
             )
 
-def _allocate_unintialized_rslt_dict(statconf, dist_bin_edges):
-    quan_props = statconf.get_dset_props(dist_bin_edges)
-    out = {}
-    for name, dtype, shape in quan_props:
-        out[name] = np.empty(shape = shape, dtype = dtype)
-    return out
+def _validate_counts_or_weights(statconf, rslt, key, *, max_total_count = None):
+    """Helper function that checks validity of the counts or weights key"""
+    weights_arr = rslt[key]
+    # first check for negative values
+    if np.any(weights_arr < 0):
+        raise ValueError(
+            f"the '{key}' result for the '{statconf.name}' statistic can't contain "
+            "negative values"
+        )
+
+    # in the event that we are using counts and the caller provides the max pairs
+    # (an upper limit on the number of pairs that could influence the result), we
+    # can check that the number of counts doesn't exceed max_pairs
+    if (not statconf.requires_weights) and (max_total_count is not None):
+        counts = weights_arr
+        if max_total_count > np.iinfo(np.int64).max:
+            count_tot = sum(int(e) for e in counts.flat)
+        else:
+            count_tot = np.sum(counts, dtype = np.int64)
+        if count_tot > max_total_count:
+            raise ValueError(
+                f"The total value of the '{key}' result for the '{statconf.name}' "
+                f"statistic indicates that a total of {count_tot} pairs of points "
+                "were used to compute the result. The max expected pairs of points "
+                f"is only {max_total_count}."
+            )
+
+
+
+
+
 
 def _check_bin_edges_arg(arg, arg_description):
     if np.size(arg) < 2 or np.ndim(arg) != 1:
@@ -1069,71 +1098,47 @@ def _check_dist_bin_edges(dist_bin_edges):
     _check_bin_edges_arg(dist_bin_edges, "'dist_bin_edges' argument")
 
 # define functionality shared by both kinds of histograms
-# histograms
 
 class GenericHistogramStatConf:
 
     def __init__(self, name, kwargs):
         self.name = name
-        assert name in ["histogram", "weightedhistogram"]
         if list(kwargs.keys()) != ['val_bin_edges']:
             raise ValueError("'val_bin_edges' is required as the single kwarg for "
                              "computing histogram-statistics")
         self.val_bin_edges = kwargs['val_bin_edges']
         _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
         if self.name == "histogram":
-            self.output_keys = ('2D_counts',)
             self.requires_weights = False
-        else:
-            self.output_keys = ('2D_weight_sums',)
+        elif self.name == "weightedhistogram":
             self.requires_weights = True
+        else:
+            raise ValueError(f'{name!r} is an invalid choice for name')
 
 
     def _kwargs(self):
         return {'val_bin_edges' : self.val_bin_edges}
 
     def get_dset_props(self, dist_bin_edges):
-        val_bin_edges = self.val_bin_edges
         _check_dist_bin_edges(dist_bin_edges)
+        shape = (np.size(dist_bin_edges) - 1, np.size(self.val_bin_edges) - 1)
 
-        assert len(self.output_keys) == 1
-        n = self.output_keys[0]
         if self.requires_weights:
-            t = np.float64
+            n, t = '2D_weight_sums', np.float64
         else:
-            t = np.int64
-        return [(n, t, (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1))]
+            n, t = '2D_counts', np.int64
+        return [(n, t, shape)]
 
-    def validate_rslt(self, rslt, dist_bin_edges, used_points = None):
+    def validate_rslt(self, rslt, dist_bin_edges, *, max_total_count = None):
         _validate_basic_quan_props(self, rslt, dist_bin_edges)
 
         # do some extra validation
-        key = self.output_keys[0]
-        if self.requires_weights:
-            bin_weights = rslt[key]
-            if (bin_weights < 0).any():
-                raise ValueError("The histogram can't contain negative weights")
-        else:
-            hist_counts = rslt[key]
-            if (hist_counts < 0).any():
-                raise ValueError("The histogram can't contain negative counts")
-
-            if used_points is not None:
-                # compute the maximum number of pairs of points (make sure to
-                # to compute this with python integers (to avoid overflows)
-                max_pairs = int(used_points)*max(int(used_points-1),0)//2
-
-                if max_pairs > np.iinfo(hist_counts.dtype).max:
-                    n_pairs = sum(int(e) for e in hist_counts)
-                else:
-                    n_pairs = np.sum(hist_counts)
-                if n_pairs > max_pairs:
-                    raise ValueError(
-                        f"The dataset made use of {used_points} points. The "
-                        f"histogram should hold no more than {max_pairs} pairs of "
-                        f"points. In reality, it has {n_pairs} pairs."
-                    )
-
+        props = self.get_dset_props()
+        if len(props) != 1:
+            raise RuntimeError("something went wrong.")
+        key = props[0][0]
+        _validate_counts_or_weights(self, rslt, key, max_total_count=max_total_count)
+                
     @classmethod
     def postprocess_rslt(cls, rslt):
         pass # do nothing
