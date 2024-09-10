@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from collections.abc import Sequence
-import dataclasses
 import warnings
 
 import numpy as np
@@ -1154,7 +1153,7 @@ def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
 
 _STAT_NAMES_1D = ("mean", "variance", "weightedmean")
 _HIST_STAT_NAMES = ("histogram", "weightedhistogram")
-_ALL_STAT_NAMES = _STAT_NAMES_1D + _HIST_STAT_NAMES
+_ALL_SF_STAT_NAMES = _STAT_NAMES_1D + _HIST_STAT_NAMES
 
 class StatConf:
     """
@@ -1174,7 +1173,10 @@ class StatConf:
             _check_bin_edges_arg(kwargs['val_bin_edges'], "'val_bin_edges' kwarg")
             sanitized_kwargs = kwargs
         else:
-            raise ValueError("name is not known")
+            raise ValueError(
+                "f{name} is not known. The only known names include: " +
+                ", ".join(_ALL_SF_STAT_NAMES)
+            )
         
         # "public-facing" attributes:
         self.name = name
@@ -1217,19 +1219,5 @@ class StatConf:
 
         # Histogram statistics require no post-processing
 
-class StatConfFactory:
-    def __init__(self, itr):
-        self._kdict = dict(itr)
-
-    def get_statconf(self, statistic, kwargs):
-        try:
-            return self._kdict[statistic](statistic, kwargs)
-        except KeyError:
-            # the `from None` clause avoids exception chaining
-            raise ValueError(f"Unknown Statistic: {statistic}") from None
-
-_SF_STATCONF_PAIRS = ( (name, StatConf) for name in _ALL_STAT_NAMES)
-_SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_PAIRS)
-
 def get_statconf(statistic, kwargs):
-    return _SF_STATCONF_REGISTRY.get_statconf(statistic, kwargs)
+    return StatConf(statistic, kwargs)

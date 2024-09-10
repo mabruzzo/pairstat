@@ -9,7 +9,7 @@ type of Structure Function object that can be used to abstract over
 consolidation and such...
 """
 
-from ._kernels_cy import _SF_STATCONF_PAIRS
+from ._kernels_cy import StatConf, _ALL_SF_STAT_NAMES
 
 from ._kernels_nonsf import BulkAverage, BulkVariance
 from .grid_scale._kernels import GridscaleVdiffHistogram
@@ -31,14 +31,11 @@ class _MethodForwarder:
         self.forward_to_instance = "kwargs" in self.signature.parameters
 
         # now let's check if the statconf_cls has the method
-        has_classmethod = inspect.ismethod(getattr(statconf_cls, fn_name, None))
         has_instancemethod = any(  # inspired by abstract base class subclass hook
             fn_name in klass.__dict__ for klass in statconf_cls.__mro__
         )
-        if self.forward_to_instance and (has_classmethod or has_instancemethod):
+        if self.forward_to_instance and has_instancemethod:
             # it's ok if its a class method
-            self.fallback_fn = None
-        elif (not self.forward_to_instance) and has_classmethod:
             self.fallback_fn = None
         elif (not self.forward_to_instance) and has_instancemethod:
             raise ValueError(
@@ -102,7 +99,7 @@ def _default_zero_initialize_rslt(
 
 
 # sequence of StatInfo names
-def _make_kernel_class_callback(cls, statname, statconf_cls):
+def _make_kernel_class_callback(cls, statname):
     """
     The existing implementation of Kernels as collections of functions doesn't make a
     ton of sense any more. It has become apparent that it makes more sense for them to
@@ -112,6 +109,7 @@ def _make_kernel_class_callback(cls, statname, statconf_cls):
     dynamically generate wrappers around the StatConf classes that provide the old
     kernel interface.
     """
+    statconf_cls = StatConf
 
     forwarders = (
         _MethodForwarder(
@@ -158,12 +156,10 @@ def _make_kernel_class_callback(cls, statname, statconf_cls):
 
 def _make_kernel_classes():
     out = []
-    for statname, statconf_cls in _SF_STATCONF_PAIRS:
+    for statname in _ALL_SF_STAT_NAMES:
         name = "SFKernel" + statconf_cls.__name__
         out.append(new_class(name))
-        make_kernel_class_callback(
-            out[-1], statname=statname, statconf_cls=statconf_cls
-        )
+        make_kernel_class_callback(out[-1], statname=statname)
     return out
 
 
