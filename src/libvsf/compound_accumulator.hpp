@@ -98,6 +98,10 @@ public:
   CompoundAccumCollection(AccumCollectionTuple&& accum_collec_tuple) noexcept
       : accum_collec_tuple_(accum_collec_tuple) {}
 
+  inline void purge() noexcept {
+    for_each_tuple_entry(accum_collec_tuple_, [=](auto& e) { e.purge(); });
+  }
+
   inline void add_entry(std::size_t spatial_bin_index, double val) noexcept {
     for_each_tuple_entry(accum_collec_tuple_,
                          [=](auto& e) { e.add_entry(spatial_bin_index, val); });
@@ -150,6 +154,8 @@ public:
   void import_vals(const T* in_vals) noexcept {
     error("Not Implemented");
   }
+
+  std::size_t n_spatial_bins() const noexcept { error("Not Implemented"); }
 
 private:
   AccumCollectionTuple accum_collec_tuple_;

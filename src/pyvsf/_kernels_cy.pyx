@@ -192,7 +192,7 @@ def _construct_pointprops(pos, val, weights = None, val_is_vector = True,
         )
 
     # Here we perform some sanity checks on the length scale
-    # -> these first 2 checks may be redundant with np.array(..., order = 'C')
+    # -> these first 2 checks may be redundant with np.asarray(..., order = 'C')
     assert pos_arr.strides[1] == pos_arr.itemsize
     assert val_arr.strides[-1] == val_arr.itemsize
 
@@ -840,6 +840,10 @@ cdef extern from "accum_handle.hpp":
     void accumhandle_consolidate_into_primary(void* handle_primary,
                                               void* handle_secondary)
 
+    void accumhandle_add_entries(void* handle, int purge_everything_first,
+                                 size_t spatial_bin_index, size_t num_entries,
+                                 double * values, double * weights)
+
 
 cdef BinSpecification _build_BinSpecification(arr, wrap_array = True):
     if not _verify_bin_edges:
@@ -862,9 +866,19 @@ cdef BinSpecification _build_BinSpecification(arr, wrap_array = True):
     return out
 
 
-cdef void* _construct_accum_handle(size_t num_dist_bins, object name,
-                                   object quan_bin_edges_arr = None):
+cdef void* _construct_accum_handle(object dist_bin_edges, object statconf) except NULL:
     assert PY_MAJOR_VERSION >= 3
+
+    cdef object name = statconf.name
+    cdef object kwargs = statconf._kwargs()
+    if 'val_bin_edges' in kwargs:
+        assert len(kwargs) == 1
+        val_bin_edges = kwargs['val_bin_edges']
+    else:
+        assert len(kwargs) == 0
+        val_bin_edges = None
+
+    cdef size_t num_dist_bins = dist_bin_edges.size - 1
 
     cdef bytes coerced_name_str
 
@@ -881,16 +895,16 @@ cdef void* _construct_accum_handle(size_t num_dist_bins, object name,
     cdef StatListItem list_entry
     list_entry.statistic = c_name_str
 
-    
     cdef BinSpecification bin_spec    
-    if quan_bin_edges_arr is not None:
-        # lifetime of bin_spec is tied to quan_bin_edges_arr
-        bin_spec = _build_BinSpecification(quan_bin_edges_arr, True)
+    if val_bin_edges is not None:
+        # lifetime of bin_spec is tied to statconf
+        bin_spec = _build_BinSpecification(val_bin_edges, True)
         list_entry.arg_ptr = <void*>(&bin_spec)
     else:
         list_entry.arg_ptr = NULL
 
     return accumhandle_create(&list_entry, 1, num_dist_bins)
+
 
 cdef int64_t* _ArrayMap_i64_ptr(object array_map):
     cdef object i64_array = array_map.get_int64_buffer()
@@ -923,25 +937,15 @@ cdef class SFConsolidator:
 
     cdef void* primary_handle
     cdef void* secondary_handle
-    cdef object kernel
+    cdef object statconf
     cdef object kwargs
     cdef object dist_bin_edges
 
-    def __cinit__(self, object dist_bin_edges, object kernel, object kwargs):
-        cdef object name = kernel.name
-        cdef object val_bin_edges = None
-        if 'val_bin_edges' in kwargs:
-            assert len(kwargs) == 1
-            val_bin_edges = kwargs['val_bin_edges']
-        else:
-            assert len(kwargs) == 0
-
-        cdef size_t num_dist_bins = dist_bin_edges.size - 1
-        self.primary_handle = _construct_accum_handle(num_dist_bins, name,
-                                                      val_bin_edges)
-        self.secondary_handle = _construct_accum_handle(num_dist_bins, name,
-                                                        val_bin_edges)
-        self.kernel = kernel
+    def __cinit__(self, object dist_bin_edges, object statconf):
+        cdef object kwargs = statconf._kwargs()
+        self.primary_handle = _construct_accum_handle(dist_bin_edges, statconf)
+        self.secondary_handle = _construct_accum_handle(dist_bin_edges, statconf)
+        self.statconf = statconf
         self.kwargs = kwargs
         self.dist_bin_edges = dist_bin_edges
 
@@ -950,12 +954,12 @@ cdef class SFConsolidator:
         accumhandle_destroy(self.secondary_handle)
 
     def _get_entry_spec(self):
-        return self.kernel.get_dset_props(self.dist_bin_edges)
+        return self.statconf.get_dset_props(self.dist_bin_edges)
 
     def _purge_values(self):
         # come up with some zero-initialized values
-        tmp = self.kernel.zero_initialize_rslt(self.dist_bin_edges,
-                                               postprocess_rslt = False)
+        tmp = self.statconf.zero_initialize_rslt(self.dist_bin_edges,
+                                                 postprocess_rslt = False)
 
         # convert tmp so that it's an instance of ArrayDict
         assert isinstance(tmp, dict) # sanity check
@@ -988,20 +992,50 @@ cdef class SFConsolidator:
         _export_to_ArrayMap_from_handle(self.primary_handle, tmp)
         return tmp.asdict()
 
-class PyConsolidator:
-    """ Uses the python method built into the stat kernel
+def consolidate_partial_results(statconf, results, dist_bin_edges):
     """
+    This function is used to consolidate the partial results from multiple
+    executions of the `vsf_props` or `twopoint_correlation function.
+    """
+    if len(results) == 0:
+        raise ValueError("Can't consolidate 0 results")
+    consolidator = SFConsolidator(dist_bin_edges=dist_bin_edges, statconf=statconf)
+    return consolidator.consolidate(*results)
 
-    def __init__(self, kernel): self._kernel = kernel
+def _test_evaluate_statconf(statconf, values, weights = None):
+    """
+    This exists for testing purposes (to let us check whether"""
+    dist_bin_edges = np.array([0.0, 1.0])
+    if statconf.requires_weights and weights is None:
+        raise ValueError("The specified statconf requires that weights is provided")
+    elif np.ndim(values) != 1.0:
+        raise ValueError("values must be a 1d array")
+    elif np.size(values) == 0:
+        raise ValueError("values must hold at least 1 element")
+    elif (weights is not None) and np.shape(weights) != np.shape(values):
+        raise ValueError("when specified, weights must have the same shape as values")
 
-    def consolidate(self, *rslts):
-        return self._kernel.consolidate_stats(*rslts)
+    cdef double[::1] values_view
+    cdef double[::1] weights_view
 
-def build_consolidater(dist_bin_edges, kernel, kwargs):
-    if kernel.non_vsf_func is None:
-        return SFConsolidator(dist_bin_edges, kernel, kwargs)
-    return PyConsolidator(kernel)
+    cdef object out = ArrayMap(statconf.get_dset_props(dist_bin_edges))
+    cdef void* handle = _construct_accum_handle(dist_bin_edges, statconf)
 
+    try:
+        values = np.asarray(values, dtype = np.float64, order = 'C')
+        values_view = values
+
+        if statconf.requires_weights:
+            weights = np.asarray(weights, dtype = np.float64, order = 'C')
+            weights_view = weights
+            accumhandle_add_entries(handle, 0, 0, values.size, &values_view[0],
+                                    &weights_view[0])
+        else:
+            accumhandle_add_entries(handle, 0, 0, values.size, &values_view[0], NULL)
+        _export_to_ArrayMap_from_handle(handle, out)
+    finally:
+        accumhandle_destroy(handle)
+    return out
 
 def _validate_basic_quan_props(kernel, rslt, dist_bin_edges):
     quan_props = kernel.get_dset_props(dist_bin_edges)
@@ -1111,6 +1145,9 @@ class Histogram:
         self.output_keys = ('2D_counts',)
         self.requires_weights = False
 
+    def _kwargs(self):
+        return {'val_bin_edges' : self.val_bin_edges}
+
     def get_dset_props(self, dist_bin_edges):
         return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
 
@@ -1143,6 +1180,9 @@ class WeightedHistogram:
         self.requires_weights = True
         # historically, the following was a class attribute, but that's unnecessary
         self.output_keys = ('2D_weight_sums',)
+
+    def _kwargs(self):
+        return {'val_bin_edges' : self.val_bin_edges}
 
     def get_dset_props(self, dist_bin_edges):
         return _hist_dset_props(kernel = self, dist_bin_edges = dist_bin_edges)
@@ -1184,6 +1224,9 @@ class CentralMomentStatConf:
         if (kwargs is not None) and (len(kwargs) > 0):
             raise ValueError("takes no kwargs")
         self.requires_weights = name == "weightedmean"
+
+    def _kwargs(self):
+        return {}
 
     def get_dset_props(self, dist_bin_edges):
         assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1

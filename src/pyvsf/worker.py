@@ -5,7 +5,10 @@ import numpy as np
 from .pyvsf import vsf_props
 
 from ._kernels import get_kernel
-from ._kernels_cy import build_consolidater
+from ._kernels_cy import (
+    get_statconf,
+    consolidate_partial_results as consolidate_partial_results_helper,
+)
 from ._perf import PerfRegions
 from ._cut_region_iterator import get_cut_region_itr_builder
 
@@ -18,11 +21,13 @@ def consolidate_partial_vsf_results(statistic, *rslts, stat_kw={}, dist_bin_edge
     if len(rslts) == 0:
         raise RuntimeError()
     kernel = get_kernel(statistic)
-    if dist_bin_edges is None:
+    if (dist_bin_edges is None) or (kernel.non_vsf_func is not None):
         return kernel.consolidate_stats(*rslts)
     else:
-        consolidator = build_consolidater(dist_bin_edges, kernel, stat_kw)
-        return consolidator.consolidate(*rslts)
+        statconf = get_statconf(statistic, stat_kw)
+        return consolidate_partial_results_helper(
+            statconf, results=rslts, dist_bin_edges=dist_bin_edges
+        )
 
 
 class StatDetails(NamedTuple):
