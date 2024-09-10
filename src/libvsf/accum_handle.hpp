@@ -57,6 +57,24 @@ void accumhandle_restore(void* handle, const double* in_flt_vals,
 void accumhandle_consolidate_into_primary(void* handle_primary,
                                           void* handle_secondary);
 
+/// Updates `handle_primary` by adding the specified entries with the specified
+/// values (primarily for testing purposes)
+///
+/// @param[in,out] handle The accumulator collection to be updated
+/// @param[in]     purge_everything_first When 1, we reset all values of the
+///     handle (for all spatial bins) before doing anything
+/// @param[in]     spatial_bin_index The spatial bin that values will be added
+///     to in the accumulator
+/// @param[in]     num_entries The number of entries to add
+/// @param[in]     values An array of length `num_entries`
+/// @param[in]     weights An optional array of length `num_entries`
+///
+/// @note This is primarily for testing purposes
+void accumhandle_add_entries(void* handle, int purge_everything_first,
+                             std::size_t spatial_bin_index,
+                             std::size_t num_entries, double* values,
+                             double* weights);
+
 #ifdef __cplusplus
 }
 #endif

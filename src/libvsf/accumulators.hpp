@@ -1,7 +1,8 @@
 #ifndef ACCUMULATORS_H
 #define ACCUMULATORS_H
 
-#include <cstdint>  // std::int64_t
+#include <algorithm>  // std::fill
+#include <cstdint>    // std::int64_t
 #include <string>
 #include <type_traits>  // std::is_same_v
 #include <utility>      // std::pair
@@ -307,6 +308,11 @@ struct ScalarAccumCollection {
     }
   }
 
+  /// reset the contents (it looks as though we just initialized)
+  void purge() noexcept {
+    std::fill(accum_list_.begin(), accum_list_.end(), Accum());
+  }
+
   inline void add_entry(std::size_t spatial_bin_index, double val) noexcept {
     accum_list_[spatial_bin_index].add_entry(val);
   }
@@ -476,6 +482,11 @@ public:
 
     // initialize the counts array
     bin_counts_.resize(n_data_bins_ * n_spatial_bins_, 0);
+  }
+
+  /// reset the contents (it looks as though we just initialized)
+  void purge() noexcept {
+    std::fill(bin_counts_.begin(), bin_counts_.end(), T(0));
   }
 
   /// Add an entry (without a weight)

@@ -60,3 +60,40 @@ void accumhandle_consolidate_into_primary(void* handle_primary,
       },
       *primary_ptr);
 }
+
+void accumhandle_add_entries(void* handle, int purge_everything_first,
+                             std::size_t spatial_bin_index,
+                             std::size_t num_entries, double* values,
+                             double* weights) {
+  AccumColVariant* ptr = static_cast<AccumColVariant*>(handle);
+  if ((purge_everything_first < 0) || (purge_everything_first > 1)) {
+    error("purge_everything_first must be 0 or 1");
+  } else if ((num_entries > 0) && (values == nullptr)) {
+    error("values can't be a nullptr when num_entries is positive");
+  }
+
+  std::visit(
+      [=](auto& accum) {
+        using T = std::decay_t<decltype(accum)>;
+        // more argument checks
+        if (spatial_bin_index >= accum.n_spatial_bins()) {
+          error("spatial_bin_index is too big");
+        } else if (T::requires_weight && (num_entries > 0) &&
+                   (weights == nullptr)) {
+          error("weights arg can't be a nullptr for the current handle.");
+        }
+
+        if (purge_everything_first) {
+          accum.purge();
+        }
+
+        for (size_t i = 0; i < num_entries; i++) {
+          if constexpr (T::requires_weight) {
+            accum.add_entry(spatial_bin_index, values[i], weights[i]);
+          } else {
+            accum.add_entry(spatial_bin_index, values[i]);
+          }
+        }
+      },
+      *ptr);
+}
