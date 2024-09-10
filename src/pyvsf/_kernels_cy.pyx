@@ -1033,28 +1033,28 @@ def _test_evaluate_statconf(statconf, values, weights = None):
         accumhandle_destroy(handle)
     return out
 
-def _validate_basic_quan_props(kernel, rslt, dist_bin_edges):
-    quan_props = kernel.get_dset_props(dist_bin_edges)
+def _validate_basic_quan_props(statconf, rslt, dist_bin_edges):
+    quan_props = statconf.get_dset_props(dist_bin_edges)
     assert len(quan_props) == len(rslt)
     for name, dtype, shape in quan_props:
         if name not in quan_props:
             raise ValueError(
-                f"The result for the '{kernel.name}' statistic is missing a "
+                f"The result for the '{statconf.name}' statistic is missing a "
                 f"quantity called '{name}'"
             )
         elif rslt[name].dtype != dtype:
             raise ValueError(
-                f"the {name} quantity for the {kernel.name} statistic should ",
+                f"the {name} quantity for the {statconf.name} statistic should ",
                 f"have a dtype of {dtype}, not of {rslt[name].dtype}"
             )
         elif rslt[name].shape != shape:
             raise ValueError(
-                f"the {name} quantity for the {kernel.name} statistic should ",
+                f"the {name} quantity for the {statconf.name} statistic should ",
                 f"have a shape of {shape}, not of {rslt[name].shape}"
             )
 
-def _allocate_unintialized_rslt_dict(kernel, dist_bin_edges):
-    quan_props = kernel.get_dset_props(dist_bin_edges)
+def _allocate_unintialized_rslt_dict(statconf, dist_bin_edges):
+    quan_props = statconf.get_dset_props(dist_bin_edges)
     out = {}
     for name, dtype, shape in quan_props:
         out[name] = np.empty(shape = shape, dtype = dtype)
@@ -1201,7 +1201,7 @@ class StatConfFactory:
                 tmp.append(klass)
         self.unique_class_tuple = tuple(tmp)
 
-    def get_kernel(self, statistic, kwargs):
+    def get_statconf(self, statistic, kwargs):
         try:
             return self._kdict[statistic](statistic, kwargs)
         except KeyError:
@@ -1219,4 +1219,4 @@ _SF_STATCONF_PAIRS = (
 _SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_PAIRS)
 
 def get_statconf(statistic, kwargs):
-    return _SF_STATCONF_REGISTRY.get_kernel(statistic, kwargs)
+    return _SF_STATCONF_REGISTRY.get_statconf(statistic, kwargs)
