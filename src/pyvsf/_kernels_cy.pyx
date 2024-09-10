@@ -22,15 +22,23 @@ from ._ArrayDict_cy import ArrayMap
 #==============================================================================
 
 def _verify_bin_edges(bin_edges):
-    nbins = bin_edges.size - 1
-    if bin_edges.ndim != 1:
+    nbins = np.size(bin_edges) - 1
+    if np.ndim(bin_edges) != 1:
         return False
     elif nbins <= 0:
         return False
-    elif not (bin_edges[1:] > bin_edges[:-1]).all():
+    elif not np.greater(bin_edges[1:], np.array(bin_edges)[:-1]).all():
         return False
     else:
         return True
+
+def _check_bin_edges_arg(arg, arg_description):
+    if not _verify_bin_edges(arg):
+        raise ValueError(f"The {arg_description} must specify a 1D array with "
+                         "2 or more elements that monotonically increase")
+
+def _check_dist_bin_edges(dist_bin_edges):
+    _check_bin_edges_arg(dist_bin_edges, "'dist_bin_edges' argument")
 
 cdef extern from "vsf.hpp":
     ctypedef struct PointProps:
@@ -422,7 +430,9 @@ def _process_statistic_args(statconf_l, dist_bin_edges):
 
         # now, update StatList
         if statconf.name in ['histogram', 'weightedhistogram']:
-            val_bin_edges = np.asanyarray(statconf.val_bin_edges, dtype = 'f8')
+            val_bin_edges = np.asanyarray(
+                statconf._kwargs()['val_bin_edges'], dtype = 'f8'
+            )
             if not _verify_bin_edges(val_bin_edges):
                 raise ValueError(
                     'kwargs["val_bin_edges"] must be a 1D monotonically '
@@ -441,7 +451,7 @@ def _coerce_stat_list(arg):
 
 
     def is_statconf(elem):
-        return isinstance(elem, _SF_STATCONF_REGISTRY.unique_class_tuple)
+        return isinstance(elem, StatConf)
 
     def is_statkw_pair(elem):
         try:
@@ -1084,59 +1094,55 @@ def _validate_counts_or_weights(statconf, rslt, key, *, max_total_count = None):
                 f"is only {max_total_count}."
             )
 
-def _check_bin_edges_arg(arg, arg_description):
-    if np.size(arg) < 2 or np.ndim(arg) != 1:
-        raise ValueError(f"The {arg_description} must specify a 1D array with "
-                         "2 or more elements")
+def _get_dset_props_helper(statconf, dist_bin_edges):
+    """
+    Helper function that returns the dset_props and the index of
+    dset_props that corresponds to "counts" (or "weights")
 
-def _check_dist_bin_edges(dist_bin_edges):
-    _check_bin_edges_arg(dist_bin_edges, "'dist_bin_edges' argument")
+    Notes
+    -----
+    This needs to be updated whenever you add a new statistic. All integer
+    properties must come before the floating-point properties. The order
+    of the integer properties and the order of the floating point
+    properties must match the internals of the corresponding C++
+    accumulators.
 
-# define functionality shared by both kinds of histograms
+    In the future, it would be nice to be able to directly query the C++
+    layer for this information.
+    """
 
-class GenericHistogramStatConf:
-
-    def __init__(self, name, kwargs):
-        self.name = name
-        if list(kwargs.keys()) != ['val_bin_edges']:
-            raise ValueError("'val_bin_edges' is required as the single kwarg for "
-                             "computing histogram-statistics")
-        self.val_bin_edges = kwargs['val_bin_edges']
-        _check_bin_edges_arg(self.val_bin_edges, "'val_bin_edges' kwarg")
-        if self.name == "histogram":
-            self.requires_weights = False
-        elif self.name == "weightedhistogram":
-            self.requires_weights = True
+    _check_dist_bin_edges(dist_bin_edges)
+    if statconf.name == "weightedmean":
+        props = [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
+                 ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
+        count_weight_index = 0
+    elif statconf.name in ("mean", "variance"):
+        props = [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
+                 ('mean',    np.float64, (np.size(dist_bin_edges) - 1,))]
+        if statconf.name == "variance":
+            props.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
+        count_weight_index = 0
+    elif statconf.name in ("histogram", "weightedhistogram"):
+        val_bin_edges = statconf._kwargs()['val_bin_edges']
+        shape = (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1)
+        if statconf.requires_weights:
+            props = [('2D_weight_sums', np.float64, shape)]
         else:
-            raise ValueError(f'{name!r} is an invalid choice for name')
+            props = [('2D_counts', np.int64, shape)]
+        count_weight_index = 0
+    else:
+        raise ValueError(
+            f"unknown stat-name '{statconf.name}' did you forget to update the logic "
+            "to get_dset_props?"
+        )
+    return props, count_weight_index
 
-
-    def _kwargs(self):
-        return {'val_bin_edges' : self.val_bin_edges}
-
-    def get_dset_props(self, dist_bin_edges):
-        _check_dist_bin_edges(dist_bin_edges)
-        shape = (np.size(dist_bin_edges) - 1, np.size(self.val_bin_edges) - 1)
-
-        if self.requires_weights:
-            n, t = '2D_weight_sums', np.float64
-        else:
-            n, t = '2D_counts', np.int64
-        return [(n, t, shape)]
-
-    def validate_rslt(self, rslt, dist_bin_edges, *, max_total_count = None):
-        _validate_basic_quan_props(self, rslt, dist_bin_edges)
-
-        # do some extra validation
-        props = self.get_dset_props()
-        if len(props) != 1:
-            raise RuntimeError("something went wrong.")
-        key = props[0][0]
-        _validate_counts_or_weights(self, rslt, key, max_total_count=max_total_count)
-                
-    def postprocess_rslt(self, rslt):
-        pass # do nothing
-
+def _get_counts_or_weights_key(statconf):
+    dist_bin_edges = (0.0, 1.0) # dummy value!
+    props, count_weight_index = _get_dset_props_helper(statconf, dist_bin_edges)
+    if count_weight_index is None:
+        return None
+    return props[count_weight_index][0]
 
 def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
     w_mask = (rslt_dict[key]  == 0)
@@ -1146,58 +1152,74 @@ def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
         else:
             v[w_mask] = np.nan
 
-class CentralMomentStatConf:
+_STAT_NAMES_1D = ("mean", "variance", "weightedmean")
+_HIST_STAT_NAMES = ("histogram", "weightedhistogram")
+_ALL_STAT_NAMES = _STAT_NAMES_1D + _HIST_STAT_NAMES
+
+class StatConf:
     """
-    This class is used to represent "weightedmean", "mean", and "variance"
+    This class is used to represent configurations of structure-function/correlation
+    function statistics.
     """
 
     def __init__(self, name, kwargs):
+        if name in _STAT_NAMES_1D:
+            if (kwargs is not None) and (len(kwargs) > 0):
+                raise ValueError(f"the {name} stat should have no kwargs")
+            sanitized_kwargs = {}
+        elif name in _HIST_STAT_NAMES:
+            if (kwargs is None) or (list(kwargs.keys()) != ['val_bin_edges']):
+                raise ValueError("'val_bin_edges' is required as the single kwarg for "
+                                 "computing histogram-statistics")
+            _check_bin_edges_arg(kwargs['val_bin_edges'], "'val_bin_edges' kwarg")
+            sanitized_kwargs = kwargs
+        else:
+            raise ValueError("name is not known")
+        
+        # "public-facing" attributes:
         self.name = name
-        assert name in ["weightedmean", "mean", "variance"]
-        if (kwargs is not None) and (len(kwargs) > 0):
-            raise ValueError("takes no kwargs")
-        self.requires_weights = name == "weightedmean"
+        self.requires_weights = name.startswith("weighted")
+
+        # "internal" attribute: (may change at any time)
+        self._internal_kwargs = sanitized_kwargs
 
     def _kwargs(self):
-        return {}
+        """Not for public consumption -- we may change this at any time"""
+        return self._internal_kwargs
 
     def get_dset_props(self, dist_bin_edges):
-        assert np.size(dist_bin_edges) and np.ndim(dist_bin_edges) == 1
-        if self.name == "weightedmean":
-            return [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
-                    ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
-        else:
-            out = [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
-                    ('mean',    np.float64, (np.size(dist_bin_edges) - 1,))]
-            if self.name == "variance":
-                out.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
-        return out
+        return _get_dset_props_helper(self, dist_bin_edges)[0]
 
-    def validate_rslt(self, rslt, dist_bin_edges):
+    def validate_rslt(self, rslt, dist_bin_edges, *, max_total_count=None):
         _validate_basic_quan_props(self, rslt, dist_bin_edges)
 
+        # do some extra validation
+        key = _get_counts_or_weights_key(self)
+        _validate_counts_or_weights(self, rslt, key, max_total_count)
+
     def postprocess_rslt(self, rslt):
-        if rslt == {}:
+        if len(rslt) == 0:
             return
-        elif 'variance' in rslt:
-            # technically the result returned by pyvsf.vsf_props for 'variance' when
-            # post-processing is disabled is variance*counts.
+
+        if (self.name == 'variance'):
+            # technically the result produced in rslt['variance'] by the core C++ sf
+            # function is really variance*counts
 
             w = (rslt['counts'] > 1)
             # it may not make any sense to use Bessel's correction
             rslt['variance'][w] /= (rslt['counts'][w] - 1)
             rslt['variance'][~w] = 0.0
-            _set_empty_count_locs_to_NaN(rslt)
+
+        if self.name not in _HIST_STAT_NAMES:
+            # use a dummy value for dist_bin_edges
+            key = _get_counts_or_weights_key(self)
+            _set_empty_count_locs_to_NaN(rslt, key = key)
+
+        # Histogram statistics require no post-processing
 
 class StatConfFactory:
     def __init__(self, itr):
-        self._kdict = {}
-        tmp = []
-        for name, klass in set(itr):
-            self._kdict[name] = klass
-            if klass not in tmp:
-                tmp.append(klass)
-        self.unique_class_tuple = tuple(tmp)
+        self._kdict = dict(itr)
 
     def get_statconf(self, statistic, kwargs):
         try:
@@ -1206,14 +1228,7 @@ class StatConfFactory:
             # the `from None` clause avoids exception chaining
             raise ValueError(f"Unknown Statistic: {statistic}") from None
 
-_SF_STATCONF_PAIRS = (
-    ('mean', CentralMomentStatConf),
-    ('variance', CentralMomentStatConf),
-    ('histogram', GenericHistogramStatConf), 
-    ('weightedmean', CentralMomentStatConf),
-    ('weightedhistogram', GenericHistogramStatConf)
-)
-
+_SF_STATCONF_PAIRS = ( (name, StatConf) for name in _ALL_STAT_NAMES)
 _SF_STATCONF_REGISTRY = StatConfFactory(_SF_STATCONF_PAIRS)
 
 def get_statconf(statistic, kwargs):

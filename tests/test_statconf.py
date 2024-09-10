@@ -149,10 +149,10 @@ def direct_compute_stats(statconf, vals, weights=None):
             "variance": np.array([np.var(vals, ddof=1)]),
         }
     elif statconf.name == "histogram":
-        bin_edges = statconf.val_bin_edges
+        bin_edges = statconf._kwargs()["val_bin_edges"]
         return {"2D_counts": np.histogram(vals, bins=bin_edges)[0][np.newaxis]}
     elif statconf.name == "weightedhistogram":
-        bin_edges = statconf.val_bin_edges
+        bin_edges = statconf._kwargs()["val_bin_edges"]
         return {
             "2D_weight_sums": np.histogram(
                 vals, bins=bin_edges, density=False, weights=weights
