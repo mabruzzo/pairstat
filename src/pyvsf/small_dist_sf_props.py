@@ -397,7 +397,7 @@ class _PoolCallback:
                             stat_ind, cut_region_i
                         )
                         tmp = deepcopy(main_subvol_rslt)
-                        kernel.postprocess_rslt(tmp)
+                        kernel.postprocess_rslt(tmp, kwargs=stat_kw)
 
                         autosf_subvolume_callback(
                             self.structure_func_props,
@@ -463,7 +463,7 @@ def _prep_pool(pool=None):
 
 def _consolidate_rslts(stat_kw_pairs, post_proc_callback, dist_bin_edges):
     prop_l = []
-    for stat_ind, (stat_name, _) in enumerate(stat_kw_pairs):
+    for stat_ind, (stat_name, stat_kw) in enumerate(stat_kw_pairs):
         if stat_ind in post_proc_callback.accum_rslt:
             # the results for this stat are already consolidated
             prop_l.append(post_proc_callback.accum_rslt[stat_ind])
@@ -479,7 +479,7 @@ def _consolidate_rslts(stat_kw_pairs, post_proc_callback, dist_bin_edges):
 
         kernel = get_kernel(stat_name)
         for elem in prop_l[-1]:
-            kernel.postprocess_rslt(elem)
+            kernel.postprocess_rslt(elem, kwargs=stat_kw)
     return prop_l
 
 

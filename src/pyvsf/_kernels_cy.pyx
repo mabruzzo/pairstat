@@ -1084,11 +1084,6 @@ def _validate_counts_or_weights(statconf, rslt, key, *, max_total_count = None):
                 f"is only {max_total_count}."
             )
 
-
-
-
-
-
 def _check_bin_edges_arg(arg, arg_description):
     if np.size(arg) < 2 or np.ndim(arg) != 1:
         raise ValueError(f"The {arg_description} must specify a 1D array with "
@@ -1139,8 +1134,7 @@ class GenericHistogramStatConf:
         key = props[0][0]
         _validate_counts_or_weights(self, rslt, key, max_total_count=max_total_count)
                 
-    @classmethod
-    def postprocess_rslt(cls, rslt):
+    def postprocess_rslt(self, rslt):
         pass # do nothing
 
 
@@ -1182,8 +1176,7 @@ class CentralMomentStatConf:
     def validate_rslt(self, rslt, dist_bin_edges):
         _validate_basic_quan_props(self, rslt, dist_bin_edges)
 
-    @classmethod
-    def postprocess_rslt(cls, rslt):
+    def postprocess_rslt(self, rslt):
         if rslt == {}:
             return
         elif 'variance' in rslt:

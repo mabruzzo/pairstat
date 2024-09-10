@@ -271,7 +271,7 @@ class GridscaleVdiffHistogram:
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
     @classmethod
-    def postprocess_rslt(cls, rslt):
+    def postprocess_rslt(cls, rslt, kwargs={}):
         pass  # do nothing
 
     @classmethod
@@ -280,5 +280,5 @@ class GridscaleVdiffHistogram:
         for k in rslt.keys():
             rslt[k][:] = 0
         if postprocess_rslt:
-            cls.postprocess_rslt(rslt)
+            cls.postprocess_rslt(rslt, kwargs=kwargs)
         return rslt

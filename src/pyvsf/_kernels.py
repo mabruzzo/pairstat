@@ -91,7 +91,7 @@ def _stub_validate_rslt(cls, rslt, dist_bin_edges, kwargs=None):
     pass
 
 
-def _stub_postprocess_rslt(cls, rslt):
+def _stub_postprocess_rslt(cls, rslt, kwargs=None):
     pass
 
 

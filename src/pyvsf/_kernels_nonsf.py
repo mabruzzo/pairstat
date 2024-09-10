@@ -228,7 +228,7 @@ class BulkAverage:
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
     @classmethod
-    def postprocess_rslt(cls, rslt):
+    def postprocess_rslt(cls, rslt, kwargs={}):
         pass  # do nothing
 
     @classmethod
@@ -240,7 +240,7 @@ class BulkAverage:
             else:
                 rslt[k][:] = 0.0
         if postprocess_rslt:
-            cls.postprocess_rslt(rslt)
+            cls.postprocess_rslt(rslt, kwargs=kwargs)
         return rslt
 
 
@@ -544,7 +544,7 @@ class BulkVariance:
         _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
     @classmethod
-    def postprocess_rslt(cls, rslt):
+    def postprocess_rslt(cls, rslt, kwargs={}):
         pass  # do nothing
 
     @classmethod
@@ -556,5 +556,5 @@ class BulkVariance:
             else:
                 rslt[k][:] = 0.0
         if postprocess_rslt:
-            cls.postprocess_rslt(rslt)
+            cls.postprocess_rslt(rslt, kwargs=kwargs)
         return rslt
