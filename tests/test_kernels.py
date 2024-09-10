@@ -1,3 +1,5 @@
+from itertools import product
+
 import numpy as np
 import pytest
 
@@ -47,19 +49,24 @@ def assert_all_close(ref, actual, tol_spec=None):
         raise RuntimeError("something went very wrong with the specified tolerances!")
 
 
-def _prep_entries(statconf, vals, add_empty_entries=True):
+def _prep_entries(statconf, vals, weights, add_empty_entries=True):
     l = []
-    for val in vals:
+    for i, val in enumerate(vals):
         if add_empty_entries:
             l.append({})
-        l.append(_test_evaluate_statconf(statconf, [val]))
+        if weights is None:
+            cur_weights = None
+        else:
+            cur_weights = [weights[i]]
+
+        l.append(_test_evaluate_statconf(statconf, [val], cur_weights))
         if add_empty_entries:
             l.append({})
     return l
 
 
 def calc_from_statconf_consolidation(
-    statconf, vals, add_empty_entries=True, pre_accumulate_idx_l=None
+    statconf, vals, weights=None, add_empty_entries=True, pre_accumulate_idx_l=None
 ):
     """
     Performs calculations using consolidation
@@ -83,6 +90,12 @@ def calc_from_statconf_consolidation(
         and then we consolidate those partial results.
     """
     dist_bin_edges = np.array([0.0, 10000])
+
+    def _get_weights(idx):
+        if weights is None:
+            return None
+        return weights[idx]
+
     if len(pre_accumulate_idx_l) != 0:
         vals = np.array(vals)
         num_vals = vals.shape[0]
@@ -96,7 +109,9 @@ def calc_from_statconf_consolidation(
                 raise RuntimeError(f"an index of {idx} has already been visited")
             else:
                 visited[idx] = True
-                args = _prep_entries(statconf, vals[idx], add_empty_entries)
+                args = _prep_entries(
+                    statconf, vals[idx], _get_weights(idx), add_empty_entries
+                )
             partial_eval.append(
                 consolidate_partial_results(
                     statconf, args, dist_bin_edges=dist_bin_edges
@@ -104,34 +119,49 @@ def calc_from_statconf_consolidation(
             )
         args = partial_eval
         if not visited.all():
-            args += _prep_entries(statconf, vals[~visited], add_empty_entries)
+            args += _prep_entries(
+                statconf, vals[~visited], _get_weights(~visited), add_empty_entries
+            )
         out = consolidate_partial_results(statconf, args, dist_bin_edges=dist_bin_edges)
     else:
         out = consolidate_partial_results(
             statconf,
-            _prep_entries(statconf, vals, add_empty_entries),
+            _prep_entries(statconf, vals, weights, add_empty_entries),
             dist_bin_edges=dist_bin_edges,
         )
     statconf.postprocess_rslt(out)
     return out
 
 
-def direct_compute_stats(statconf, vals):
+def direct_compute_stats(statconf, vals, weights=None):
     if statconf.name == "mean":
         return {
             "counts": np.array([len(vals)]),
             "mean": np.array([np.mean(vals)]),
         }
+    elif statconf.name == "weightedmean":
+        pair = np.average(vals, weights=weights, returned=True)
+        return {"weight_sum": pair[1], "mean": pair[0]}
     elif statconf.name == "variance":
         return {
             "counts": np.array([len(vals)]),
             "mean": np.array([np.mean(vals)]),
             "variance": np.array([np.var(vals, ddof=1)]),
         }
+    elif statconf.name == "histogram":
+        bin_edges = statconf.val_bin_edges
+        return {"2D_counts": np.histogram(vals, bins=bin_edges)[0][np.newaxis]}
+    elif statconf.name == "weightedhistogram":
+        bin_edges = statconf.val_bin_edges
+        return {
+            "2D_weight_sums": np.histogram(
+                vals, bins=bin_edges, density=False, weights=weights
+            )[0][np.newaxis]
+        }
     raise RuntimeError("Can't handle specified statconf")
 
 
-def _test_consolidate(statconf, vals, tol_spec=None):
+def _test_consolidate(statconf, vals, weights=None, tol_spec=None):
     vals = np.array(vals)
     n_vals = vals.shape[0]
 
@@ -149,21 +179,20 @@ def _test_consolidate(statconf, vals, tol_spec=None):
         ],  # results include multiple counts
     ]
 
-    ref_result = direct_compute_stats(statconf, vals)
+    ref_result = _test_evaluate_statconf(statconf, vals, weights)
+    statconf.postprocess_rslt(ref_result)
 
     for pre_accumulate_idx_l in pre_accumulate_idx_l_vals:
         actual_result = calc_from_statconf_consolidation(
-            statconf, vals, pre_accumulate_idx_l=pre_accumulate_idx_l
+            statconf, vals, weights=weights, pre_accumulate_idx_l=pre_accumulate_idx_l
         )
         assert_all_close(ref_result, actual_result, tol_spec=tol_spec)
 
 
-@pytest.fixture
 def simple_vals():
     return np.arange(6.0)
 
 
-@pytest.fixture
 def random_vals():
     generator = np.random.RandomState(seed=2562642346)
     return generator.uniform(
@@ -171,11 +200,52 @@ def random_vals():
     )
 
 
-def test_consolidate_variance_simple(simple_vals):
-    statconf = get_statconf("variance", {})
-    _test_consolidate(statconf, simple_vals)
+statconfs = [
+    get_statconf("mean", {}),
+    get_statconf("weightedmean", {}),
+    get_statconf("variance", {}),
+    get_statconf("histogram", {"val_bin_edges": np.linspace(-7, 7.0, num=101)}),
+    get_statconf(
+        "weightedhistogram",
+        {"val_bin_edges": np.linspace(-7, 7.0, num=101)},
+    ),
+]
+
+testdata = [
+    pytest.param(statconf, vals_fn(), id=f"{statconf.name}-{vals_fn.__name__}")
+    for statconf, vals_fn in product(statconfs, [simple_vals, random_vals])
+]
 
 
-def test_consolidate_variance_random(random_vals):
-    statconf = get_statconf("variance", {})
-    _test_consolidate(statconf, random_vals, {("variance", "rtol"): 2e-16})
+@pytest.mark.parametrize("statconf,vals", testdata)
+def test_against_pyimpl(statconf, vals):
+    weights = None
+    if statconf.requires_weights:
+        weights = np.arange(len(vals))[::-1] + 3
+    ref_result = direct_compute_stats(statconf, vals, weights)
+    actual_result = _test_evaluate_statconf(statconf, vals, weights)
+    statconf.postprocess_rslt(actual_result)
+    tol_spec = {}
+    if statconf.name == "weightedmean":
+        tol_spec = {("mean", "rtol"): 2e-16}
+    assert_all_close(ref_result, actual_result, tol_spec=tol_spec)
+
+
+@pytest.mark.parametrize("statconf,vals", testdata)
+def test_consolidate(statconf, vals, request):
+    testid = request.node.callspec.id
+
+    weights = None
+    if statconf.requires_weights:
+        weights = np.arange(len(vals))[::-1] + 3
+
+    if (statconf.name == "variance") and testid.endswith("random_vals"):
+        tol_spec = {("variance", "rtol"): 2e-16}
+    elif statconf.name == "weightedmean":
+        if testid.endswith("simple_vals"):
+            tol_spec = {("mean", "rtol"): 2e-16}
+        else:
+            tol_spec = {("mean", "rtol"): 6e-16}
+    else:
+        tol_spec = None
+    _test_consolidate(statconf, vals, weights, tol_spec=tol_spec)

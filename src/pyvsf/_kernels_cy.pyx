@@ -957,16 +957,12 @@ cdef class SFConsolidator:
         return self.statconf.get_dset_props(self.dist_bin_edges)
 
     def _purge_values(self):
-        # come up with some zero-initialized values
-        tmp = self.statconf.zero_initialize_rslt(self.dist_bin_edges,
-                                                 postprocess_rslt = False)
-
-        # convert tmp so that it's an instance of ArrayDict
-        assert isinstance(tmp, dict) # sanity check
-        tmp = ArrayMap.copy_from_dict(tmp)
-
-        # finally restore the handle from the zero-initialized values
-        _restore_handle_from_ArrayMap(self.primary_handle, tmp)
+        # the choice of spatial_bin_index doesn't matter since we don't actually add
+        # any values. We're just taking advantage of the ability to zero-initialize
+        # the values
+        spatial_bin_index = 0
+        accumhandle_add_entries(self.primary_handle, 1, spatial_bin_index,
+                                0, NULL, NULL)
 
     def consolidate(self, *rslts):
         # first lets purge the values held in primary_handle
@@ -1119,18 +1115,6 @@ def _validate_hist_results(kernel, rslt, dist_bin_edges, used_points = None):
                     f"points. In reality, it has {n_pairs} pairs."
                 )
 
-def _zero_initialize_hist_rslt(kernel, dist_bin_edges,
-                               postprocess_rslt):
-    # basically create a result object for a dataset that didn't have any
-    # pairs at all
-    rslt = _allocate_unintialized_rslt_dict(kernel, dist_bin_edges)
-    for k in rslt.keys():
-        rslt[k][...] = 0
-    if postprocess_rslt:
-        kernel.postprocess_rslt(rslt)
-    return rslt
-
-
 class Histogram:
 
     def __init__(self, name, kwargs):
@@ -1160,12 +1144,6 @@ class Histogram:
     def postprocess_rslt(cls, rslt):
         pass # do nothing
 
-    def zero_initialize_rslt(self, dist_bin_edges, postprocess_rslt = True):
-        # basically create a result object for a dataset that didn't have any
-        # pairs at all
-        return _zero_initialize_hist_rslt(kernel = self,
-                                          dist_bin_edges = dist_bin_edges,
-                                          postprocess_rslt = postprocess_rslt)
 
 class WeightedHistogram:
 
@@ -1195,13 +1173,6 @@ class WeightedHistogram:
     @classmethod
     def postprocess_rslt(cls, rslt):
         pass # do nothing
-
-    def zero_initialize_rslt(self, dist_bin_edges, postprocess_rslt = True):
-        # basically create a result object for a dataset that didn't have any
-        # pairs at all
-        return _zero_initialize_hist_rslt(kernel = self,
-                                          dist_bin_edges = dist_bin_edges,
-                                          postprocess_rslt = postprocess_rslt)
 
 
 
@@ -1256,23 +1227,6 @@ class CentralMomentStatConf:
             rslt['variance'][w] /= (rslt['counts'][w] - 1)
             rslt['variance'][~w] = 0.0
             _set_empty_count_locs_to_NaN(rslt)
-
-    def zero_initialize_rslt(self, dist_bin_edges, postprocess_rslt = True):
-        # basically create a result object for a dataset that didn't have any
-        # pairs at all
-        if self.name == "variance":
-            rslt = _allocate_unintialized_rslt_dict(self, dist_bin_edges)
-            for k in rslt.keys():
-                if k == 'counts':
-                    rslt['counts'][...] = 0
-                else:
-                    rslt[k][...] = 0
-        else:
-            raise NotImplementedError()
-
-        if postprocess_rslt:
-            self.postprocess_rslt(rslt)
-        return rslt
 
 class StatConfFactory:
     def __init__(self, itr):

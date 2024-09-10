@@ -238,7 +238,8 @@ public:  // interface
 
   template <typename T>
   T& access(std::size_t i) noexcept {
-    return const_cast<T&>(const_cast<WeightedMeanAccum*>(this)->access<T>(i));
+    return const_cast<T&>(
+        const_cast<const WeightedMeanAccum*>(this)->access<T>(i));
   }
 
   WeightedMeanAccum() : weight_sum(0.0), mean(0.0) {}
