@@ -78,9 +78,6 @@ class CentralMomentAccum {
   static_assert(std::is_same_v<CountT, std::int64_t> ||
                     std::is_same_v<CountT, double>,
                 "invalid type was used.");
-  static_assert(((std::is_same_v<CountT, double> && (Order == 1)) ||
-                 std::is_same_v<CountT, std::int64_t>),
-                "Can only currently use weights when Order == 1.");
 
   /// Specifies a LUT for the moment_accums array.
   ///
@@ -179,6 +176,11 @@ public:  // interface
       // we could use the following line if we wanted to allow weight=0
       // mean += (val_minus_last_mean*weight) / (weight_sum + (weight_sum==0));
       moment_accums[LUT::mean] += (val_minus_last_mean * weight) / weight_sum;
+      if constexpr (Order > 1) {
+        double val_minus_cur_mean = val - moment_accums[LUT::mean];
+        moment_accums[LUT::cur_M2] +=
+            (weight * val_minus_last_mean * val_minus_cur_mean);
+      }
     }
   }
 

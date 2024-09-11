@@ -7,6 +7,7 @@ from copy import deepcopy
 
 import numpy as np
 
+from .utils import weighted_variance
 from ._kernels_cy import _validate_basic_quan_props, _allocate_unintialized_rslt_dict
 
 
@@ -244,62 +245,6 @@ class BulkAverage:
         return rslt
 
 
-def _weighted_variance(x, axis=None, weights=None, returned=False):
-    """
-    Compute the weighted variance.
-
-    We explicitly divide the sum of the squared deviations from the mean by the
-
-    Parameters
-    ----------
-    x: ndarray
-        Array containing numbers whose weighted variance is desired
-    axis: None or int
-        Axis along which to average `values`
-    weights: ndarray, optional
-        An array of weights associated with the values in a. If `weights` is
-        `None`, each value in `x` is assumed to have a weight of 1.
-    returned: bool, optional
-        Default is `False`. If True, the tuple
-        `(variance, average, sum_of_weights)` is returned,
-        otherwise only the variance is returned
-
-    Notes
-    -----
-    If `x` and `weights` are 1D arrays, we explicitly use the formula:
-        `var = np.sum( weights * np.square(x - mean) ) / np.sum(weight)`,
-    where `mean = np.average(x, weights = weights)`.
-
-    When the weights are all identically equal to 1, this is equivalent to:
-        `var = np.sum( np.square(x - np.mean(x))**2 ) / x.size`
-
-    To be clear, we are NOT trying to to return an unbiased estimate of the
-    variance. Further elaboration is given in the docstring for the
-    `BulkVariance` class.
-    """
-
-    # before anything else, compute the weighted average (if we're going to
-    # need it)
-    if returned or (weights is not None):
-        mean, weight_sum = np.average(x, axis=axis, weights=weights, returned=True)
-
-    if weights is None:
-        variance = np.var(x, axis=axis, ddof=0)
-    elif (np.ndim(x) == 2) and (axis == 1) and (np.ndim(weights) == 1):
-        x = np.asarray(x, dtype=np.float64)
-        weights = np.asarray(weights, dtype=np.float64)
-        assert x.shape[1:] == weights.shape
-        variance = np.empty((x.shape[0],), dtype=np.float64)
-        for i in range(variance.size):
-            variance[i] = np.sum(weights * np.square(x[i, :] - mean[i])) / weight_sum[i]
-    else:
-        raise NotImplementedError("A generic implementation has not been " "provided")
-    if returned:
-        return variance, mean, weight_sum
-    else:
-        return variance
-
-
 def compute_bulk_variance(quan, extra_quantities, kwargs):
     """
     Parameters
@@ -326,7 +271,7 @@ def compute_bulk_variance(quan, extra_quantities, kwargs):
 
     for i, weights in enumerate(weight_l):
         # axis = 1 seems counter-intuitive, but I've confirmed it's correct
-        cur_vars, cur_avgs, cur_sum_of_weights = _weighted_variance(
+        cur_vars, cur_avgs, cur_sum_of_weights = weighted_variance(
             quan, axis=1, weights=weights, returned=True
         )
 

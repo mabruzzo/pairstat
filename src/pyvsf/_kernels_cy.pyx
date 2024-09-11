@@ -695,6 +695,9 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
           statistic name (to specify the bin edges along axis 1). It
           should be associated with a 1D monotonic array.
         - 'weightedmean': just like 'mean', but weights are used
+        - 'weightedvariance': just like 'variance', but weights are used
+          and we do NOT try to get an unbiased estimate with Bessel's
+          correction.
         - 'weightedhistogram': just like 'histogram', but weights are used
     """
 
@@ -1111,9 +1114,11 @@ def _get_dset_props_helper(statconf, dist_bin_edges):
     """
 
     _check_dist_bin_edges(dist_bin_edges)
-    if statconf.name == "weightedmean":
+    if statconf.name in ["weightedmean", 'weightedvariance']:
         props = [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
                  ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
+        if statconf.name == "weightedvariance":
+            props.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
         count_weight_index = 0
     elif statconf.name in ("mean", "variance"):
         props = [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
@@ -1151,7 +1156,7 @@ def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
         else:
             v[w_mask] = np.nan
 
-_STAT_NAMES_1D = ("mean", "variance", "weightedmean")
+_STAT_NAMES_1D = ("mean", "variance", "weightedmean", "weightedvariance")
 _HIST_STAT_NAMES = ("histogram", "weightedhistogram")
 _ALL_SF_STAT_NAMES = _STAT_NAMES_1D + _HIST_STAT_NAMES
 
@@ -1211,6 +1216,20 @@ class StatConf:
             # it may not make any sense to use Bessel's correction
             rslt['variance'][w] /= (rslt['counts'][w] - 1)
             rslt['variance'][~w] = 0.0
+        elif (self.name == 'weightedvariance'):
+            # technically the result produced in rslt['variance'] by the core C++ sf
+            # function is really variance*weights
+
+            # the following selection is not exaclty analogous to the unweighted case,
+            # but it's the best we can do (it should be ok)
+            w = (rslt['weight_sum'] > 0.0)
+
+            # we do NOT apply a form of Bessel's correction. For an explanation, see
+            # the docstring of utils.weighted_variance
+            rslt['variance'][w] /= rslt['weight_sum'][w]
+            rslt['variance'][~w] = 0.0
+
+
 
         if self.name not in _HIST_STAT_NAMES:
             # use a dummy value for dist_bin_edges

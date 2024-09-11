@@ -72,7 +72,7 @@ class ArrayMapEntrySpec:
     def _get_subarray(self, key, array):
         tmp = self._get_entry(key)
         if tmp is None:
-            raise KeyError("key")
+            raise KeyError(f"{key}")
         key, dtype, shape, index_start, index_stop = tmp
         view = array[index_start:index_stop]
         view.dtype = dtype

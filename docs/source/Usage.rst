@@ -79,6 +79,7 @@ Supported statistics include:
    * - ``"variance"``
      - ``[("variances", {})]`` 
      - Computes the number of pairs, the mean, and the variance.
+       We currently apply Bessel's correction to try to get an unbiased estimate of variance.
    * - ``"histogram"``
      - ``[("histogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
      - Tracks the number of value computed for each pair of bins based on the specified ``"val_bin_edges"`` kwarg.
@@ -87,6 +88,11 @@ Supported statistics include:
    * - ``"weightedmean"``
      - ``[("weightedmean", {})]`` 
      - Computes the total weight and the weighted mean.
+       Not supported by ``pyvsf.twopoint_correlation``
+   * - ``"weightedvariance"``
+     - ``[("weightedmean", {})]`` 
+     - Computes the total weight, the weighted mean, and the weighted variance.
+       No corrections are made to get an unbiased estimate of variance.
        Not supported by ``pyvsf.twopoint_correlation``
    * - ``"weightedhistogram"``
      - ``[("weightedhistogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
@@ -101,6 +107,8 @@ At the moment, you can chain together:
 * ``"variance"`` and ``"histogram"``
 
 * ``"weightedmean"`` and ``"wightedhistogram"``
+
+* ``"weightedvariance"`` and ``"wightedhistogram"``
 
 .. rubric:: Footnotes
 

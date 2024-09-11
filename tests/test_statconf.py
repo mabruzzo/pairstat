@@ -8,6 +8,7 @@ from pyvsf._kernels_cy import (
     consolidate_partial_results,
     _test_evaluate_statconf,
 )
+from pyvsf.utils import weighted_variance
 
 
 def assert_all_close(ref, actual, tol_spec=None):
@@ -148,6 +149,9 @@ def direct_compute_stats(statconf, vals, weights=None):
             "mean": np.array([np.mean(vals)]),
             "variance": np.array([np.var(vals, ddof=1)]),
         }
+    elif statconf.name == "weightedvariance":
+        triple = weighted_variance(vals, weights=weights, returned=True)
+        return {"weight_sum": triple[2], "mean": triple[1], "variance": triple[0]}
     elif statconf.name == "histogram":
         bin_edges = statconf._kwargs()["val_bin_edges"]
         return {"2D_counts": np.histogram(vals, bins=bin_edges)[0][np.newaxis]}
@@ -204,6 +208,7 @@ statconfs = [
     get_statconf("mean", {}),
     get_statconf("weightedmean", {}),
     get_statconf("variance", {}),
+    get_statconf("weightedvariance", {}),
     get_statconf("histogram", {"val_bin_edges": np.linspace(-7, 7.0, num=101)}),
     get_statconf(
         "weightedhistogram",
@@ -226,8 +231,9 @@ def test_against_pyimpl(statconf, vals):
     actual_result = _test_evaluate_statconf(statconf, vals, weights)
     statconf.postprocess_rslt(actual_result)
     tol_spec = {}
-    if statconf.name == "weightedmean":
+    if statconf.name in ["weightedmean", "weightedvariance"]:
         tol_spec = {("mean", "rtol"): 2e-16}
+
     assert_all_close(ref_result, actual_result, tol_spec=tol_spec)
 
 
@@ -241,11 +247,15 @@ def test_consolidate(statconf, vals, request):
 
     if (statconf.name == "variance") and testid.endswith("random_vals"):
         tol_spec = {("variance", "rtol"): 2e-16}
-    elif statconf.name == "weightedmean":
+    elif statconf.name in ["weightedmean", "weightedvariance"]:
         if testid.endswith("simple_vals"):
             tol_spec = {("mean", "rtol"): 2e-16}
+            if statconf.name == "weightedvariance":
+                tol_spec["variance", "rtol"] = 2e-16
         else:
             tol_spec = {("mean", "rtol"): 6e-16}
+            if statconf.name == "weightedvariance":
+                tol_spec["variance", "rtol"] = 4e-16
     else:
         tol_spec = None
     _test_consolidate(statconf, vals, weights, tol_spec=tol_spec)

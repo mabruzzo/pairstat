@@ -21,14 +21,16 @@ using WeightedCentralMomentAccumCollection =
     ScalarAccumCollection<CentralMomentAccum<Order, double>>;
 
 using AccumColVariant = std::variant<
-    CentralMomentAccumCollection<1>, CentralMomentAccumCollection<2>,
-    HistogramAccumCollection, WeightedCentralMomentAccumCollection<1>,
-    WeightedHistogramAccumCollection,
+    CentralMomentAccumCollection<1>, WeightedCentralMomentAccumCollection<1>,
+    CentralMomentAccumCollection<2>, WeightedCentralMomentAccumCollection<2>,
+    HistogramAccumCollection, WeightedHistogramAccumCollection,
     // here we start listing the fused options
     MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<1>>,
     MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<2>>,
     MyFusedAccumCol<WeightedHistogramAccumCollection,
-                    WeightedCentralMomentAccumCollection<1>>>;
+                    WeightedCentralMomentAccumCollection<1>>,
+    MyFusedAccumCol<WeightedHistogramAccumCollection,
+                    WeightedCentralMomentAccumCollection<2>>>;
 
 struct BuildContext_ {
   const StatListItem* stat_list;
@@ -78,6 +80,8 @@ inline AccumColVariant build_accum_collection(
       return ctx.build1<HistogramAccumCollection>();
     } else if (stat == "weightedmean") {
       return ctx.build1<WeightedCentralMomentAccumCollection<1>>();
+    } else if (stat == "weightedvariance") {
+      return ctx.build1<WeightedCentralMomentAccumCollection<2>>();
     } else if (stat == "weightedhistogram") {
       return ctx.build1<WeightedHistogramAccumCollection>();
     } else {
@@ -97,6 +101,11 @@ inline AccumColVariant build_accum_collection(
           .build2<HistogramAccumCollection, CentralMomentAccumCollection<2>>();
 
     } else if ((stat0 == "weightedhistogram") && (stat1 == "weightedmean")) {
+      return ctx.build2<WeightedHistogramAccumCollection,
+                        WeightedCentralMomentAccumCollection<1>>();
+
+    } else if ((stat0 == "weightedhistogram") &&
+               (stat1 == "weightedvariance")) {
       return ctx.build2<WeightedHistogramAccumCollection,
                         WeightedCentralMomentAccumCollection<1>>();
 
