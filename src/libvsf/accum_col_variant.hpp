@@ -21,8 +21,11 @@ using WeightedCentralMomentAccumCollection =
     ScalarAccumCollection<CentralMomentAccum<Order, double>>;
 
 using AccumColVariant = std::variant<
+    // list CentralMoment accumulators
     CentralMomentAccumCollection<1>, WeightedCentralMomentAccumCollection<1>,
     CentralMomentAccumCollection<2>, WeightedCentralMomentAccumCollection<2>,
+    CentralMomentAccumCollection<3>,
+    // list Historgram accumulators
     HistogramAccumCollection, WeightedHistogramAccumCollection,
     // here we start listing the fused options
     MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<1>>,
@@ -76,6 +79,8 @@ inline AccumColVariant build_accum_collection(
       return ctx.build1<CentralMomentAccumCollection<1>>();
     } else if (stat == "variance") {
       return ctx.build1<CentralMomentAccumCollection<2>>();
+    } else if (stat == "centralmoment3") {
+      return ctx.build1<CentralMomentAccumCollection<3>>();
     } else if (stat == "histogram") {
       return ctx.build1<HistogramAccumCollection>();
     } else if (stat == "weightedmean") {

@@ -73,11 +73,14 @@ inline double consolidate_mean_(double primary_mean, T primary_weight,
 /// https://zenodo.org/records/1232635
 template <int Order, typename CountT = int64_t>
 class CentralMomentAccum {
-  static_assert((1 <= Order) && (Order <= 2),
-                "at the moment we only allow 1 <= Order <=2");
+  static_assert((1 <= Order) && (Order <= 3),
+                "at the moment we only allow 1 <= Order <=3");
   static_assert(std::is_same_v<CountT, std::int64_t> ||
                     std::is_same_v<CountT, double>,
                 "invalid type was used.");
+  static_assert(((std::is_same_v<CountT, double> && (Order <= 2)) ||
+                 std::is_same_v<CountT, std::int64_t>),
+                "Can only currently use weights when Order <= 2.");
 
   /// Specifies a LUT for the moment_accums array.
   ///
@@ -86,7 +89,7 @@ class CentralMomentAccum {
   /// must be namespace qualified. We DON'T use scoped enums because we want
   /// the enums to be interchangeable with integers
   struct LUT {
-    enum { mean = 0, cur_M2 = 1 };
+    enum { mean = 0, cur_M2 = 1, cur_M3 = 2 };
   };
 
 public:  // interface
@@ -99,7 +102,9 @@ public:  // interface
     } else if constexpr (Order == 2 && std::is_same_v<CountT, std::int64_t>) {
       return "variance";
     } else if constexpr (Order == 2) {
-      return "weightedvariance";  // not fully implemented
+      return "weightedvariance";
+    } else if constexpr (Order == 2 && std::is_same_v<CountT, std::int64_t>) {
+      return "moment3";
     } else {
       static_assert(dummy_false_v_<CountT>, "weird template specialization");
     }
@@ -115,6 +120,7 @@ public:  // interface
     if (std::is_same_v<CountT, double>) out.push_back("weight_sum");
     out.push_back("mean");
     if (Order > 1) out.push_back("variance*count");
+    if (Order > 2) out.push_back("moment3*count");
     return out;
   }
 
@@ -155,10 +161,18 @@ public:  // interface
     if constexpr (std::is_same_v<CountT, std::int64_t>) {
       count++;
       double val_minus_last_mean = val - moment_accums[LUT::mean];
-      moment_accums[LUT::mean] += (val_minus_last_mean) / count;
+      double delta = val_minus_last_mean;
+      double delta_div_n = delta / count;
+      moment_accums[LUT::mean] += delta_div_n;
       if constexpr (Order > 1) {
         double val_minus_cur_mean = val - moment_accums[LUT::mean];
-        moment_accums[LUT::cur_M2] += val_minus_last_mean * val_minus_cur_mean;
+        double delta2_nm1_div_n = val_minus_last_mean * val_minus_cur_mean;
+        if constexpr (Order > 2) {
+          moment_accums[LUT::cur_M3] +=
+              (delta2_nm1_div_n * delta_div_n * (count - 2) -
+               3 * moment_accums[LUT::cur_M2] * delta_div_n);
+        }
+        moment_accums[LUT::cur_M2] += delta2_nm1_div_n;
       }
     } else {
       error("This version of the function won't work!");
@@ -208,11 +222,20 @@ public:  // interface
       if constexpr (Order > 1) {
         double delta =
             (other.moment_accums[LUT::mean] - this->moment_accums[LUT::mean]);
-        double delta2 = delta * delta;
+        double delta2_nprod_div_ntot =
+            (delta * delta) * (this->count * other.count / totcount);
+        if constexpr (Order > 2) {
+          double term1 = delta2_nprod_div_ntot * (other.count - this->count);
+          double term2 = 3 * ((this->count * other.moment_accums[LUT::cur_M2]) -
+                              (other.count * this->moment_accums[LUT::cur_M2]));
+          this->moment_accums[LUT::cur_M3] =
+              (this->moment_accums[LUT::cur_M3] +
+               other.moment_accums[LUT::cur_M3] +
+               (delta * (term1 + term2)) / totcount);
+        }
         this->moment_accums[LUT::cur_M2] =
             (this->moment_accums[LUT::cur_M2] +
-             other.moment_accums[LUT::cur_M2] +
-             delta2 * (this->count * other.count / totcount));
+             other.moment_accums[LUT::cur_M2] + delta2_nprod_div_ntot);
       }
       this->moment_accums[LUT::mean] = consolidate_mean_(
           this->moment_accums[LUT::mean], this->count,

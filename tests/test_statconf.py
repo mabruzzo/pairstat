@@ -149,6 +149,14 @@ def direct_compute_stats(statconf, vals, weights=None):
             "mean": np.array([np.mean(vals)]),
             "variance": np.array([np.var(vals, ddof=1)]),
         }
+    elif statconf.name == "centralmoment3":
+        mean = np.mean(vals)
+        return {
+            "counts": np.array([len(vals)]),
+            "mean": np.array([mean]),
+            "variance": np.array([np.var(vals, ddof=1)]),
+            "centralmoment3": np.mean((vals - mean)**3)
+        }
     elif statconf.name == "weightedvariance":
         triple = weighted_variance(vals, weights=weights, returned=True)
         return {"weight_sum": triple[2], "mean": triple[1], "variance": triple[0]}
@@ -208,6 +216,7 @@ statconfs = [
     get_statconf("mean", {}),
     get_statconf("weightedmean", {}),
     get_statconf("variance", {}),
+    get_statconf("centralmoment3", {}),
     get_statconf("weightedvariance", {}),
     get_statconf("histogram", {"val_bin_edges": np.linspace(-7, 7.0, num=101)}),
     get_statconf(
@@ -223,7 +232,8 @@ testdata = [
 
 
 @pytest.mark.parametrize("statconf,vals", testdata)
-def test_against_pyimpl(statconf, vals):
+def test_against_pyimpl(statconf, vals, request):
+    testid = request.node.callspec.id
     weights = None
     if statconf.requires_weights:
         weights = np.arange(len(vals))[::-1] + 3
@@ -233,6 +243,8 @@ def test_against_pyimpl(statconf, vals):
     tol_spec = {}
     if statconf.name in ["weightedmean", "weightedvariance"]:
         tol_spec = {("mean", "rtol"): 2e-16}
+    elif statconf.name == "centralmoment3" and testid.endswith('random_vals'):
+        tol_spec = {("centralmoment3", "rtol"): 7e-15}
 
     assert_all_close(ref_result, actual_result, tol_spec=tol_spec)
 
@@ -245,8 +257,12 @@ def test_consolidate(statconf, vals, request):
     if statconf.requires_weights:
         weights = np.arange(len(vals))[::-1] + 3
 
-    if (statconf.name == "variance") and testid.endswith("random_vals"):
+    if ((statconf.name in ["variance", "centralmoment3"]) and
+        testid.endswith("random_vals")):
         tol_spec = {("variance", "rtol"): 2e-16}
+        if statconf.name == "centralmoment3":
+            tol_spec["centralmoment3", "rtol"] = 3e-15
+
     elif statconf.name in ["weightedmean", "weightedvariance"]:
         if testid.endswith("simple_vals"):
             tol_spec = {("mean", "rtol"): 2e-16}
@@ -257,5 +273,5 @@ def test_consolidate(statconf, vals, request):
             if statconf.name == "weightedvariance":
                 tol_spec["variance", "rtol"] = 4e-16
     else:
-        tol_spec = None
+        tol_spec = {}
     _test_consolidate(statconf, vals, weights, tol_spec=tol_spec)

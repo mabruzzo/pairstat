@@ -1120,11 +1120,15 @@ def _get_dset_props_helper(statconf, dist_bin_edges):
         if statconf.name == "weightedvariance":
             props.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
         count_weight_index = 0
-    elif statconf.name in ("mean", "variance"):
+    elif statconf.name in ("mean", "variance", "centralmoment3"):
         props = [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
                  ('mean',    np.float64, (np.size(dist_bin_edges) - 1,))]
-        if statconf.name == "variance":
+        if statconf.name in ["variance", "centralmoment3"]:
             props.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
+        if statconf.name == "centralmoment3":
+            props.append(
+                ('centralmoment3', np.float64, (np.size(dist_bin_edges) - 1,))
+            )
         count_weight_index = 0
     elif statconf.name in ("histogram", "weightedhistogram"):
         val_bin_edges = statconf._kwargs()['val_bin_edges']
@@ -1156,7 +1160,7 @@ def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
         else:
             v[w_mask] = np.nan
 
-_STAT_NAMES_1D = ("mean", "variance", "weightedmean", "weightedvariance")
+_STAT_NAMES_1D = ("mean", "variance", "centralmoment3", "weightedmean", "weightedvariance")
 _HIST_STAT_NAMES = ("histogram", "weightedhistogram")
 _ALL_SF_STAT_NAMES = _STAT_NAMES_1D + _HIST_STAT_NAMES
 
@@ -1208,7 +1212,7 @@ class StatConf:
         if len(rslt) == 0:
             return
 
-        if (self.name == 'variance'):
+        if self.name in ['variance', 'centralmoment3']:
             # technically the result produced in rslt['variance'] by the core C++ sf
             # function is really variance*counts
 
@@ -1216,7 +1220,13 @@ class StatConf:
             # it may not make any sense to use Bessel's correction
             rslt['variance'][w] /= (rslt['counts'][w] - 1)
             rslt['variance'][~w] = 0.0
-        elif (self.name == 'weightedvariance'):
+            if self.name == 'centralmoment3':
+                w = (rslt['counts'] > 2)
+                # it may not make any sense to use Bessel's correction
+                rslt['centralmoment3'][w] /= rslt['counts'][w]
+                rslt['centralmoment3'][~w] = 0.0
+
+        elif self.name == 'weightedvariance':
             # technically the result produced in rslt['variance'] by the core C++ sf
             # function is really variance*weights
 
