@@ -14,17 +14,21 @@ using MyFusedAccumCol = FusedAccumCollection<std::tuple<T0, T1>>;
 
 template <int Order>
 using CentralMomentAccumCollection =
-    ScalarAccumCollection<CentralMomentAccum<Order>>;
+    ScalarAccumCollection<CentralMomentAccum<Order, std::int64_t>>;
+
+template <int Order>
+using WeightedCentralMomentAccumCollection =
+    ScalarAccumCollection<CentralMomentAccum<Order, double>>;
 
 using AccumColVariant = std::variant<
     CentralMomentAccumCollection<1>, CentralMomentAccumCollection<2>,
-    HistogramAccumCollection, ScalarAccumCollection<WeightedMeanAccum>,
+    HistogramAccumCollection, WeightedCentralMomentAccumCollection<1>,
     WeightedHistogramAccumCollection,
     // here we start listing the fused options
     MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<1>>,
     MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<2>>,
     MyFusedAccumCol<WeightedHistogramAccumCollection,
-                    ScalarAccumCollection<WeightedMeanAccum>>>;
+                    WeightedCentralMomentAccumCollection<1>>>;
 
 struct BuildContext_ {
   const StatListItem* stat_list;
@@ -73,7 +77,7 @@ inline AccumColVariant build_accum_collection(
     } else if (stat == "histogram") {
       return ctx.build1<HistogramAccumCollection>();
     } else if (stat == "weightedmean") {
-      return ctx.build1<ScalarAccumCollection<WeightedMeanAccum>>();
+      return ctx.build1<WeightedCentralMomentAccumCollection<1>>();
     } else if (stat == "weightedhistogram") {
       return ctx.build1<WeightedHistogramAccumCollection>();
     } else {
@@ -94,7 +98,7 @@ inline AccumColVariant build_accum_collection(
 
     } else if ((stat0 == "weightedhistogram") && (stat1 == "weightedmean")) {
       return ctx.build2<WeightedHistogramAccumCollection,
-                        ScalarAccumCollection<WeightedMeanAccum>>();
+                        WeightedCentralMomentAccumCollection<1>>();
 
     } else {
       std::string err_msg = ("unrecognized stat combination: \"" + stat0 +

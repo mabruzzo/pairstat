@@ -8,8 +8,8 @@
 #include <utility>      // std::pair
 #include <vector>
 
-#include "vsf.hpp" // BinSpecification
 #include "utils.hpp"  // error
+#include "vsf.hpp"    // BinSpecification
 
 /// defining a construct like this is a common workaround used to raise a
 /// compile-time error in the else-branch of a constexpr-if statement.
@@ -51,12 +51,17 @@ inline double consolidate_mean_(double primary_mean, T primary_weight,
 // - must currently define the count attribute (which tracks the number of
 //   entries that have been added to the accumulator so far).
 
-
 /// Implements an accumulator (for measuring central moments) that can be
 /// used to simplify ScalarAccumCollection
 ///
-/// As a historical note, we originally had separate accumulators for mean
-/// and variance.
+/// @tparam Order Specifies the highest order moment that is computed. We also
+///    compute all lower order moments
+/// @tparam CountT Specifies the type of the counts. When this is int64_t
+///    the class does standard stuff. When it is double, the class computes
+///    the weighted moments
+///
+/// As a historical note, we originally had separate accumulators for mean,
+/// variance, and weighted mean.
 ///
 /// @note
 /// The 1st and 2nd second moments exactly the same as mean and variance.
@@ -66,10 +71,16 @@ inline double consolidate_mean_(double primary_mean, T primary_weight,
 /// @note
 /// In the future, to generalize to higher order moments, we can look at
 /// https://zenodo.org/records/1232635
-template <int Order>
+template <int Order, typename CountT = int64_t>
 class CentralMomentAccum {
   static_assert((1 <= Order) && (Order <= 2),
                 "at the moment we only allow 1 <= Order <=2");
+  static_assert(std::is_same_v<CountT, std::int64_t> ||
+                    std::is_same_v<CountT, double>,
+                "invalid type was used.");
+  static_assert(((std::is_same_v<CountT, double> && (Order == 1)) ||
+                 std::is_same_v<CountT, std::int64_t>),
+                "Can only currently use weights when Order == 1.");
 
   /// Specifies a LUT for the moment_accums array.
   ///
@@ -84,43 +95,58 @@ class CentralMomentAccum {
 public:  // interface
   /// Returns the name of the stat computed by the accumulator
   static std::string stat_name() noexcept {
-    if constexpr (Order == 1) {
+    if constexpr (Order == 1 && std::is_same_v<CountT, std::int64_t>) {
       return "mean";
-    } else {
+    } else if constexpr (Order == 1) {
+      return "weightedmean";
+    } else if constexpr (Order == 2 && std::is_same_v<CountT, std::int64_t>) {
       return "variance";
+    } else if constexpr (Order == 2) {
+      return "weightedvariance";  // not fully implemented
+    } else {
+      static_assert(dummy_false_v_<CountT>, "weird template specialization");
     }
   }
 
-  static std::vector<std::string> i64_val_names() noexcept { return {"count"}; }
+  static std::vector<std::string> i64_val_names() noexcept {
+    if (std::is_same_v<CountT, double>) return {};
+    return {"count"};
+  }
 
   static std::vector<std::string> flt_val_names() noexcept {
-    if constexpr (Order == 1) {
-      return {"mean"};
-    } else {
-      return {"mean", "variance*count"};
-    }
+    std::vector<std::string> out{};
+    if (std::is_same_v<CountT, double>) out.push_back("weight_sum");
+    out.push_back("mean");
+    if (Order > 1) out.push_back("variance*count");
+    return out;
   }
 
-  static constexpr bool requires_weight = false;
+  static constexpr bool requires_weight = std::is_same_v<CountT, double>;
 
   template <typename T>
   const T& access(std::size_t i) const noexcept {
-    if constexpr (std::is_same_v<T, std::int64_t>) {
+    if constexpr (std::is_same_v<T, std::int64_t> &&
+                  std::is_same_v<CountT, std::int64_t>) {
       if (i != 0) error("only has 1 integer value");
       return this->count;
-    } else if constexpr (std::is_same_v<T, double>) {
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+      error("has no integer value");
+    } else if constexpr (std::is_same_v<T, double> &&
+                         std::is_same_v<CountT, std::int64_t>) {
       if (i >= Order) error("trying to access a non-existent float_val");
       return moment_accums[i];
     } else {
-      static_assert(dummy_false_v_<T>,
-                    "template T must be double or std::int64_t");
+      if (i > Order) error("trying to access a non-existent float_val");
+      if (i == 0) return count;
+      return moment_accums[i - 1];
     }
   }
 
   template <typename T>
   T& access(std::size_t i) noexcept {
     const T& out =
-        const_cast<const CentralMomentAccum<Order>*>(this)->access<T>(i);
+        const_cast<const CentralMomentAccum<Order, CountT>*>(this)->access<T>(
+            i);
     return const_cast<T&>(out);
   }
 
@@ -129,25 +155,40 @@ public:  // interface
   }
 
   inline void add_entry(double val) noexcept {
-    count++;
-    double val_minus_last_mean = val - moment_accums[LUT::mean];
-    moment_accums[LUT::mean] += (val_minus_last_mean) / count;
-    if constexpr (Order > 1) {
-      double val_minus_cur_mean = val - moment_accums[LUT::mean];
-      moment_accums[LUT::cur_M2] += val_minus_last_mean * val_minus_cur_mean;
+    if constexpr (std::is_same_v<CountT, std::int64_t>) {
+      count++;
+      double val_minus_last_mean = val - moment_accums[LUT::mean];
+      moment_accums[LUT::mean] += (val_minus_last_mean) / count;
+      if constexpr (Order > 1) {
+        double val_minus_cur_mean = val - moment_accums[LUT::mean];
+        moment_accums[LUT::cur_M2] += val_minus_last_mean * val_minus_cur_mean;
+      }
+    } else {
+      error("This version of the function won't work!");
     }
   }
 
-  /// we ignore the weight
-  inline void add_entry(double val, double weight) noexcept { add_entry(val); }
+  inline void add_entry(double val, double weight) noexcept {
+    if constexpr (std::is_same_v<CountT, std::int64_t>) {
+      /// we ignore the weight
+      add_entry(val);
+    } else {
+      double& weight_sum = count;
+      weight_sum += weight;
+      double val_minus_last_mean = val - moment_accums[LUT::mean];
+      // we could use the following line if we wanted to allow weight=0
+      // mean += (val_minus_last_mean*weight) / (weight_sum + (weight_sum==0));
+      moment_accums[LUT::mean] += (val_minus_last_mean * weight) / weight_sum;
+    }
+  }
 
   inline void consolidate_with_other(
-      const CentralMomentAccum<Order>& other) noexcept {
+      const CentralMomentAccum<Order, CountT>& other) noexcept {
     if (this->count == 0) {
       (*this) = other;
     } else if (other.count == 0) {
       // do nothing
-    } else if (this->count == 1) {
+    } else if ((this->count == 1) && std::is_same_v<CountT, std::int64_t>) {
       // set temp equal to the value of the mean, currently held by `this`
       // (since the count is 1, this it exactly equal to the value of the sole
       // entry previously encountered by `this`)
@@ -157,7 +198,8 @@ public:  // interface
       // add the value of the entry
       this->add_entry(temp);
 
-    } else if (other.count == 1) {  // equiv to adding a single entry to *this
+    } else if ((other.count == 1) && std::is_same_v<CountT, std::int64_t>) {
+      // equiv to adding a single entry to *this
       this->add_entry(other.moment_accums[LUT::mean]);
     } else {  // general case
       double totcount = this->count + other.count;
@@ -178,86 +220,15 @@ public:  // interface
   }
 
 public:  // attributes
-  // number of entries included (so far)
-  int64_t count;
+  // number of entries included (so far) OR the total weight (so far). The
+  // interpretation depends on whether it is an integer or double
+  CountT count;
 
   /// holds the accumulator variables for each moment. When present the indices
   /// map to the follwing quantities:
   ///  * 0: mean, the current mean
   ///  * 1: cur_M2, sum of differences from the current mean
   double moment_accums[Order];
-};
-
-struct WeightedMeanAccum {
-public:  // interface
-  /// Returns the name of the stat computed by the accumulator
-  static std::string stat_name() noexcept { return "weightedmean"; }
-
-  static std::vector<std::string> i64_val_names() noexcept { return {}; }
-
-  static std::vector<std::string> flt_val_names() noexcept {
-    return {"weight_sum", "mean"};
-  }
-
-  static constexpr bool requires_weight = true;
-
-  template <typename T>
-  const T& access(std::size_t i) const noexcept {
-    if constexpr (std::is_same_v<T, std::int64_t>) {
-      error("WeightedMeanAccum only has 1 integer value");
-    } else if constexpr (std::is_same_v<T, double>) {
-      switch (i) {
-        case 0:
-          return weight_sum;
-        case 1:
-          return mean;
-        default:
-          error("WeightedMeanAccum only has 2 float_vals");
-      }
-    } else {
-      static_assert(dummy_false_v_<T>,
-                    "template T must be double or std::int64_t");
-    }
-  }
-
-  template <typename T>
-  T& access(std::size_t i) noexcept {
-    return const_cast<T&>(
-        const_cast<const WeightedMeanAccum*>(this)->access<T>(i));
-  }
-
-  WeightedMeanAccum() : weight_sum(0.0), mean(0.0) {}
-
-  inline void add_entry(double val) noexcept {
-    error("This version of the function won't work!");
-  }
-
-  inline void add_entry(double val, double weight) noexcept {
-    weight_sum += weight;
-    double val_minus_last_mean = val - mean;
-    // we could use the following line if we wanted to allow weight=0
-    // mean += (val_minus_last_mean * weight) / (weight_sum + (weight_sum == 0);
-    mean += (val_minus_last_mean * weight) / weight_sum;
-  }
-
-  inline void consolidate_with_other(const WeightedMeanAccum& other) noexcept {
-    if (this->weight_sum == 0.0) {
-      (*this) = other;
-    } else if (other.weight_sum == 0.0) {
-      // do nothing
-    } else {  // general case
-      double tot_weight = this->weight_sum + other.weight_sum;
-      this->mean = consolidate_mean_(this->mean, this->weight_sum, other.mean,
-                                     other.weight_sum, tot_weight);
-      this->weight_sum = tot_weight;
-    }
-  }
-
-public:  // attributes
-  // the total weight (so far)
-  double weight_sum;
-  // current mean
-  double mean;
 };
 
 template <typename Accum, typename T>
