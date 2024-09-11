@@ -10,16 +10,10 @@
 #include <omp.h>
 #endif
 
-#include "vsf.hpp"
-
-#if defined(__GNUC__)
-#define FORCE_INLINE __attribute__((always_inline)) inline
-#else
-#define FORCE_INLINE inline
-#endif
-
 #include "accum_col_variant.hpp"
 #include "partition.hpp"
+#include "utils.hpp"
+#include "vsf.hpp"
 
 enum class PairOperation { vec_diff, correlate };
 

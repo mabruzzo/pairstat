@@ -5,6 +5,12 @@
 
 #include <cstdio>
 
+#if defined(__GNUC__)
+#define FORCE_INLINE __attribute__((always_inline)) inline
+#else
+#define FORCE_INLINE inline
+#endif
+
 [[noreturn]] inline void error(const char* message) {
   if (message == nullptr) {
     std::printf("ERROR\n");

@@ -8,6 +8,7 @@
 #include <utility>      // std::pair
 #include <vector>
 
+#include "vsf.hpp" // BinSpecification
 #include "utils.hpp"  // error
 
 /// defining a construct like this is a common workaround used to raise a
@@ -50,84 +51,54 @@ inline double consolidate_mean_(double primary_mean, T primary_weight,
 // - must currently define the count attribute (which tracks the number of
 //   entries that have been added to the accumulator so far).
 
-struct MeanAccum {
+
+/// Implements an accumulator (for measuring central moments) that can be
+/// used to simplify ScalarAccumCollection
+///
+/// As a historical note, we originally had separate accumulators for mean
+/// and variance.
+///
+/// @note
+/// The 1st and 2nd second moments exactly the same as mean and variance.
+/// While the 3rd and 4th moments are related to skew and kurtosis, they are
+/// not exactly the same.
+///
+/// @note
+/// In the future, to generalize to higher order moments, we can look at
+/// https://zenodo.org/records/1232635
+template <int Order>
+class CentralMomentAccum {
+  static_assert((1 <= Order) && (Order <= 2),
+                "at the moment we only allow 1 <= Order <=2");
+
+  /// Specifies a LUT for the moment_accums array.
+  ///
+  /// @note
+  /// We put the enum declaration inside a struct so that the enumerator names
+  /// must be namespace qualified. We DON'T use scoped enums because we want
+  /// the enums to be interchangeable with integers
+  struct LUT {
+    enum { mean = 0, cur_M2 = 1 };
+  };
+
 public:  // interface
   /// Returns the name of the stat computed by the accumulator
-  static std::string stat_name() noexcept { return "mean"; }
-
-  static std::vector<std::string> i64_val_names() noexcept { return {"count"}; }
-
-  static std::vector<std::string> flt_val_names() noexcept { return {"mean"}; }
-
-  static constexpr bool requires_weight = false;
-
-  template <typename T>
-  const T& access(std::size_t i) const noexcept {
-    if constexpr (std::is_same_v<T, std::int64_t>) {
-      if (i != 0) error("MeanAccum only has 1 integer value");
-      return this->count;
-    } else if constexpr (std::is_same_v<T, double>) {
-      if (i != 0) error("MeanAccum only has 1 floating point value");
-      return this->mean;
+  static std::string stat_name() noexcept {
+    if constexpr (Order == 1) {
+      return "mean";
     } else {
-      static_assert(dummy_false_v_<T>,
-                    "template T must be double or std::int64_t");
+      return "variance";
     }
   }
-
-  template <typename T>
-  T& access(std::size_t i) noexcept {
-    return const_cast<T&>(const_cast<const MeanAccum*>(this)->access<T>(i));
-  }
-
-  MeanAccum() : count(0), mean(0.0) {}
-
-  inline void add_entry(double val) noexcept {
-    count++;
-    double val_minus_last_mean = val - mean;
-    mean += (val_minus_last_mean) / count;
-  }
-
-  /// we ignore the weight
-  inline void add_entry(double val, double weight) noexcept { add_entry(val); }
-
-  inline void consolidate_with_other(const MeanAccum& other) noexcept {
-    if (this->count == 0) {
-      (*this) = other;
-    } else if (other.count == 0) {
-      // do nothing
-    } else if (this->count == 1) {  // equiv to copying *this and adding a
-                                    // single entry to this
-      double temp = this->mean;
-      (*this) = other;
-      this->add_entry(temp);
-
-    } else if (other.count == 1) {  // equiv to adding a single entry to *this
-      this->add_entry(other.mean);
-    } else {  // general case
-      double totcount = this->count + other.count;
-      this->mean = consolidate_mean_(this->mean, this->count, other.mean,
-                                     other.count, totcount);
-      this->count = totcount;
-    }
-  }
-
-public:  // attributes
-  // number of entries included (so far)
-  int64_t count;
-  // current mean
-  double mean;
-};
-
-struct VarAccum {
-public:  // interface
-  /// Returns the name of the stat computed by the accumulator
-  static std::string stat_name() noexcept { return "variance"; }
 
   static std::vector<std::string> i64_val_names() noexcept { return {"count"}; }
 
   static std::vector<std::string> flt_val_names() noexcept {
-    return {"mean", "variance*count"};
+    if constexpr (Order == 1) {
+      return {"mean"};
+    } else {
+      return {"mean", "variance*count"};
+    }
   }
 
   static constexpr bool requires_weight = false;
@@ -135,17 +106,11 @@ public:  // interface
   template <typename T>
   const T& access(std::size_t i) const noexcept {
     if constexpr (std::is_same_v<T, std::int64_t>) {
-      if (i != 0) error("VarAccum only has 1 integer value");
+      if (i != 0) error("only has 1 integer value");
       return this->count;
     } else if constexpr (std::is_same_v<T, double>) {
-      switch (i) {
-        case 0:
-          return mean;
-        case 1:
-          return cur_M2;
-        default:
-          error("VarAccum only has 2 float_vals");
-      }
+      if (i >= Order) error("trying to access a non-existent float_val");
+      return moment_accums[i];
     } else {
       static_assert(dummy_false_v_<T>,
                     "template T must be double or std::int64_t");
@@ -154,43 +119,60 @@ public:  // interface
 
   template <typename T>
   T& access(std::size_t i) noexcept {
-    return const_cast<T&>(const_cast<const VarAccum*>(this)->access<T>(i));
+    const T& out =
+        const_cast<const CentralMomentAccum<Order>*>(this)->access<T>(i);
+    return const_cast<T&>(out);
   }
 
-  VarAccum() : count(0), mean(0.0), cur_M2(0.0) {}
+  CentralMomentAccum() : count(0) {
+    std::fill(moment_accums, moment_accums + Order, 0);
+  }
 
   inline void add_entry(double val) noexcept {
     count++;
-    double val_minus_last_mean = val - mean;
-    mean += (val_minus_last_mean) / count;
-    double val_minus_cur_mean = val - mean;
-    cur_M2 += val_minus_last_mean * val_minus_cur_mean;
+    double val_minus_last_mean = val - moment_accums[LUT::mean];
+    moment_accums[LUT::mean] += (val_minus_last_mean) / count;
+    if constexpr (Order > 1) {
+      double val_minus_cur_mean = val - moment_accums[LUT::mean];
+      moment_accums[LUT::cur_M2] += val_minus_last_mean * val_minus_cur_mean;
+    }
   }
 
   /// we ignore the weight
   inline void add_entry(double val, double weight) noexcept { add_entry(val); }
 
-  inline void consolidate_with_other(const VarAccum& other) noexcept {
+  inline void consolidate_with_other(
+      const CentralMomentAccum<Order>& other) noexcept {
     if (this->count == 0) {
       (*this) = other;
     } else if (other.count == 0) {
       // do nothing
-    } else if (this->count == 1) {  // equiv to copying *this and adding a
-                                    // single entry to this
-      double temp = this->mean;
+    } else if (this->count == 1) {
+      // set temp equal to the value of the mean, currently held by `this`
+      // (since the count is 1, this it exactly equal to the value of the sole
+      // entry previously encountered by `this`)
+      double temp = this->moment_accums[LUT::mean];
+      // overwrite the value of `this` with the contents of other
       (*this) = other;
+      // add the value of the entry
       this->add_entry(temp);
 
     } else if (other.count == 1) {  // equiv to adding a single entry to *this
-      this->add_entry(other.mean);
+      this->add_entry(other.moment_accums[LUT::mean]);
     } else {  // general case
       double totcount = this->count + other.count;
-      double delta = other.mean - this->mean;
-      double delta2 = delta * delta;
-      this->cur_M2 = (this->cur_M2 + other.cur_M2 +
-                      delta2 * (this->count * other.count / totcount));
-      this->mean = consolidate_mean_(this->mean, this->count, other.mean,
-                                     other.count, totcount);
+      if constexpr (Order > 1) {
+        double delta =
+            (other.moment_accums[LUT::mean] - this->moment_accums[LUT::mean]);
+        double delta2 = delta * delta;
+        this->moment_accums[LUT::cur_M2] =
+            (this->moment_accums[LUT::cur_M2] +
+             other.moment_accums[LUT::cur_M2] +
+             delta2 * (this->count * other.count / totcount));
+      }
+      this->moment_accums[LUT::mean] = consolidate_mean_(
+          this->moment_accums[LUT::mean], this->count,
+          other.moment_accums[LUT::mean], other.count, totcount);
       this->count = totcount;
     }
   }
@@ -198,10 +180,12 @@ public:  // interface
 public:  // attributes
   // number of entries included (so far)
   int64_t count;
-  // current mean
-  double mean;
-  // sum of differences from the current mean
-  double cur_M2;
+
+  /// holds the accumulator variables for each moment. When present the indices
+  /// map to the follwing quantities:
+  ///  * 0: mean, the current mean
+  ///  * 1: cur_M2, sum of differences from the current mean
+  double moment_accums[Order];
 };
 
 struct WeightedMeanAccum {

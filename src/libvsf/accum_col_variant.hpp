@@ -12,15 +12,19 @@
 template <class T0, class T1>
 using MyFusedAccumCol = FusedAccumCollection<std::tuple<T0, T1>>;
 
+template <int Order>
+using CentralMomentAccumCollection =
+    ScalarAccumCollection<CentralMomentAccum<Order>>;
+
 using AccumColVariant = std::variant<
-    ScalarAccumCollection<MeanAccum>, ScalarAccumCollection<VarAccum>,
+    CentralMomentAccumCollection<1>, CentralMomentAccumCollection<2>,
     HistogramAccumCollection, ScalarAccumCollection<WeightedMeanAccum>,
     WeightedHistogramAccumCollection,
     // here we start listing the fused options
-    MyFusedAccumCol<HistogramAccumCollection, ScalarAccumCollection<MeanAccum>>,
-    MyFusedAccumCol<HistogramAccumCollection, ScalarAccumCollection<VarAccum>>,
+    MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<1>>,
+    MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<2>>,
     MyFusedAccumCol<WeightedHistogramAccumCollection,
-                  ScalarAccumCollection<WeightedMeanAccum>>>;
+                    ScalarAccumCollection<WeightedMeanAccum>>>;
 
 struct BuildContext_ {
   const StatListItem* stat_list;
@@ -63,9 +67,9 @@ inline AccumColVariant build_accum_collection(
     std::string stat(stat_list[0].statistic);
 
     if (stat == "mean") {
-      return ctx.build1<ScalarAccumCollection<MeanAccum>>();
+      return ctx.build1<CentralMomentAccumCollection<1>>();
     } else if (stat == "variance") {
-      return ctx.build1<ScalarAccumCollection<VarAccum>>();
+      return ctx.build1<CentralMomentAccumCollection<2>>();
     } else if (stat == "histogram") {
       return ctx.build1<HistogramAccumCollection>();
     } else if (stat == "weightedmean") {
@@ -82,11 +86,11 @@ inline AccumColVariant build_accum_collection(
 
     if ((stat0 == "histogram") && (stat1 == "mean")) {
       return ctx
-          .build2<HistogramAccumCollection, ScalarAccumCollection<MeanAccum>>();
+          .build2<HistogramAccumCollection, CentralMomentAccumCollection<1>>();
 
     } else if ((stat0 == "histogram") && (stat1 == "variance")) {
       return ctx
-          .build2<HistogramAccumCollection, ScalarAccumCollection<VarAccum>>();
+          .build2<HistogramAccumCollection, CentralMomentAccumCollection<2>>();
 
     } else if ((stat0 == "weightedhistogram") && (stat1 == "weightedmean")) {
       return ctx.build2<WeightedHistogramAccumCollection,
