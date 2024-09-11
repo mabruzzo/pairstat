@@ -6,23 +6,20 @@
 #include <variant>
 
 #include "accumulators.hpp"
-#include "compound_accumulator.hpp"
+#include "fused_accumulator.hpp"
 #include "vsf.hpp"  // declaration of StatListItem
 
-using HistVarCompoundAccumCollection = CompoundAccumCollection<
-    std::tuple<HistogramAccumCollection, ScalarAccumCollection<VarAccum>>>;
-
 template <class T0, class T1>
-using FusedAccumCol = CompoundAccumCollection<std::tuple<T0, T1>>;
+using MyFusedAccumCol = FusedAccumCollection<std::tuple<T0, T1>>;
 
 using AccumColVariant = std::variant<
     ScalarAccumCollection<MeanAccum>, ScalarAccumCollection<VarAccum>,
     HistogramAccumCollection, ScalarAccumCollection<WeightedMeanAccum>,
     WeightedHistogramAccumCollection,
     // here we start listing the fused options
-    FusedAccumCol<HistogramAccumCollection, ScalarAccumCollection<MeanAccum>>,
-    FusedAccumCol<HistogramAccumCollection, ScalarAccumCollection<VarAccum>>,
-    FusedAccumCol<WeightedHistogramAccumCollection,
+    MyFusedAccumCol<HistogramAccumCollection, ScalarAccumCollection<MeanAccum>>,
+    MyFusedAccumCol<HistogramAccumCollection, ScalarAccumCollection<VarAccum>>,
+    MyFusedAccumCol<WeightedHistogramAccumCollection,
                   ScalarAccumCollection<WeightedMeanAccum>>>;
 
 struct BuildContext_ {
@@ -49,7 +46,7 @@ struct BuildContext_ {
 
     MyTuple temp_tuple = std::make_tuple(T0(num_dist_bins, arg_ptr_0),
                                          T1(num_dist_bins, arg_ptr_1));
-    return AccumColVariant(std::in_place_type<CompoundAccumCollection<MyTuple>>,
+    return AccumColVariant(std::in_place_type<FusedAccumCollection<MyTuple>>,
                            std::move(temp_tuple));
   }
 };

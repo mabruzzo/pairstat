@@ -73,8 +73,8 @@ struct CopyValsHelper_ {
 };
 
 template <typename AccumCollectionTuple>
-class CompoundAccumCollection {
-  /// @class    CompoundAccumCollection
+class FusedAccumCollection {
+  /// @class    FusedAccumCollection
   ///
   /// @brief Supports multiple accumulators at the same time. This is something
   ///    of a stopgap solution.
@@ -84,18 +84,18 @@ public:
       std::tuple_size_v<AccumCollectionTuple>;
 
   static_assert(n_accum > 1,
-                "CompoundAccumCollection must be composed of 2+ accumulators.");
+                "FusedAccumCollection must be composed of 2+ accumulators.");
 
   /// Compile-time constant that specifies whether the add_entry overload with
   /// the weight argument must be used.
   static constexpr bool requires_weight =
       detail::requires_weight_<AccumCollectionTuple>();
 
-  CompoundAccumCollection() = delete;
+  FusedAccumCollection() = delete;
 
-  CompoundAccumCollection(const CompoundAccumCollection&) = default;
+  FusedAccumCollection(const FusedAccumCollection&) = default;
 
-  CompoundAccumCollection(AccumCollectionTuple&& accum_collec_tuple) noexcept
+  FusedAccumCollection(AccumCollectionTuple&& accum_collec_tuple) noexcept
       : accum_collec_tuple_(accum_collec_tuple) {}
 
   inline void purge() noexcept {
@@ -116,7 +116,7 @@ public:
 
   /// Updates the values of `*this` to include the values from `other`
   inline void consolidate_with_other(
-      const CompoundAccumCollection& other) noexcept {
+      const FusedAccumCollection& other) noexcept {
     auto func = [&](auto& accum_elem) {
       using T = std::decay_t<decltype(accum_elem)>;
       const T& other_accum_elem = std::get<T>(other.accum_collec_tuple_);

@@ -19,8 +19,6 @@
 #endif
 
 #include "accum_col_variant.hpp"
-#include "accumulators.hpp"
-#include "compound_accumulator.hpp"
 #include "partition.hpp"
 
 enum class PairOperation { vec_diff, correlate };
