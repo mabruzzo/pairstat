@@ -86,6 +86,7 @@ extra-features = [
 ]
 
 [tool.pytest.ini_options]
+filterwarnings=["ignore::pyvsf._kernels_cy.ExperimentalWarning"]
 norecursedirs = ["other"]
 xfail_strict = true
 testpaths = [

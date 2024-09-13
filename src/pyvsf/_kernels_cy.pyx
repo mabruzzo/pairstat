@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from collections.abc import Sequence
 import re
+from typing import Callable, List, NamedTuple, Optional
 import warnings
 
 import numpy as np
@@ -1097,6 +1098,147 @@ def _validate_counts_or_weights(statconf, rslt, key, *, max_total_count = None):
                 f"is only {max_total_count}."
             )
 
+def _hist_dset_shape(statconf, dist_bin_edges):
+    assert statconf.name in ("histogram","weightedhistogram") # sanity check!
+    val_bin_edges = statconf._kwargs()['val_bin_edges']
+    shape = (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1)
+    return shape
+
+def _hist_sanitize_kwargs(kwargs):
+    if (kwargs is None) or (list(kwargs.keys()) != ['val_bin_edges']):
+        raise ValueError("'val_bin_edges' is required as the single kwarg for "
+                        "computing histogram-statistics")
+    _check_bin_edges_arg(kwargs['val_bin_edges'], "'val_bin_edges' kwarg")
+    return kwargs
+
+def _set_empty_count_locs_to_NaN(rslt_dict, countweight_key):
+    w_mask = (rslt_dict[countweight_key]  == 0)
+    for k,v in rslt_dict.items():
+        if k == countweight_key:
+            continue
+        else:
+            v[w_mask] = np.nan
+
+def _postprocess_centralmoments(rslt_dict, countweight_key):
+
+    if countweight_key == 'counts':
+        # technically the result produced in rslt['variance'] by the core C++ sf
+        # function is really variance*counts
+
+        w = (rslt_dict['counts'] > 1)
+        # it may not make any sense to use Bessel's correction
+        rslt_dict['variance'][w] /= (rslt_dict['counts'][w] - 1)
+        rslt_dict['variance'][~w] = 0.0
+        if 'centralmoment3' in rslt_dict:
+            w = (rslt_dict['counts'] > 2)
+            # it may not make any sense to use Bessel's correction
+            rslt_dict['centralmoment3'][w] /= rslt_dict['counts'][w]
+            rslt_dict['centralmoment3'][~w] = 0.0
+
+    elif countweight_key == 'weight_sum':
+        # technically the result produced in rslt['variance'] by the core C++ sf
+        # function is really variance*weights
+
+        # the following selection is not exaclty analogous to the unweighted case,
+        # but it's the best we can do (it should be ok)
+        w = (rslt_dict['weight_sum'] > 0.0)
+
+        # we do NOT apply a form of Bessel's correction. For an explanation, see
+        # the docstring of utils.weighted_variance
+        rslt_dict['variance'][w] /= rslt_dict['weight_sum'][w]
+        rslt_dict['variance'][~w] = 0.0
+
+    _set_empty_count_locs_to_NaN(rslt_dict, countweight_key = countweight_key)
+
+
+class _StatProps(NamedTuple):
+    # this is the name known by the C++ layer
+    # (in the future, we might make it possible to add aliases)
+    name: str
+
+    # this lists all flt dsets regardless of the type that is used
+    # (this does not include a weight_sum dset)
+    flt_dsets: Tuple[str, ...]
+
+    # when the following is True, a warning is raised when the user uses this stat
+    experimental: bool = False
+
+    # when the following is True, then a weighted counterpart exists
+    no_weighted_variant: bool = False
+
+    # when not None, this specifies a postprocessing function (a value of None implies
+    # that no postprocessing is required)
+    postprocess_fn: Optional[Callable] = _set_empty_count_locs_to_NaN
+
+    # the following 3 are intended to provide a mechanism for the histogram family of
+    # statistics to override some default behavior
+    # when specified, this provides custom behavior for determining dset shapes
+    nondflt_shape_fn: Optional[Callable] = None
+    # specify the name of the count dset and weight dset
+    count_weight_names: tuple[str,str] = ('counts', "weight_sum")
+    # when specified, this provides custom behavior for processing kwargs
+    handle_kwargs_fn: Optional[Callable] = None
+
+def _construct_statprops():
+    l = [
+        _StatProps(name="mean", flt_dsets=("mean",)),
+        _StatProps(
+            name="variance",
+            flt_dsets=("mean", "variance"),
+            postprocess_fn=_postprocess_centralmoments
+        ),
+        _StatProps(
+            name="centralmoment3",
+            flt_dsets=("mean", "variance", "centralmoment3"),
+            experimental=True,
+            no_weighted_variant=True,
+            postprocess_fn=_postprocess_centralmoments
+        ),
+        _StatProps(name="omoment2", flt_dsets=("mean","omoment2")),
+        _StatProps(name="omoment3", flt_dsets=("mean","omoment2","omoment3")),
+        _StatProps(
+            name="omoment4", flt_dsets=("mean","omoment2","omoment3","omoment4")
+        ),
+        _StatProps(
+            name="histogram",
+            flt_dsets=(),
+            nondflt_shape_fn = _hist_dset_shape,
+            count_weight_names = ('2D_counts', '2D_weight_sums'),
+            handle_kwargs_fn = _hist_sanitize_kwargs,
+            postprocess_fn=None
+        )
+    ]
+    return dict((e.name, e) for e in l)
+
+_STATPROPS = _construct_statprops()
+_ALL_SF_STAT_NAMES = (
+    tuple(name for name in _STATPROPS) +
+    tuple(f'weighted{name}' for name, statprop in _STATPROPS.items()
+          if not statprop.no_weighted_variant)
+)
+
+class ExperimentalWarning(UserWarning):
+    pass
+
+def _find_statprop(name):
+    if name.startswith('weighted'):
+        search_name, weighted = name[8:], True
+    else:
+        search_name, weighted = name, False
+
+    statprop = _STATPROPS.get(search_name,None)
+    if (statprop is None) or (weighted and statprop.no_weighted_variant):
+        raise ValueError(f"There is no statistic known as `{name}`")
+
+    if statprop.experimental:
+        warnings.warn(
+            f"The `{name}` statistic is considered experimental. The behavior and "
+            "naming of this statistic or its associates dsets may change at ANY "
+            "time. We may also remove it entirely",
+            ExperimentalWarning
+        )
+    return statprop, weighted
+
 def _get_dset_props_helper(statconf, dist_bin_edges):
     """
     Helper function that returns the dset_props and the index of
@@ -1113,48 +1255,24 @@ def _get_dset_props_helper(statconf, dist_bin_edges):
     In the future, it would be nice to be able to directly query the C++
     layer for this information.
     """
-
     _check_dist_bin_edges(dist_bin_edges)
-    if statconf.name in ["weightedmean", 'weightedvariance']:
-        props = [('weight_sum', np.float64, (np.size(dist_bin_edges) - 1,)),
-                 ('mean',       np.float64, (np.size(dist_bin_edges) - 1,))]
-        if statconf.name == "weightedvariance":
-            props.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
-        count_weight_index = 0
-    elif statconf.name in ("mean", "variance", "centralmoment3"):
-        props = [('counts',   np.int64,   (np.size(dist_bin_edges) - 1,)),
-                 ('mean',    np.float64, (np.size(dist_bin_edges) - 1,))]
-        if statconf.name in ["variance", "centralmoment3"]:
-            props.append( ('variance', np.float64, (np.size(dist_bin_edges) - 1,)) )
-        if statconf.name == "centralmoment3":
-            props.append(
-                ('centralmoment3', np.float64, (np.size(dist_bin_edges) - 1,))
-            )
-        count_weight_index = 0
-    elif re.match(r"^(weighted)?omoment[234]$", statconf.name):
+    statprop, weighted = _find_statprop(statconf.name)
+    if statprop.nondflt_shape_fn is None:
         shape = (np.size(dist_bin_edges) - 1,)
-        if statconf.name.startswith('weighted'):
-            props = [('weight_sum', np.float64, shape)]
-        else:
-            props = [('counts', np.int64, shape)]
-        props.append(('mean', np.float64, shape))
-        for i in range(2, int(statconf.name[-1])+1):
-            props.append((f'omoment{i}', np.float64, shape))
-        count_weight_index = 0
-    elif statconf.name in ("histogram", "weightedhistogram"):
-        val_bin_edges = statconf._kwargs()['val_bin_edges']
-        shape = (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1)
-        if statconf.requires_weights:
-            props = [('2D_weight_sums', np.float64, shape)]
-        else:
-            props = [('2D_counts', np.int64, shape)]
-        count_weight_index = 0
     else:
-        raise ValueError(
-            f"unknown stat-name '{statconf.name}' did you forget to update the logic "
-            "to get_dset_props?"
-        )
-    return props, count_weight_index
+        fn = statprop.nondflt_shape_fn
+        shape = fn(statconf, dist_bin_edges)
+
+    dset_props = []
+    if weighted:
+        dset_props.append((statprop.count_weight_names[1], np.float64, shape))
+    else:
+        dset_props.append((statprop.count_weight_names[0], np.int64, shape))
+    for dset_name in statprop.flt_dsets:
+        dset_props.append((dset_name, np.float64, shape))
+    count_weight_index = 0
+    return dset_props, count_weight_index
+
 
 def _get_counts_or_weights_key(statconf):
     dist_bin_edges = (0.0, 1.0) # dummy value!
@@ -1163,25 +1281,6 @@ def _get_counts_or_weights_key(statconf):
         return None
     return props[count_weight_index][0]
 
-def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
-    w_mask = (rslt_dict[key]  == 0)
-    for k,v in rslt_dict.items():
-        if k == key:
-            continue
-        else:
-            v[w_mask] = np.nan
-
-_STAT_NAMES_1D = (
-    "mean", "weightedmean",
-    "variance", "weightedvariance",
-    "centralmoment3",
-    "omoment2", "weightedomoment2",
-    "omoment3", "weightedomoment3",
-    "omoment4", "weightedomoment4"
-)
-_HIST_STAT_NAMES = ("histogram", "weightedhistogram")
-_ALL_SF_STAT_NAMES = _STAT_NAMES_1D + _HIST_STAT_NAMES
-
 class StatConf:
     """
     This class is used to represent configurations of structure-function/correlation
@@ -1189,25 +1288,18 @@ class StatConf:
     """
 
     def __init__(self, name, kwargs):
-        if name in _STAT_NAMES_1D:
+        statprop, weighted = _find_statprop(name)
+        handle_kwargs_fn = statprop.handle_kwargs_fn
+        if handle_kwargs_fn is None:
             if (kwargs is not None) and (len(kwargs) > 0):
                 raise ValueError(f"the {name} stat should have no kwargs")
             sanitized_kwargs = {}
-        elif name in _HIST_STAT_NAMES:
-            if (kwargs is None) or (list(kwargs.keys()) != ['val_bin_edges']):
-                raise ValueError("'val_bin_edges' is required as the single kwarg for "
-                                 "computing histogram-statistics")
-            _check_bin_edges_arg(kwargs['val_bin_edges'], "'val_bin_edges' kwarg")
-            sanitized_kwargs = kwargs
         else:
-            raise ValueError(
-                "f{name} is not known. The only known names include: " +
-                ", ".join(_ALL_SF_STAT_NAMES)
-            )
-        
+            sanitized_kwargs = handle_kwargs_fn(kwargs)
+
         # "public-facing" attributes:
         self.name = name
-        self.requires_weights = name.startswith("weighted")
+        self.requires_weights = weighted
 
         # "internal" attribute: (may change at any time)
         self._internal_kwargs = sanitized_kwargs
@@ -1227,44 +1319,11 @@ class StatConf:
         _validate_counts_or_weights(self, rslt, key, max_total_count)
 
     def postprocess_rslt(self, rslt):
-        if len(rslt) == 0:
-            return
-
-        if self.name in ['variance', 'centralmoment3']:
-            # technically the result produced in rslt['variance'] by the core C++ sf
-            # function is really variance*counts
-
-            w = (rslt['counts'] > 1)
-            # it may not make any sense to use Bessel's correction
-            rslt['variance'][w] /= (rslt['counts'][w] - 1)
-            rslt['variance'][~w] = 0.0
-            if self.name == 'centralmoment3':
-                w = (rslt['counts'] > 2)
-                # it may not make any sense to use Bessel's correction
-                rslt['centralmoment3'][w] /= rslt['counts'][w]
-                rslt['centralmoment3'][~w] = 0.0
-
-        elif self.name == 'weightedvariance':
-            # technically the result produced in rslt['variance'] by the core C++ sf
-            # function is really variance*weights
-
-            # the following selection is not exaclty analogous to the unweighted case,
-            # but it's the best we can do (it should be ok)
-            w = (rslt['weight_sum'] > 0.0)
-
-            # we do NOT apply a form of Bessel's correction. For an explanation, see
-            # the docstring of utils.weighted_variance
-            rslt['variance'][w] /= rslt['weight_sum'][w]
-            rslt['variance'][~w] = 0.0
-
-
-
-        if self.name not in _HIST_STAT_NAMES:
-            # use a dummy value for dist_bin_edges
-            key = _get_counts_or_weights_key(self)
-            _set_empty_count_locs_to_NaN(rslt, key = key)
-
-        # Histogram statistics require no post-processing
+        statprop,_ = _find_statprop(self.name)
+        if (len(rslt) > 0) and (statprop.postprocess_fn is not None):
+            countweight_key = _get_counts_or_weights_key(self)
+            postprocess_fn = statprop.postprocess_fn
+            postprocess_fn(rslt, countweight_key)
 
 def get_statconf(statistic, kwargs):
     return StatConf(statistic, kwargs)
