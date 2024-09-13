@@ -104,7 +104,7 @@ public:  // interface
     } else if constexpr (Order == 2) {
       return "weightedvariance";
     } else if constexpr (Order == 2 && std::is_same_v<CountT, std::int64_t>) {
-      return "moment3";
+      return "cmoment3";
     } else {
       static_assert(dummy_false_v_<CountT>, "weird template specialization");
     }
@@ -120,7 +120,7 @@ public:  // interface
     if (std::is_same_v<CountT, double>) out.push_back("weight_sum");
     out.push_back("mean");
     if (Order > 1) out.push_back("variance*count");
-    if (Order > 2) out.push_back("moment3*count");
+    if (Order > 2) out.push_back("cmoment3*count");
     return out;
   }
 
@@ -186,14 +186,12 @@ public:  // interface
     } else {
       double& weight_sum = count;
       weight_sum += weight;
-      double val_minus_last_mean = val - moment_accums[LUT::mean];
-      // we could use the following line if we wanted to allow weight=0
-      // mean += (val_minus_last_mean*weight) / (weight_sum + (weight_sum==0));
-      moment_accums[LUT::mean] += (val_minus_last_mean * weight) / weight_sum;
+      double delta = val - moment_accums[LUT::mean];
+      moment_accums[LUT::mean] +=
+          (delta * weight) / (weight_sum + (weight_sum == 0));
       if constexpr (Order > 1) {
         double val_minus_cur_mean = val - moment_accums[LUT::mean];
-        moment_accums[LUT::cur_M2] +=
-            (weight * val_minus_last_mean * val_minus_cur_mean);
+        moment_accums[LUT::cur_M2] += (weight * delta * val_minus_cur_mean);
       }
     }
   }
@@ -240,6 +238,158 @@ public:  // interface
       this->moment_accums[LUT::mean] = consolidate_mean_(
           this->moment_accums[LUT::mean], this->count,
           other.moment_accums[LUT::mean], other.count, totcount);
+      this->count = totcount;
+    }
+  }
+
+public:  // attributes
+  // number of entries included (so far) OR the total weight (so far). The
+  // interpretation depends on whether it is an integer or double
+  CountT count;
+
+  /// holds the accumulator variables for each moment. When present the indices
+  /// map to the follwing quantities:
+  ///  * 0: mean, the current mean
+  ///  * 1: cur_M2, sum of differences from the current mean
+  double moment_accums[Order];
+};
+
+/// Implements an accumulator for measuring moments about the origin that can
+/// that used to specialize ScalarAccumCollection
+///
+/// @tparam Order Specifies the highest order moment that is computed. We also
+///    compute all lower order moments
+/// @tparam CountT Specifies the type of the counts. When this is int64_t
+///    the class does standard stuff. When it is double, the class computes
+///    the weighted moments
+///
+/// As a historical note, we originally had separate accumulators for mean,
+/// variance, and weighted mean.
+template <int Order, typename CountT = int64_t>
+class OriginMomentAccum {
+  static_assert(1 <= Order, "at the moment we only allow 1 <= Order");
+  static_assert(std::is_same_v<CountT, std::int64_t> ||
+                    std::is_same_v<CountT, double>,
+                "invalid type was used.");
+
+public:  // interface
+  /// Returns the name of the stat computed by the accumulator
+  static std::string stat_name() noexcept {
+    if constexpr (Order == 1 && std::is_same_v<CountT, std::int64_t>) {
+      return "omoment1-override";
+    } else if constexpr (Order == 1) {
+      return "weightedomoment1-override";
+    } else if constexpr (std::is_same_v<CountT, std::int64_t>) {
+      return "omoment" + std::to_string(Order);
+    } else {
+      return "weightedomoment" + std::to_string(Order);
+    }
+  }
+
+  static std::vector<std::string> i64_val_names() noexcept {
+    if (std::is_same_v<CountT, double>) return {};
+    return {"count"};
+  }
+
+  static std::vector<std::string> flt_val_names() noexcept {
+    std::vector<std::string> out{};
+    if (std::is_same_v<CountT, double>) out.push_back("weight_sum");
+    out.push_back("mean");
+    for (int i = 1; i < Order; i++) {
+      out.push_back("omoment" + std::to_string(i + 1));
+    }
+    return out;
+  }
+
+  static constexpr bool requires_weight = std::is_same_v<CountT, double>;
+
+  template <typename T>
+  const T& access(std::size_t i) const noexcept {
+    if constexpr (std::is_same_v<T, std::int64_t> &&
+                  std::is_same_v<CountT, std::int64_t>) {
+      if (i != 0) error("only has 1 integer value");
+      return this->count;
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+      error("has no integer value");
+    } else if constexpr (std::is_same_v<T, double> &&
+                         std::is_same_v<CountT, std::int64_t>) {
+      if (i >= Order) error("trying to access a non-existent float_val");
+      return moment_accums[i];
+    } else {
+      if (i > Order) error("trying to access a non-existent float_val");
+      if (i == 0) return count;
+      return moment_accums[i - 1];
+    }
+  }
+
+  template <typename T>
+  T& access(std::size_t i) noexcept {
+    const T& out =
+        const_cast<const OriginMomentAccum<Order, CountT>*>(this)->access<T>(i);
+    return const_cast<T&>(out);
+  }
+
+  OriginMomentAccum() : count(0) {
+    std::fill(moment_accums, moment_accums + Order, 0);
+  }
+
+  inline void add_entry(double val) noexcept {
+    if constexpr (std::is_same_v<CountT, std::int64_t>) {
+      count++;
+      double val_raised_to_ip1 = 1;
+      for (int i = 0; i < Order; i++) {
+        val_raised_to_ip1 *= val;
+        double delta = val_raised_to_ip1 - moment_accums[i];
+        double delta_div_n = delta / count;
+        moment_accums[i] += delta_div_n;
+      }
+    } else {
+      error("This version of the function won't work!");
+    }
+  }
+
+  inline void add_entry(double val, double weight) noexcept {
+    if constexpr (std::is_same_v<CountT, std::int64_t>) {
+      /// we ignore the weight
+      add_entry(val);
+    } else {
+      double& weight_sum = count;
+      weight_sum += weight;
+      double val_raised_to_ip1 = 1;
+      for (int i = 0; i < Order; i++) {
+        val_raised_to_ip1 *= val;
+        double delta = val_raised_to_ip1 - moment_accums[i];
+        moment_accums[i] += (delta * weight) / (weight_sum + (weight_sum == 0));
+      }
+    }
+  }
+
+  inline void consolidate_with_other(
+      const OriginMomentAccum<Order, CountT>& other) noexcept {
+    if (this->count == 0) {
+      (*this) = other;
+    } else if (other.count == 0) {
+      // do nothing
+    } else if ((this->count == 1) && std::is_same_v<CountT, std::int64_t>) {
+      // set temp equal to the value of the mean, currently held by `this`
+      // (since the count is 1, this it exactly equal to the value of the sole
+      // entry previously encountered by `this`)
+      double temp = this->moment_accums[0];
+      // overwrite the value of `this` with the contents of other
+      (*this) = other;
+      // add the value of the entry
+      this->add_entry(temp);
+
+    } else if ((other.count == 1) && std::is_same_v<CountT, std::int64_t>) {
+      // equiv to adding a single entry to *this
+      this->add_entry(other.moment_accums[0]);
+    } else {  // general case
+      double totcount = this->count + other.count;
+      for (int i = 0; i < Order; i++) {
+        this->moment_accums[i] =
+            consolidate_mean_(this->moment_accums[i], this->count,
+                              other.moment_accums[i], other.count, totcount);
+      }
       this->count = totcount;
     }
   }

@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from collections.abc import Sequence
+import re
 import warnings
 
 import numpy as np
@@ -1130,6 +1131,16 @@ def _get_dset_props_helper(statconf, dist_bin_edges):
                 ('centralmoment3', np.float64, (np.size(dist_bin_edges) - 1,))
             )
         count_weight_index = 0
+    elif re.match(r"^(weighted)?omoment[234]$", statconf.name):
+        shape = (np.size(dist_bin_edges) - 1,)
+        if statconf.name.startswith('weighted'):
+            props = [('weight_sum', np.float64, shape)]
+        else:
+            props = [('counts', np.int64, shape)]
+        props.append(('mean', np.float64, shape))
+        for i in range(2, int(statconf.name[-1])+1):
+            props.append((f'omoment{i}', np.float64, shape))
+        count_weight_index = 0
     elif statconf.name in ("histogram", "weightedhistogram"):
         val_bin_edges = statconf._kwargs()['val_bin_edges']
         shape = (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1)
@@ -1160,7 +1171,14 @@ def _set_empty_count_locs_to_NaN(rslt_dict, key = 'counts'):
         else:
             v[w_mask] = np.nan
 
-_STAT_NAMES_1D = ("mean", "variance", "centralmoment3", "weightedmean", "weightedvariance")
+_STAT_NAMES_1D = (
+    "mean", "weightedmean",
+    "variance", "weightedvariance",
+    "centralmoment3",
+    "omoment2", "weightedomoment2",
+    "omoment3", "weightedomoment3",
+    "omoment4", "weightedomoment4"
+)
 _HIST_STAT_NAMES = ("histogram", "weightedhistogram")
 _ALL_SF_STAT_NAMES = _STAT_NAMES_1D + _HIST_STAT_NAMES
 
