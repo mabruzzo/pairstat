@@ -227,6 +227,14 @@ class ArrayMap(Mapping):
         assert self.entry_spec == other.entry_spec
         self.data_buffer[:] = other.data_buffer[:]
 
+    def _show_contents(self):
+        """Method for debugging purposes"""
+        l = [f"{self.__class__.__name__}{'{'}"]
+        for key,val in self.items():
+            l.append(f"  {key!r} : {val},")
+        l.append("}")
+        print(*l, sep = '\n')
+
 
 #def _process_array_of_array_maps_args(shape, entry_spec):
 #    _array_shape_validation(shape)
