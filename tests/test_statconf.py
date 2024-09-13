@@ -1,4 +1,5 @@
 from itertools import product
+import re
 
 import numpy as np
 import pytest
@@ -155,8 +156,22 @@ def direct_compute_stats(statconf, vals, weights=None):
             "counts": np.array([len(vals)]),
             "mean": np.array([mean]),
             "variance": np.array([np.var(vals, ddof=1)]),
-            "centralmoment3": np.mean((vals - mean)**3)
+            "centralmoment3": np.mean((vals - mean) ** 3),
         }
+    elif re.match(r"^(weighted)?omoment\d$", statconf.name):
+        order = int(statconf.name[-1])
+        if order == 0:
+            raise RuntimeError("can't handle omoment0")
+        if statconf.name.startswith("weighted"):
+            pair = np.average(vals, weights=weights, returned=True)
+            out = {"weight_sum": pair[1], "mean": pair[0]}
+        else:
+            out = {"counts": np.array([len(vals)]), "mean": np.array([np.mean(vals)])}
+        for i in range(2, order + 1):
+            out[f"omoment{i}"] = np.array(
+                [np.average(np.power(vals, i), weights=weights)]
+            )
+        return out
     elif statconf.name == "weightedvariance":
         triple = weighted_variance(vals, weights=weights, returned=True)
         return {"weight_sum": triple[2], "mean": triple[1], "variance": triple[0]}
@@ -179,16 +194,19 @@ def _test_consolidate(statconf, vals, weights=None, tol_spec=None):
 
     pre_accumulate_idx_l_vals = [
         [],
-        [slice(0, n_vals)],  # effectively equivalent to previous
-        [slice(0, n_vals - 1)],  # effectively equivalent to previous
-        [slice(0, 0), slice(0, n_vals)],  # this tests edge case where all
-        # partial results are empty
-        [slice(0, 1), slice(1, n_vals)],  # tests scenario where the first partial
-        # result is zero
+        # effectively equivalent to previous
+        [slice(0, n_vals)],
+        # effectively equivalent to previous
+        [slice(0, n_vals - 1)],
+        # this tests edge case where all partial results are empty
+        [slice(0, 0), slice(0, n_vals)],
+        # tests scenario where the first partial result is zero
+        [slice(0, 1), slice(1, n_vals)],
+        # tests the scenario where both partial results include multiple counts
         [
-            slice(0, n_vals // 2),  # tests the scenario where both partial
+            slice(0, n_vals // 2),
             slice(n_vals // 2, n_vals),
-        ],  # results include multiple counts
+        ],
     ]
 
     ref_result = _test_evaluate_statconf(statconf, vals, weights)
@@ -216,8 +234,14 @@ statconfs = [
     get_statconf("mean", {}),
     get_statconf("weightedmean", {}),
     get_statconf("variance", {}),
-    get_statconf("centralmoment3", {}),
     get_statconf("weightedvariance", {}),
+    get_statconf("centralmoment3", {}),
+    get_statconf("omoment2", {}),
+    get_statconf("weightedomoment2", {}),
+    get_statconf("omoment3", {}),
+    get_statconf("weightedomoment3", {}),
+    get_statconf("omoment4", {}),
+    get_statconf("weightedomoment4", {}),
     get_statconf("histogram", {"val_bin_edges": np.linspace(-7, 7.0, num=101)}),
     get_statconf(
         "weightedhistogram",
@@ -243,8 +267,26 @@ def test_against_pyimpl(statconf, vals, request):
     tol_spec = {}
     if statconf.name in ["weightedmean", "weightedvariance"]:
         tol_spec = {("mean", "rtol"): 2e-16}
-    elif statconf.name == "centralmoment3" and testid.endswith('random_vals'):
+    elif statconf.name == "centralmoment3" and testid.endswith("random_vals"):
         tol_spec = {("centralmoment3", "rtol"): 7e-15}
+
+    elif "omoment" in statconf.name:
+        _order = int(statconf.name[-1])
+        if statconf.name.startswith("weighted") and testid.endswith("simple_vals"):
+            _tol_triples = [("mean", "rtol", 2e-16)]
+        elif testid.endswith("simple_vals"):
+            _tol_triples = [("omoment4", "rtol", 2e-16)]
+        elif statconf.name.startswith("weighted"):
+            _tol_triples = [
+                ("mean", "rtol", 2e-16),
+                ("omoment3", "rtol", 3e-16),
+                ("omoment4", "rtol", 2e-16),
+            ]
+        else:
+            _tol_triples = [("omoment2", "rtol", 2e-16), ("omoment3", "rtol", 2e-16)]
+        for dset, tolkind, val in _tol_triples:
+            if (dset == "mean") or int(dset[-1]) <= _order:
+                tol_spec[dset, tolkind] = val
 
     assert_all_close(ref_result, actual_result, tol_spec=tol_spec)
 
@@ -257,8 +299,10 @@ def test_consolidate(statconf, vals, request):
     if statconf.requires_weights:
         weights = np.arange(len(vals))[::-1] + 3
 
-    if ((statconf.name in ["variance", "centralmoment3"]) and
-        testid.endswith("random_vals")):
+    tol_spec = {}
+    if (statconf.name in ["variance", "centralmoment3"]) and testid.endswith(
+        "random_vals"
+    ):
         tol_spec = {("variance", "rtol"): 2e-16}
         if statconf.name == "centralmoment3":
             tol_spec["centralmoment3", "rtol"] = 3e-15
@@ -272,6 +316,28 @@ def test_consolidate(statconf, vals, request):
             tol_spec = {("mean", "rtol"): 6e-16}
             if statconf.name == "weightedvariance":
                 tol_spec["variance", "rtol"] = 4e-16
-    else:
-        tol_spec = {}
+
+    elif "omoment" in statconf.name:
+        _order = int(statconf.name[-1])
+        if statconf.name.startswith("weighted") and testid.endswith("simple_vals"):
+            _tol_triples = [("mean", "rtol", 2e-16), ("omoment3", "rtol", 2e-16)]
+        elif testid.endswith("simple_vals"):
+            _tol_triples = [("omoment4", "rtol", 2e-16)]
+        elif statconf.name.startswith("weighted"):
+            _tol_triples = [
+                ("mean", "rtol", 6e-16),
+                ("omoment2", "rtol", 4e-16),
+                ("omoment3", "rtol", 7e-16),
+                ("omoment4", "rtol", 3e-16),
+            ]
+        else:
+            _tol_triples = [
+                ("omoment2", "rtol", 2e-16),
+                ("omoment3", "rtol", 4e-16),
+                ("omoment4", "rtol", 2e-16),
+            ]
+
+        for dset, tolkind, val in _tol_triples:
+            if (dset == "mean") or int(dset[-1]) <= _order:
+                tol_spec[dset, tolkind] = val
     _test_consolidate(statconf, vals, weights, tol_spec=tol_spec)

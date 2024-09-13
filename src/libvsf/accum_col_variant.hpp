@@ -20,11 +20,23 @@ template <int Order>
 using WeightedCentralMomentAccumCollection =
     ScalarAccumCollection<CentralMomentAccum<Order, double>>;
 
+template <int Order>
+using OriginMomentAccumCollection =
+    ScalarAccumCollection<OriginMomentAccum<Order, std::int64_t>>;
+
+template <int Order>
+using WeightedOriginMomentAccumCollection =
+    ScalarAccumCollection<OriginMomentAccum<Order, double>>;
+
 using AccumColVariant = std::variant<
     // list CentralMoment accumulators
     CentralMomentAccumCollection<1>, WeightedCentralMomentAccumCollection<1>,
     CentralMomentAccumCollection<2>, WeightedCentralMomentAccumCollection<2>,
     CentralMomentAccumCollection<3>,
+    // list OriginMoment accumulators
+    OriginMomentAccumCollection<2>, WeightedOriginMomentAccumCollection<2>,
+    OriginMomentAccumCollection<3>, WeightedOriginMomentAccumCollection<3>,
+    OriginMomentAccumCollection<4>, WeightedOriginMomentAccumCollection<4>,
     // list Historgram accumulators
     HistogramAccumCollection, WeightedHistogramAccumCollection,
     // here we start listing the fused options
@@ -81,6 +93,18 @@ inline AccumColVariant build_accum_collection(
       return ctx.build1<CentralMomentAccumCollection<2>>();
     } else if (stat == "centralmoment3") {
       return ctx.build1<CentralMomentAccumCollection<3>>();
+    } else if (stat == "omoment2") {
+      return ctx.build1<OriginMomentAccumCollection<2>>();
+    } else if (stat == "weightedomoment2") {
+      return ctx.build1<WeightedOriginMomentAccumCollection<2>>();
+    } else if (stat == "omoment3") {
+      return ctx.build1<OriginMomentAccumCollection<3>>();
+    } else if (stat == "weightedomoment3") {
+      return ctx.build1<WeightedOriginMomentAccumCollection<3>>();
+    } else if (stat == "omoment4") {
+      return ctx.build1<OriginMomentAccumCollection<4>>();
+    } else if (stat == "weightedomoment4") {
+      return ctx.build1<WeightedOriginMomentAccumCollection<4>>();
     } else if (stat == "histogram") {
       return ctx.build1<HistogramAccumCollection>();
     } else if (stat == "weightedmean") {
