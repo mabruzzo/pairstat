@@ -91,7 +91,7 @@ inline AccumColVariant build_accum_collection(
       return ctx.build1<CentralMomentAccumCollection<1>>();
     } else if (stat == "variance") {
       return ctx.build1<CentralMomentAccumCollection<2>>();
-    } else if (stat == "centralmoment3") {
+    } else if (stat == "cmoment3") {
       return ctx.build1<CentralMomentAccumCollection<3>>();
     } else if (stat == "omoment2") {
       return ctx.build1<OriginMomentAccumCollection<2>>();

@@ -150,13 +150,13 @@ def direct_compute_stats(statconf, vals, weights=None):
             "mean": np.array([np.mean(vals)]),
             "variance": np.array([np.var(vals, ddof=1)]),
         }
-    elif statconf.name == "centralmoment3":
+    elif statconf.name == "cmoment3":
         mean = np.mean(vals)
         return {
             "counts": np.array([len(vals)]),
             "mean": np.array([mean]),
             "variance": np.array([np.var(vals, ddof=1)]),
-            "centralmoment3": np.mean((vals - mean) ** 3),
+            "cmoment3": np.mean((vals - mean) ** 3),
         }
     elif re.match(r"^(weighted)?omoment\d$", statconf.name):
         order = int(statconf.name[-1])
@@ -235,7 +235,7 @@ statconfs = [
     get_statconf("weightedmean", {}),
     get_statconf("variance", {}),
     get_statconf("weightedvariance", {}),
-    get_statconf("centralmoment3", {}),
+    get_statconf("cmoment3", {}),
     get_statconf("omoment2", {}),
     get_statconf("weightedomoment2", {}),
     get_statconf("omoment3", {}),
@@ -267,8 +267,8 @@ def test_against_pyimpl(statconf, vals, request):
     tol_spec = {}
     if statconf.name in ["weightedmean", "weightedvariance"]:
         tol_spec = {("mean", "rtol"): 2e-16}
-    elif statconf.name == "centralmoment3" and testid.endswith("random_vals"):
-        tol_spec = {("centralmoment3", "rtol"): 7e-15}
+    elif statconf.name == "cmoment3" and testid.endswith("random_vals"):
+        tol_spec = {("cmoment3", "rtol"): 7e-15}
 
     elif "omoment" in statconf.name:
         _order = int(statconf.name[-1])
@@ -300,12 +300,10 @@ def test_consolidate(statconf, vals, request):
         weights = np.arange(len(vals))[::-1] + 3
 
     tol_spec = {}
-    if (statconf.name in ["variance", "centralmoment3"]) and testid.endswith(
-        "random_vals"
-    ):
+    if (statconf.name in ["variance", "cmoment3"]) and testid.endswith("random_vals"):
         tol_spec = {("variance", "rtol"): 2e-16}
-        if statconf.name == "centralmoment3":
-            tol_spec["centralmoment3", "rtol"] = 3e-15
+        if statconf.name == "cmoment3":
+            tol_spec["cmoment3", "rtol"] = 3e-15
 
     elif statconf.name in ["weightedmean", "weightedvariance"]:
         if testid.endswith("simple_vals"):

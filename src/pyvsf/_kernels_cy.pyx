@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from collections.abc import Sequence
-import re
 from typing import Callable, List, NamedTuple, Optional
 import warnings
 
@@ -1129,11 +1128,11 @@ def _postprocess_centralmoments(rslt_dict, countweight_key):
         # it may not make any sense to use Bessel's correction
         rslt_dict['variance'][w] /= (rslt_dict['counts'][w] - 1)
         rslt_dict['variance'][~w] = 0.0
-        if 'centralmoment3' in rslt_dict:
+        if 'cmoment3' in rslt_dict:
             w = (rslt_dict['counts'] > 2)
             # it may not make any sense to use Bessel's correction
-            rslt_dict['centralmoment3'][w] /= rslt_dict['counts'][w]
-            rslt_dict['centralmoment3'][~w] = 0.0
+            rslt_dict['cmoment3'][w] /= rslt_dict['counts'][w]
+            rslt_dict['cmoment3'][~w] = 0.0
 
     elif countweight_key == 'weight_sum':
         # technically the result produced in rslt['variance'] by the core C++ sf
@@ -1188,8 +1187,8 @@ def _construct_statprops():
             postprocess_fn=_postprocess_centralmoments
         ),
         _StatProps(
-            name="centralmoment3",
-            flt_dsets=("mean", "variance", "centralmoment3"),
+            name="cmoment3",
+            flt_dsets=("mean", "variance", "cmoment3"),
             experimental=True,
             no_weighted_variant=True,
             postprocess_fn=_postprocess_centralmoments
