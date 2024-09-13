@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from pyvsf._kernels_cy import (
-    get_statconf,
     consolidate_partial_results,
+    get_statconf,
     _test_evaluate_statconf,
 )
 from pyvsf.utils import weighted_variance
