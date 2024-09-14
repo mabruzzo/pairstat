@@ -64,7 +64,10 @@ This expects a list of 1 or more pairs of statistic-kwarg pairs.
 (This is a little clunky right now).
 For now, you should just specify the name of a single statistic unless we explicitly note that a combination is supported.
 
-Supported statistics include:
+Unweighted Statistics
+---------------------
+
+We provide a list of the unweighted statistics supported down below:
 
 .. list-table:: Available Statistics
    :widths: 15 15 30
@@ -75,30 +78,45 @@ Supported statistics include:
      - Description
    * - ``"mean"``
      - ``[("mean", {})]`` 
-     - Computes the number of pairs and the mean
+     - Computes the number of pairs and the mean.
+       When used with :py:func:`~pyvsf.vsf_props` function, the ``"mean"`` result correspond to the 1st order structure function. 
+       When used with :py:func:`~pyvsf.twopoint_correlation` function, the ``"mean"`` result correspond is usually the quantity that you are interested in.
    * - ``"variance"``
      - ``[("variances", {})]`` 
      - Computes the number of pairs, the mean, and the variance.
        We currently apply Bessel's correction to try to get an unbiased estimate of variance.
+   * - ``"omoment2"``
+     - ``[("omoment2", {})]``
+     - Computes the number of pairs, the mean, and the 2nd order moment about the origin.
+       When used with :py:func:`pyvsf.vsf_props` function, the ``"mean"`` and ``"omoment2"`` results correspond to the 1st and 2nd order structure functions.
+   * - ``"omoment3"``
+     - ``[("omoment3", {})]``
+     - Computes the number of pairs and the mean.
+       It also computes the 2nd and 3rd order moment about the origin.
+       When used with :py:func:`pyvsf.vsf_props` function, the ``"mean"``, ``"omoment2"``, and ``"omoment3"`` results correspond to the 1st, 2nd, and 3rd order structure functions.
+   * - ``"omoment4"``
+     - ``[("omoment4", {})]``
+     - Computes the number of pairs and the mean.
+       It also computes the 2nd and 3rd order moment about the origin.
+       When used with :py:func:`pyvsf.vsf_props` function, the ``"mean"``, ``"omoment2"``, ``"omoment3"``, and ``"omoment4"`` results correspond to the 1st, 2nd, 3rd, and 4th order structure functions.
    * - ``"histogram"``
      - ``[("histogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
      - Tracks the number of value computed for each pair of bins based on the specified ``"val_bin_edges"`` kwarg.
-       The result is effectively a 2D histogram (the other axis is set by ``dist_bin_edges``.
-       Not currently supported by ``pyvsf.twopoint_correlation``
-   * - ``"weightedmean"``
-     - ``[("weightedmean", {})]`` 
-     - Computes the total weight and the weighted mean.
-       Not supported by ``pyvsf.twopoint_correlation``
-   * - ``"weightedvariance"``
-     - ``[("weightedmean", {})]`` 
-     - Computes the total weight, the weighted mean, and the weighted variance.
-       No corrections are made to get an unbiased estimate of variance.
-       Not supported by ``pyvsf.twopoint_correlation``
-   * - ``"weightedhistogram"``
-     - ``[("weightedhistogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
-     - Tracks the total weight for all pairs of values that lie in the specified ``"val_bin_edges"`` bins.
-       The result is effectively a 2D histogram (the other axis is set by ``dist_bin_edges``.
-       Not currently supported by ``pyvsf.twopoint_correlation``
+
+Weighted Statistics
+-------------------
+
+We also support weighted versions of each of the statistics described in the previous section.
+To access these, you should prepend ``"weighted"`` to the start of the string (so ``"weightedmean"`` instead of ``"mean"`` or ``"weightedhistogram"`` instead of ``"histogram"``).
+At the moment, these statistics can't be used with :py:func:`pyvsf.twopoint_correlation`.
+
+.. note::
+
+   Unlike "variance", the "weightedvariance" statistic does **NOT** attempt to make any corrections to get an unbiased estimate of variance.
+
+
+Chained Statistics
+------------------
 
 At the moment, you can chain together:
 

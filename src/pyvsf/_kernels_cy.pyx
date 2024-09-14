@@ -686,20 +686,32 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
 
     Notes
     -----
-    Currently recognized statistic names include:
-        - 'mean': calculate the 1st order structure function.
-        - 'variance': calculate the 1st and 2nd order structure functions
-        - 'histogram': this constructs a 2D histogram. The bin edges along
-          axis 0 are given by the `dist_bin_edges` argument. The
+    Currently recognized unweighted statistic names include:
+        - ``'mean'`` : calculate the 1st order structure function.
+        - ``'variance'`` : calculate the 1st order structure function and
+          the variance (while variance is related to the 2nd order
+          structure function, it is NOT the same)
+        - ``'omoment2'`` : calculate the 1st and 2nd order structure
+          functions.
+        - ``'omoment3'`` : calculate the 1st, 2nd, and 3rd order structure
+          functions
+        - ``'omoment4'`` : calculate the 1st, 2nd, 3rd, and 4th order
+          structure functions
+        - ``'histogram'`` : this constructs a 2D histogram. The bin edges
+          along axis 0 are given by the `dist_bin_edges` argument. The
           magnitudes of the vector differences are binned along axis 1.
           The 'val_bin_edges' keyword must be specified alongside this
           statistic name (to specify the bin edges along axis 1). It
           should be associated with a 1D monotonic array.
-        - 'weightedmean': just like 'mean', but weights are used
-        - 'weightedvariance': just like 'variance', but weights are used
-          and we do NOT try to get an unbiased estimate with Bessel's
-          correction.
-        - 'weightedhistogram': just like 'histogram', but weights are used
+
+    Weighted versions of each of these statistics are also available. To
+    access these, you should prepend ``"weighted"`` to the start of the
+    string (so ``"weightedmean"`` instead of ``"mean"`` or
+    ``"weightedhistogram"`` instead of ``"histogram"``).
+
+    **BE AWARE**, that unlike ``'variance'``, ``'weightedvariance'`` does
+    **NOT** attempt to make any corrections to get an unbiased estimate of
+    variance.
     """
 
 
@@ -814,9 +826,19 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     Notes
     -----
     Currently recognized statistic names include:
-        - 'mean': the typical correlation function
-        - 'variance': the variance of the products of the pairs of scalar
-          values are computed for all pairs of values in a given bin.
+        - ``'mean'``: the typical correlation function
+        - ``'variance'``: the variance of the products of the pairs of
+          scalar values are computed for all pairs of values in a given
+          distance bin (in addition to ``'mean'``).
+        - ``'omoment2'``: calculates the 2nd order moment about the origin
+          for all pairs of points in a a given distance bin (in addition
+          to ``'mean'``).
+        - ``'omoment3'``: calculates the 3rd order moment about the origin
+          for all pairs of points in a a given distance bin (in addition
+          to ``'mean'`` and ``'omoment2'``).
+        - ``'omoment4'``: calculates the 4th order moment about the origin
+          for all pairs of points in a a given distance bin (in addition
+          to ``'mean'``, ``'omoment2'``, and ``'omoment3'``).
         - 'histogram': this constructs a 2D histogram. The bin edges along
           axis 0 are given by the `dist_bin_edges` argument. The products
           of the pairs of scalar values are binned along axis 1. The
