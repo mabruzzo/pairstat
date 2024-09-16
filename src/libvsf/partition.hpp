@@ -142,12 +142,34 @@ std::size_t num_dist_array_chunks_auto(std::size_t segments) {
   return num_rect + num_triangles;
 }
 
-// When this represents an auto-structure function calculation,
-// start_B == stop_B == 0
+/// Specifies a "unit of work" or task to be performed as part of computing a
+/// structure/correlation function
+///
+/// In more detail, this specifies the intervals of points that should be
+/// considered consered from collections A and B at a given time.
+/// * when ``start_B == stop_B == 0``, then only the unique pairs of points
+///   specified by start_A through stop_A should be considered (i.e. they are
+///   are used to compute an "auto" structure/correlation function).
+/// * when ``start_B!=0`` or ``stop_B!=0``, then we take all unique pairs from
+///   collections A and B specified by the intervals (i.e. they are used to
+///   compute a "cross" structure/correlation function.
 struct StatTask {
   std::uint64_t start_A, stop_A, start_B, stop_B;
 };
 
+/// Class that implements a strategy for creating ``StatTask`` instances in
+/// order to compute an "auto" structure/correlation function
+///
+/// This assumes that the consumer of the produced ``StatTask`` instances
+/// tracks 2 pointers refered to as collection A and collection B. These
+/// pointers should both point to the start of the same list of pointers.
+/// * this is necessary because we decompose the auto structure/correlation
+///   function calculation into a combination of auto **AND** cross
+///   structure/correlation function evaluations
+/// * the terminology here is poor for historical reasons. We wrote all of
+///   the machinery for parallelizing cross structure/correlation functions
+///   first and then reused a bunch of machinery for "auto"
+///   structure/correlation functions later.
 struct AutoSFPartitionStrat {
   std::uint64_t n_points;
   std::uint64_t num_segments;
@@ -166,9 +188,6 @@ struct AutoSFPartitionStrat {
 
   StatTask build_StatTask(
       const std::array<std::uint64_t, 2>& index_2D) const noexcept {
-    // there's a fairly good chance we have some off-by-1 errors here, we
-    // should check that this works
-
     // reminder: dist_matrix has 1 few entry per axis than this->n_points
     if (this->n_points <= 1) {
       error("not enough points");
@@ -259,6 +278,12 @@ struct AutoSFPartitionStrat {
   }
 };
 
+/// Class that implements a strategy for creating ``StatTask`` instances in
+/// order to compute the "cross" structure/correlation function
+///
+/// This assumes that the consumer of the produced ``StatTask`` instances
+/// tracks pointers, refered to as collection A and collection B, that refer to
+/// **DIFFERENT** non-overlapping collections of points.
 struct CrossSFPartitionStrat {
   std::uint64_t n_points_A;
   std::uint64_t num_segments_A;
@@ -351,6 +376,11 @@ struct CrossSFPartitionStrat {
 using partition_variant =
     std::variant<AutoSFPartitionStrat, CrossSFPartitionStrat>;
 
+/// Acts as an iterator over ``StatTask``s
+///
+/// In reality, this doesn't implement the interface of a iterator that is used
+/// by the C++ standard library. Instead this implements ``next`` and
+/// ``has_next``.
 class TaskIt {
 public:
   TaskIt() = delete;
@@ -416,6 +446,7 @@ inline TaskIt* build_TaskIt_crossSF(std::uint64_t index_start_1D,
   return out;
 }
 
+/// A class that is used to construct a TaskIt (an iterator over tasks)
 class TaskItFactory {
 public:
   TaskItFactory() = delete;
