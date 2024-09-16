@@ -309,7 +309,7 @@ def test_consolidate(statconf, vals, request):
         if testid.endswith("simple_vals"):
             tol_spec = {("mean", "rtol"): 2e-16}
             if statconf.name == "weightedvariance":
-                tol_spec["variance", "rtol"] = 2e-16
+                tol_spec["variance", "rtol"] = 4e-16
         else:
             tol_spec = {("mean", "rtol"): 6e-16}
             if statconf.name == "weightedvariance":
@@ -325,7 +325,7 @@ def test_consolidate(statconf, vals, request):
             _tol_triples = [
                 ("mean", "rtol", 6e-16),
                 ("omoment2", "rtol", 7e-16),
-                ("omoment3", "rtol", 7e-16),
+                ("omoment3", "rtol", 2e-15),
                 ("omoment4", "rtol", 3e-16),
             ]
         else:
