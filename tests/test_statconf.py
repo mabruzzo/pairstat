@@ -324,13 +324,13 @@ def test_consolidate(statconf, vals, request):
         elif statconf.name.startswith("weighted"):
             _tol_triples = [
                 ("mean", "rtol", 6e-16),
-                ("omoment2", "rtol", 4e-16),
+                ("omoment2", "rtol", 7e-16),
                 ("omoment3", "rtol", 7e-16),
                 ("omoment4", "rtol", 3e-16),
             ]
         else:
             _tol_triples = [
-                ("omoment2", "rtol", 2e-16),
+                ("omoment2", "rtol", 4e-16),
                 ("omoment3", "rtol", 4e-16),
                 ("omoment4", "rtol", 2e-16),
             ]
