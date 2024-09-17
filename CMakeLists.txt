@@ -12,8 +12,13 @@ set(CMAKE_CXX_STANDARD 17)
 # find required python components
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
-# try to check if the c++ compiler supports openmp
-find_package(OpenMP OPTIONAL_COMPONENTS CXX)
+option(LIBVSF_NO_OPENMP
+  "When true, we won't use OpenMP. Otherwise, we use it if available." OFF)
+if (LIBVSF_NO_OPENMP)
+  set(OpenMP_CXX_FOUND "OFF")
+else()
+  find_package(OpenMP OPTIONAL_COMPONENTS CXX)
+endif()
 
 # Actual Build Recipies
 # ---------------------
