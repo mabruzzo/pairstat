@@ -15,6 +15,23 @@
 #include "utils.hpp"
 #include "vsf.hpp"
 
+/// @def OMP_PRAGMA
+/// Macro used to wrap OpenMP's pragma directives.
+///
+/// When the program:
+///  * is compiled with OpenMP, the pragma contents are honored.
+///  * is NOT compiled with OpenMP, the pragma contents are ignored.
+///
+/// @note
+/// This macro is implemented using the ``_Pragma`` operator, described
+/// [here](https://en.cppreference.com/w/cpp/preprocessor/impl). More details
+/// can be found [here](https://gcc.gnu.org/onlinedocs/cpp/Pragmas.html).
+#ifdef _OPENMP
+#define OMP_PRAGMA(x) _Pragma(#x)
+#else
+#define OMP_PRAGMA(x) /* ... */
+#endif
+
 enum class PairOperation { vec_diff, correlate };
 
 // the anonymous namespace informs the compiler that the contents are only used
@@ -234,55 +251,76 @@ void calc_vsf_props_parallel_(const PointProps points_a,
 #else
   std::size_t nominal_nproc = get_nominal_nproc_(parallel_spec);
 
+  /// construct TaskItFactory, which encapsulates the logic for partitioning
+  /// out the calculation into groups of tasks.
   const TaskItFactory factory(nominal_nproc, points_a.n_points,
                               (duplicated_points) ? 0 : points_b.n_points);
 
-  // this may be less than the value from parallel_spec.nproc
-  const std::size_t nproc = factory.effective_nproc();
+  // get the number of task-groups.
+  // - each task_group is a group of 1 or more tasks
+  // - each thread must operates on a complete task_group (thus, it doesn't
+  //   make sense to have more threads than task_sets)
+  // - This number may be less than the nominal number of available processes
+  //   (i.e. signaled by parallel_spec.nproc). In this scenario, there may have
+  //   been an awkward amount of work to partition among the available
+  //   processes (i.e. we got lazy and did something simple). Alternatively,
+  //   we may have decided that there wasn't enough work to warrant spreading
+  //   it across the max number of threads processes.
+  const std::size_t ntask_groups = factory.effective_nproc();
 
-  omp_set_num_threads(nproc);
+  const bool use_parallel =
+      ((!parallel_spec.force_sequential) && (ntask_groups > 1));
+
+  omp_set_num_threads(ntask_groups);
   omp_set_dynamic(0);
 
   // initialize vector where the accumulator collection that is used to
   // process each partition will be stored.
   // (This assumes that accumulators hasn't been used yet - we just clone it)
   std::vector<AccumCollection> partition_dest;
-  partition_dest.reserve(nproc);
-  for (std::size_t i = 0; i < nproc; i++) {
+  partition_dest.reserve(ntask_groups);
+  for (std::size_t i = 0; i < ntask_groups; i++) {
     AccumCollection copy = accumulators;
     partition_dest.push_back(copy);
   }
 
-  const bool use_parallel = ((!parallel_spec.force_sequential) && (nproc > 1));
+  // now actually compute the number of statistics
 
-// printf("About to enter parallel region.\n"
-//        "  use_parallel: %d, nproc = %zu, n_partitions = %zu\n",
-//        (int)use_parallel, nproc, (std::size_t)factory.n_partitions());
+  // this first pragma, conditionally specifies the start of a parallel region
+  // -> when ``use_parallel == true``, then openmp distributes the work of the
+  //    enclosed for-loop is distributed among the threads
+  // -> when ``use_parallel == false``, then a single thread executes the inner
+  //    for-loop all by itself
+  // the bookkeeping with partition_dest should ensure that the answer is
+  // bitwise identical, regardless of the action taken by use_parrallel
 
-// now actually compute the number of statistics
-#pragma omp parallel if (use_parallel)
-  {
-// the proc_id value probably won't align with the actual process id
-#pragma omp for schedule(static, 1)
-    for (std::size_t proc_id = 0; proc_id < nproc; proc_id++) {
+  OMP_PRAGMA(omp parallel if (use_parallel)) {
+    // NOTE: even when use_parallel==true, part_id probably won't match the
+    //       value provided by omp_get_thread_num
+
+    // clang-format off
+    OMP_PRAGMA(omp for schedule(static, 1))
+    for (std::size_t group_id = 0; group_id < ntask_groups; group_id++) {
+      // clang-format on
+
       // make a local copy. Do this so that the heap allocation corresponds
       // to a location that is fast for the current process to access.
-      AccumCollection local_accums(partition_dest[proc_id]);
+      AccumCollection local_accums(partition_dest[group_id]);
 
       process_TaskIt_<AccumCollection, choice>(
           points_a, points_b, dist_sqr_bin_edges, nbins, local_accums,
-          duplicated_points, factory.build_TaskIt(proc_id));
+          duplicated_points, factory.build_TaskIt(group_id));
 
-      partition_dest[proc_id] = local_accums;
+      partition_dest[group_id] = local_accums;
     }
 
-#pragma omp barrier  // I think the barrier may be implied
+    OMP_PRAGMA(omp barrier)  // I think the barrier may be implied
   }
 
   // lastly, let's consolidate the values
   accumulators = partition_dest[0];
-  for (std::size_t i = 1; i < nproc; i++) {
-    accumulators.consolidate_with_other(partition_dest[i]);
+  for (std::size_t group_id = 1; group_id < ntask_groups; group_id++) {
+    accumulators.consolidate_with_other(partition_dest[group_id]);
   }
 #endif
 }
