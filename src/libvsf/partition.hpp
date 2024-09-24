@@ -452,19 +452,6 @@ private:  // attributes
   std::array<std::uint64_t, 2> next_index_2D_;
 };
 
-// only for testing purposes!
-inline TaskIt* build_TaskIt_crossSF(std::uint64_t index_start_1D,
-                                    std::uint64_t index_stop_1D,
-                                    std::uint64_t n_points_A,
-                                    std::uint64_t num_segments_A,
-                                    std::uint64_t n_points_B,
-                                    std::uint64_t num_segments_B) {
-  CrossSFPartitionStrat tmp = {n_points_A, num_segments_A, n_points_B,
-                               num_segments_B};
-  TaskIt* out = new TaskIt(index_start_1D, index_stop_1D, tmp);
-  return out;
-}
-
 /// The primary interface class for partitioning the partition the generic
 /// problem of visiting all unique pairs of points.
 ///
