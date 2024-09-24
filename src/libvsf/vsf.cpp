@@ -32,7 +32,7 @@
 #define OMP_PRAGMA(x) /* ... */
 #endif
 
-enum class PairOperation { vector_diff, scalar_correlate };
+enum class PairOperation { vector_diff, scalar_correlate, vector_correlate };
 
 // the anonymous namespace informs the compiler that the contents are only used
 // in the local compilation unit (facillitating more optimizations)
@@ -129,6 +129,13 @@ void process_data(const PointProps points_a, const PointProps points_b,
       if constexpr (choice == PairOperation::scalar_correlate) {
         // compute the product of 2 scalars
         op_rslt = val_a.vals[0] * val_b.vals[0];
+
+      } else if constexpr (choice == PairOperation::vector_correlate) {
+        // compute the dot product of 2 vectors
+        op_rslt = ((val_a.vals[0] * val_b.vals[0]) +
+                   ((val_a.vals[1] * val_b.vals[1]) +
+                    (val_a.vals[2] * val_b.vals[2])));
+
       } else {
         // compute the magnitude of the difference between 2 vectors
         op_rslt = std::sqrt(calc_dist_sqr(val_a, val_b));
@@ -360,8 +367,10 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
 
   std::string tmp(pairwise_op);
   PairOperation operation_choice = PairOperation::vector_diff;
-  if (tmp == "correlate") {
+  if (tmp == "scalar_correlate") {
     operation_choice = PairOperation::scalar_correlate;
+  } else if (tmp == "vector_correlate") {
+    operation_choice = PairOperation::vector_correlate;
   } else if (tmp == "sf") {
     operation_choice = PairOperation::vector_diff;
   } else {
@@ -382,6 +391,10 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
           parallel_spec, accumulators, duplicated_points);
     } else if (operation_choice == PairOperation::scalar_correlate) {
       calc_pair_props_<AccumCollection, PairOperation::scalar_correlate>(
+          points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+          parallel_spec, accumulators, duplicated_points);
+    } else if (operation_choice == PairOperation::vector_correlate) {
+      calc_pair_props_<AccumCollection, PairOperation::vector_correlate>(
           points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
           parallel_spec, accumulators, duplicated_points);
     }
