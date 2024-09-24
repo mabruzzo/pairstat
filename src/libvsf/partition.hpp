@@ -452,8 +452,8 @@ private:  // attributes
   std::array<std::uint64_t, 2> next_index_2D_;
 };
 
-/// The primary interface class for partitioning the partition the generic
-/// problem of visiting all unique pairs of points.
+/// The primary interface class for partitioning the generic problem of
+/// visiting all unique pairs of points.
 ///
 /// This supports visiting all unique pairs of points in 2 scenarios. The usage
 /// of this class depends slightly on the scenario. Spececially, it supports
