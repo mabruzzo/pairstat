@@ -151,21 +151,6 @@ void process_data(const PointProps points_a, const PointProps points_b,
 }
 
 template <typename AccumCollection, PairOperation choice>
-void calc_vsf_props_helper_(const PointProps points_a,
-                            const PointProps points_b,
-                            const double* dist_sqr_bin_edges, std::size_t nbins,
-                            AccumCollection& accumulators,
-                            bool duplicated_points) {
-  if (duplicated_points) {
-    process_data<AccumCollection, true, choice>(
-        points_a, points_b, dist_sqr_bin_edges, nbins, accumulators);
-  } else {
-    process_data<AccumCollection, false, choice>(
-        points_a, points_b, dist_sqr_bin_edges, nbins, accumulators);
-  }
-}
-
-template <typename AccumCollection, PairOperation choice>
 void process_TaskIt_(const PointProps points_a, const PointProps points_b,
                      const double* dist_sqr_bin_edges, std::size_t nbins,
                      AccumCollection& accumulators, bool duplicated_points,
@@ -178,7 +163,8 @@ void process_TaskIt_(const PointProps points_a, const PointProps points_b,
     // represent ether:
     //   -> a list of 3D vectors OR
     //   -> a list of scalar values
-    // in the current implementation, this doesn't really matter
+    // with the current assumptions about indexing order, this doesn't really
+    // matter (but it will matter if we ever revisit these assumptions)
 
     const PointProps cur_points_a = {
         points_a.positions + stat_task.start_A,
@@ -214,47 +200,46 @@ void process_TaskIt_(const PointProps points_a, const PointProps points_b,
   }
 }
 
-// we annotate the following with the maybe_unused attribute to suppress
-// warnings when compiling without openmp
-[[maybe_unused]] std::size_t get_nominal_nproc_(
-    const ParallelSpec& parallel_spec) noexcept {
+std::size_t get_nominal_nproc_(const ParallelSpec& parallel_spec) noexcept {
+#ifndef _OPENMP
+  return (parallel_spec.nproc == 0) ? 1 : parallel_spec.nproc;
+#else
   if (parallel_spec.nproc == 0) {
-    // this approach is crude. OMP_NUM_THREADS doesn't need to be an int
+    // this approach is crude. OMP_NUM_THREADS may not be an int
     char* var_val = std::getenv("OMP_NUM_THREADS");
-    if (var_val == nullptr) {
-      return 1;
-    } else {
-      int tmp = std::atoi(var_val);
-      if (tmp <= 0) {
-        error("OMP_NUM_THREADS has an invalid value");
-      } else {
-        return tmp;
-      }
-    }
-  } else {
-    return parallel_spec.nproc;
+    if (var_val == nullptr) return 1;
+    int tmp = std::atoi(var_val);
+    if (tmp <= 0) error("OMP_NUM_THREADS has an invalid value");
+    return tmp;
   }
+  return parallel_spec.nproc;
+#endif
 }
 
 template <typename AccumCollection, PairOperation choice>
-void calc_vsf_props_parallel_(const PointProps points_a,
-                              const PointProps points_b,
-                              const double* dist_sqr_bin_edges,
-                              std::size_t nbins,
-                              const ParallelSpec parallel_spec,
-                              AccumCollection& accumulators,
-                              bool duplicated_points) noexcept {
-#ifndef _OPENMP
-  error(
-      "calc_vsf_props_parallel_ should not be called unless the library "
-      "is compiled with support for OPENMP");
-#else
+void calc_pair_props_(const PointProps points_a, const PointProps points_b,
+                      const double* dist_sqr_bin_edges, std::size_t nbins,
+                      const ParallelSpec parallel_spec,
+                      AccumCollection& accumulators,
+                      bool duplicated_points) noexcept {
   std::size_t nominal_nproc = get_nominal_nproc_(parallel_spec);
 
   /// construct TaskItFactory, which encapsulates the logic for partitioning
   /// out the calculation into groups of tasks.
   const TaskItFactory factory(nominal_nproc, points_a.n_points,
                               (duplicated_points) ? 0 : points_b.n_points);
+
+  if (nominal_nproc == 1) {
+    if ((factory.n_partitions() != 1) || (factory.effective_nproc() != 1)) {
+      error(
+          "A bug appeared to have occured. When there is 1 process, the "
+          "calculations should only be divided into 1 part");
+    }
+    process_TaskIt_<AccumCollection, choice>(
+        points_a, points_b, dist_sqr_bin_edges, nbins, accumulators,
+        duplicated_points, factory.build_TaskIt(0));
+    return;
+  }
 
   // get the number of task-groups.
   // - each task_group is a group of 1 or more tasks
@@ -268,11 +253,15 @@ void calc_vsf_props_parallel_(const PointProps points_a,
   //   it across the max number of threads processes.
   const std::size_t ntask_groups = factory.effective_nproc();
 
+#ifdef _OPENMP
   const bool use_parallel =
       ((!parallel_spec.force_sequential) && (ntask_groups > 1));
 
   omp_set_num_threads(ntask_groups);
   omp_set_dynamic(0);
+#else
+  const bool use_parallel = false;
+#endif
 
   // initialize vector where the accumulator collection that is used to
   // process each partition will be stored.
@@ -288,7 +277,7 @@ void calc_vsf_props_parallel_(const PointProps points_a,
 
   // this first pragma, conditionally specifies the start of a parallel region
   // -> when ``use_parallel == true``, then openmp distributes the work of the
-  //    enclosed for-loop is distributed among the threads
+  //    enclosed for-loop among the threads
   // -> when ``use_parallel == false``, then a single thread executes the inner
   //    for-loop all by itself
   // the bookkeeping with partition_dest should ensure that the answer is
@@ -322,7 +311,6 @@ void calc_vsf_props_parallel_(const PointProps points_a,
   for (std::size_t group_id = 1; group_id < ntask_groups; group_id++) {
     accumulators.consolidate_with_other(partition_dest[group_id]);
   }
-#endif
 }
 
 }  // namespace
@@ -385,36 +373,18 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
     return false;
   }
 
-#ifdef _OPENMP
-  const bool use_serial = parallel_spec.nproc == 1;
-#else
-  const bool use_serial = true;
-#endif
-
   // now actually use the accumulators to compute that statistics
   auto func = [=](auto& accumulators) {
     using AccumCollection = std::decay_t<decltype(accumulators)>;
-    if (use_serial) {
-      if (operation_choice == PairOperation::vec_diff) {
-        calc_vsf_props_helper_<AccumCollection, PairOperation::vec_diff>(
-            points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
-            accumulators, duplicated_points);
-      } else if (operation_choice == PairOperation::correlate) {
-        calc_vsf_props_helper_<AccumCollection, PairOperation::correlate>(
-            points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
-            accumulators, duplicated_points);
-      }
 
-    } else {
-      if (operation_choice == PairOperation::vec_diff) {
-        calc_vsf_props_parallel_<AccumCollection, PairOperation::vec_diff>(
-            points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
-            parallel_spec, accumulators, duplicated_points);
-      } else if (operation_choice == PairOperation::correlate) {
-        calc_vsf_props_parallel_<AccumCollection, PairOperation::correlate>(
-            points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
-            parallel_spec, accumulators, duplicated_points);
-      }
+    if (operation_choice == PairOperation::vec_diff) {
+      calc_pair_props_<AccumCollection, PairOperation::vec_diff>(
+          points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+          parallel_spec, accumulators, duplicated_points);
+    } else if (operation_choice == PairOperation::correlate) {
+      calc_pair_props_<AccumCollection, PairOperation::correlate>(
+          points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+          parallel_spec, accumulators, duplicated_points);
     }
   };
   std::visit(func, accumulators);
