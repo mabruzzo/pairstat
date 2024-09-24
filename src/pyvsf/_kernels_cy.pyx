@@ -517,7 +517,7 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
                         postprocess_stat = True):
     statconf_l = _coerce_stat_list(stat_kw_pairs)
 
-    val_is_vector = (pairwise_op == "sf")
+    val_is_vector = pairwise_op in ("sf", "vector_correlate")
     cdef PyPointsProps points_a = _construct_pointprops(
             pos_a, val_a, weights = weights_a, val_is_vector = val_is_vector,
             dtype = 'f8', allow_null_contents = False)
@@ -544,9 +544,6 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
             "when pos_b is not None, then you must either: \n"
             "  - set weights_a and weights_b to None OR\n"
             "  - provide non-None values for both weights_a and weights_b")
-    elif (weights_a is not None) and (pairwise_op != "sf"):
-        raise ValueError("you can't provide weights_a unless you are using "
-                         "pariwise_op == 'sf'")
     elif (points_a.has_non_positive_weights() or
           points_b.has_non_positive_weights()):
         raise ValueError("you can't provide non-positive weights")
@@ -800,9 +797,11 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         number of spatial dimensions must be consistent for each array. Axis 1
         can be different for each array
     val_a, val_b : array_like
-        1D arrays holding the velocities at each point. The shape of ``vel_a`` 
-        should match ``pos_a`` and the shape of ``vel_b`` should match
-        ``pos_b``.
+        These can be 1D arrays holding the velocities at each point. In that case, the
+        size of ``val_a`` should match the length of ``pos_a`` along axis 0 and the
+        and size of ``val_b`` should match the the length of ``pos_b``. Alternatively,
+        these can be 2D arrays. In this case, the shape of ``val_a`` should match
+        ``pos_a`` and the shape of ``val_b`` should match ``pos_b``.
     dist_bin_edges : array_like
         1D array of monotonically increasing values that represent edges for 
         distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
@@ -845,12 +844,26 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
           'val_bin_edges' keyword must be specified alongside this
           statistic name (to specify the bin edges along axis 1). It
           should be associated with a 1D monotonic array.
+
+    
+    Weighted versions of each of these statistics are also available. To
+    access these, you should prepend ``"weighted"`` to the start of the
+    string (so ``"weightedmean"`` instead of ``"mean"`` or
+    ``"weightedhistogram"`` instead of ``"histogram"``).
+
+    **BE AWARE**, that unlike ``'variance'``, ``'weightedvariance'`` does
+    **NOT** attempt to make any corrections to get an unbiased estimate of
+    variance.
     """
+    if np.ndim(val_a) == 2:
+        pairwise_op = "vector_correlate"
+    else:
+        pairwise_op = "scalar_correlate"
 
     return _core_pairwise_work(
         pos_a = pos_a, pos_b = pos_b, val_a = val_a, val_b = val_b,
         dist_bin_edges = dist_bin_edges, weights_a = None, weights_b = None,
-        pairwise_op = "correlate", stat_kw_pairs = stat_kw_pairs, nproc = nproc,
+        pairwise_op = pairwise_op, stat_kw_pairs = stat_kw_pairs, nproc = nproc,
         force_sequential = force_sequential, postprocess_stat = True)
 
 #==============================================================================
