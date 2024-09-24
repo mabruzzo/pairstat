@@ -1,4 +1,21 @@
-// routines to assist with partitioning structure function calculations
+// this file defines routines/data structures that can be used to partition the
+// problem of visiting all unique pairs of points (from within a single
+// collection or between a pair of collections) into a series of tasks
+//
+// This is important for structure/correlation function calculations
+//
+// Dues to the nature this file's development, there are some quirks in
+// terminology throughout this file:
+//
+//   * a "partition" and a "task" refer to the same concept
+//
+//   * whenever we discuss an auto structure function in this file, we are
+//     really talking about the generic problem of visiting all unique pairs
+//     of points within a single collection
+//
+//   * whenever we discuss a cross structure function in this file, we are
+//     really talking about the generic problem of visiting all unique pairs of
+//     points from a pair of collections
 
 #include <algorithm>  // std::min
 #include <array>
@@ -158,7 +175,8 @@ struct StatTask {
 };
 
 /// Class that implements a strategy for creating ``StatTask`` instances in
-/// order to compute an "auto" structure/correlation function
+/// order to visit all pairs of points in a single collection (e.g. to compute
+/// an "auto" structure/correlation function)
 ///
 /// This assumes that the consumer of the produced ``StatTask`` instances
 /// tracks 2 pointers refered to as collection A and collection B. These
@@ -279,7 +297,8 @@ struct AutoSFPartitionStrat {
 };
 
 /// Class that implements a strategy for creating ``StatTask`` instances in
-/// order to compute the "cross" structure/correlation function
+/// order to visit all unique pairs of points from distinct collections (e.g.
+/// to compute the "cross" structure/correlation function)
 ///
 /// This assumes that the consumer of the produced ``StatTask`` instances
 /// tracks pointers, refered to as collection A and collection B, that refer to
@@ -446,14 +465,57 @@ inline TaskIt* build_TaskIt_crossSF(std::uint64_t index_start_1D,
   return out;
 }
 
-/// A class that is used to construct a TaskIt (an iterator over tasks)
+/// The primary interface class for partitioning the partition the generic
+/// problem of visiting all unique pairs of points.
+///
+/// This supports visiting all unique pairs of points in 2 scenarios. The usage
+/// of this class depends slightly on the scenario. Spececially, it supports
+/// visiting all pairs of points from both
+///    1. a single input collection (scenario 1)
+///    2. a pair of input collections (scenario 2)
+///
+/// During construction of this class, this problem is subdivided/partitioned
+/// into 1 or more "tasks", represented by the ``StatTask`` class. Each task
+///    - is an irredcuible unit of work
+///    - corresponds to a subset of all point pairs that must be visited.
+///      More detail is provided below.
+/// Construction logic also comes up with 1 or more task-groups where each
+/// task-group is composed of 1 or more tasks. The logic tries to match the
+/// specified number of processes, but there may be fewer task-groups (if there
+/// isn't enough work or it's too awkward to create enough tasks).
+///
+/// Instances of this class can create a ``TaskIt`` instance for a given
+/// task-group. That TaskIt can be used to iterate over all tasks in the
+/// given task group.
+///
+/// @par More about ``StatTask``
+/// A ``StatTask`` represents a set of point-pairs using the conventional idea
+/// of "contiguous collection-slicing". Essentially, a contiguous collection
+/// slice specifies a contiguous subset of elements from a collection. With
+/// that in mind, a ``StatTask`` holds the specification for either
+///    1. a single contiguous collection slice. The task specifies the set of
+///       all unique pairs made from the points in that collection slice.
+///        - This **only** comes up for scenario 1 where the goal is to visit
+///          all unique pairs of points from a single input collection.
+///    2. arguments for 2 separate "contiguous collection slices". The task
+///       corresponds to the unique pair of points where each point must be
+///       taken from a separate "collection slice".
+///         - in scenario 1, both slices are taken from the same input
+///           collection (the slices won't have overlapping elements)
+///         - in scenario 2, the slices are taken from separate collections.
 class TaskItFactory {
 public:
   TaskItFactory() = delete;
 
   /// Constructor.
   ///
-  /// Pass n_points_other = 0 to indicate an auto structure function calculation
+  /// @param nproc The nominal of processes that we want to divide tasks
+  ///     between. This is the target number of task-groups.
+  /// @param n_points The number of points in the primary collection
+  /// @param n_points_other A value of ``0`` indicates that we only want to
+  ///     consider the unique pairs of points in a single collection.
+  ///     To consider the unique pairs of points from 2 collections, pass a
+  ///     non-zero value of zero
   TaskItFactory(std::size_t nproc, std::size_t n_points,
                 std::size_t n_points_other,
                 bool skip_small_prob_check = false) noexcept
@@ -461,12 +523,14 @@ public:
         partition_strat_(TaskItFactory::build_strat_(
             nproc, n_points, n_points_other, skip_small_prob_check)) {}
 
-  /// gives total number of chunks the problem is broken into
+  /// gives total number of chunks (or tasks) the problem is broken into
   std::uint64_t n_partitions() const noexcept {
     return std::visit([](const auto& strat) { return strat.n_partitions(); },
                       partition_strat_);
   }
 
+  /// give the total number of task-groups (i.e. the max number of processe
+  /// that the work can be divided among)
   std::size_t effective_nproc() const noexcept {
     return std::min(nproc_, safe_cast<std::size_t>(n_partitions()));
   }
