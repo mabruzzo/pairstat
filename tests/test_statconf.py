@@ -235,7 +235,6 @@ statconfs = [
     get_statconf("weightedmean", {}),
     get_statconf("variance", {}),
     get_statconf("weightedvariance", {}),
-    get_statconf("cmoment3", {}),
     get_statconf("omoment2", {}),
     get_statconf("weightedomoment2", {}),
     get_statconf("omoment3", {}),
@@ -267,8 +266,6 @@ def test_against_pyimpl(statconf, vals, request):
     tol_spec = {}
     if statconf.name in ["weightedmean", "weightedvariance"]:
         tol_spec = {("mean", "rtol"): 2e-16}
-    elif statconf.name == "cmoment3" and testid.endswith("random_vals"):
-        tol_spec = {("cmoment3", "rtol"): 7e-15}
 
     elif "omoment" in statconf.name:
         _order = int(statconf.name[-1])
@@ -300,10 +297,8 @@ def test_consolidate(statconf, vals, request):
         weights = np.arange(len(vals))[::-1] + 3
 
     tol_spec = {}
-    if (statconf.name in ["variance", "cmoment3"]) and testid.endswith("random_vals"):
+    if statconf.name == "variance" and testid.endswith("random_vals"):
         tol_spec = {("variance", "rtol"): 2e-16}
-        if statconf.name == "cmoment3":
-            tol_spec["cmoment3", "rtol"] = 3e-15
 
     elif statconf.name in ["weightedmean", "weightedvariance"]:
         if testid.endswith("simple_vals"):

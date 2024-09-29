@@ -1188,11 +1188,6 @@ def _postprocess_centralmoments(rslt_dict, countweight_key):
         # it may not make any sense to use Bessel's correction
         rslt_dict['variance'][w] /= (rslt_dict['counts'][w] - 1)
         rslt_dict['variance'][~w] = 0.0
-        if 'cmoment3' in rslt_dict:
-            w = (rslt_dict['counts'] > 2)
-            # it may not make any sense to use Bessel's correction
-            rslt_dict['cmoment3'][w] /= rslt_dict['counts'][w]
-            rslt_dict['cmoment3'][~w] = 0.0
 
     elif countweight_key == 'weight_sum':
         # technically the result produced in rslt['variance'] by the core C++ sf
@@ -1244,13 +1239,6 @@ def _construct_statprops():
         _StatProps(
             name="variance",
             flt_dsets=("mean", "variance"),
-            postprocess_fn=_postprocess_centralmoments
-        ),
-        _StatProps(
-            name="cmoment3",
-            flt_dsets=("mean", "variance", "cmoment3"),
-            experimental=True,
-            no_weighted_variant=True,
             postprocess_fn=_postprocess_centralmoments
         ),
         _StatProps(name="omoment2", flt_dsets=("mean","omoment2")),
