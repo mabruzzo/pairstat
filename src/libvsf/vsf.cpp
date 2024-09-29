@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>  // std::getenv
-#include <string>
+#include <string_view>
 #include <vector>
 
 #ifdef _OPENMP
@@ -32,7 +32,13 @@
 #define OMP_PRAGMA(x) /* ... */
 #endif
 
-enum class PairOperation { vector_diff, scalar_correlate, vector_correlate };
+enum class PairOperation {
+  vector_diff,
+  longitudinal_diff,
+  scalar_correlate,
+  vector_correlate,
+  longitudinal_correlate
+};
 
 // the anonymous namespace informs the compiler that the contents are only used
 // in the local compilation unit (facillitating more optimizations)
@@ -51,6 +57,7 @@ template <int D>
 struct MathVec {
   static_assert(D >= 1 && D <= 4, "D must be 1, 2, or 3");
   const double vals[D];
+  FORCE_INLINE const double& operator[](int idx) const { return vals[idx]; }
 };
 
 template <int D>
@@ -65,6 +72,29 @@ static FORCE_INLINE MathVec<D> load_vec_(const double* ptr, std::size_t index,
   }
 }
 
+template <int D>
+FORCE_INLINE MathVec<D> vec_diff(MathVec<D> vec_a, MathVec<D> vec_b) {
+  if constexpr (D == 1) {
+    return {{vec_a[0] - vec_b[0]}};
+  } else if constexpr (D == 2) {
+    return {{vec_a[0] - vec_b[0], vec_a[1] - vec_b[1]}};
+  } else {
+    return {{vec_a[0] - vec_b[0], vec_a[1] - vec_b[1], vec_a[2] - vec_b[2]}};
+  }
+}
+
+template <int D>
+FORCE_INLINE double dot_product(MathVec<D> vec_a, MathVec<D> vec_b) {
+  if constexpr (D == 1) {
+    return vec_a.vals[0] * vec_b.vals[0];
+  } else if constexpr (D == 2) {
+    return (vec_a.vals[0] * vec_b.vals[0]) + (vec_a.vals[1] * vec_b.vals[1]);
+  } else {
+    return ((vec_a[0] * vec_b[0]) +
+            ((vec_a[1] * vec_b[1]) + (vec_a[2] * vec_b[2])));
+  }
+}
+
 /// returns the number of dimensions used in a single value
 constexpr int val_vec_rank_(PairOperation op) {
   return op == PairOperation::scalar_correlate ? 1 : 3;
@@ -74,11 +104,26 @@ template <PairOperation op>
 inline constexpr int ValueRank =
     std::integral_constant<int, val_vec_rank_(op)>::value;
 
+/// @name hypot_sq-Group
+/// functions in this group compute the hypotenuse squared. It's worth
+/// mentioning that std::hypot has strong guarantees about accuracy that
+/// aren't strictly necessary for us. We can tolerate a little numerical error
+/// when we take the sqrt. But, the result must be consistent
+///@{
+[[maybe_unused]] FORCE_INLINE double hypot_sq(double x, double y) noexcept {
+  return (x * x) + (y * y);
+}
+FORCE_INLINE double hypot_sq(double x, double y, double z) noexcept {
+  return (x * x) + ((y * y) + (z * z));
+}
+FORCE_INLINE double hypot_sq(MathVec<3> vec) noexcept {
+  return hypot_sq(vec[0], vec[1], vec[2]);
+}
+///@}
+
 FORCE_INLINE double calc_dist_sqr(MathVec<3> pos_a, MathVec<3> pos_b) noexcept {
-  double dx = pos_a.vals[0] - pos_b.vals[0];
-  double dy = pos_a.vals[1] - pos_b.vals[1];
-  double dz = pos_a.vals[2] - pos_b.vals[2];
-  return dx * dx + dy * dy + dz * dz;
+  return hypot_sq(pos_a.vals[0] - pos_b.vals[0], pos_a.vals[1] - pos_b.vals[1],
+                  pos_a.vals[2] - pos_b.vals[2]);
 }
 
 // this could be refactored into something a lot more elegant!
@@ -122,23 +167,48 @@ void process_data(const PointProps points_a, const PointProps points_b,
       const ValueType val_b =
           load_vec_<ValueRank<choice>>(values_b, i_b, spatial_dim_stride_b);
 
-      // compute the squared distance between loc_a and loc_b
-      double dist_sqr = calc_dist_sqr(loc_a, loc_b);
+      // todo: the body of this loop has grown enough that we probably want to
+      // factor it out into its own function
 
+      // calculate the separation vector
+      MathVec<3> sepvec = vec_diff(loc_a, loc_b);
+      // calculate the squared distance between loc_a and loc_b
+      double dist_sqr = hypot_sq(sepvec);
+
+      // compute op_rslt, the result of the operation
       double op_rslt;
-      if constexpr (choice == PairOperation::scalar_correlate) {
-        // compute the product of 2 scalars
-        op_rslt = val_a.vals[0] * val_b.vals[0];
-
-      } else if constexpr (choice == PairOperation::vector_correlate) {
-        // compute the dot product of 2 vectors
-        op_rslt = ((val_a.vals[0] * val_b.vals[0]) +
-                   ((val_a.vals[1] * val_b.vals[1]) +
-                    (val_a.vals[2] * val_b.vals[2])));
+      if constexpr ((choice == PairOperation::longitudinal_diff) ||
+                    (choice == PairOperation::longitudinal_correlate)) {
+        // compute unit vector parallel to sep.
+        // - I suspect it's more numerically stable to use a unit vector than
+        //   taking dot product with sepvec & dividing by sqrt(dist_sq). (My
+        //   intuition tells me that it could help avoid catastrophic
+        //   cancellation, but I'm not 100% sure)
+        const double inv_hypot = std::sqrt(1.0 / (dist_sqr + (dist_sqr == 0)));
+        const MathVec<3> uvec = {{sepvec[0] * inv_hypot, sepvec[1] * inv_hypot,
+                                  sepvec[2] * inv_hypot}};
+        if constexpr (choice == PairOperation::longitudinal_correlate) {
+          // correlate the components of val_a and val_b that are parallel to
+          // sepvec
+          op_rslt = dot_product(val_a, uvec) * dot_product(val_b, uvec);
+        } else {
+          // compute the signed difference between the components of val_a and
+          // val_b that are parallel to sepvec
+          op_rslt = dot_product(vec_diff(val_a, val_b), uvec);
+        }
 
       } else {
-        // compute the magnitude of the difference between 2 vectors
-        op_rslt = std::sqrt(calc_dist_sqr(val_a, val_b));
+        if constexpr (choice == PairOperation::scalar_correlate) {
+          // compute the product of 2 scalars
+          op_rslt = val_a.vals[0] * val_b.vals[0];
+
+        } else if constexpr (choice == PairOperation::vector_correlate) {
+          // compute the dot product of 2 vectors
+          op_rslt = dot_product(val_a, val_b);
+        } else {
+          // compute the magnitude of the difference between 2 vectors
+          op_rslt = std::sqrt(calc_dist_sqr(val_a, val_b));
+        }
       }
 
       // determine the bin that we lie within
@@ -365,41 +435,42 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   bool requires_weight =
       std::visit([](auto& a) { return a.requires_weight; }, accumulators);
 
-  std::string tmp(pairwise_op);
-  PairOperation operation_choice = PairOperation::vector_diff;
-  if (tmp == "scalar_correlate") {
-    operation_choice = PairOperation::scalar_correlate;
-  } else if (tmp == "vector_correlate") {
-    operation_choice = PairOperation::vector_correlate;
-  } else if (tmp == "sf") {
-    operation_choice = PairOperation::vector_diff;
-  } else {
-    return false;
-  }
+  if (requires_weight && (points_a.weights == nullptr)) return false;
 
-  if (requires_weight && (points_a.weights == nullptr)) {
-    return false;
-  }
+  std::string_view pairwise_op_str(pairwise_op);
+  bool accum_skipped = false;
 
   // now actually use the accumulators to compute that statistics
-  auto func = [=](auto& accumulators) {
+  auto func = [=, &accum_skipped](auto& accumulators) {
     using AccumCollection = std::decay_t<decltype(accumulators)>;
 
-    if (operation_choice == PairOperation::vector_diff) {
+    if (pairwise_op_str == "sf") {
       calc_pair_props_<AccumCollection, PairOperation::vector_diff>(
           points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
           parallel_spec, accumulators, duplicated_points);
-    } else if (operation_choice == PairOperation::scalar_correlate) {
+    } else if (pairwise_op_str == "longitudinal_diff") {
+      calc_pair_props_<AccumCollection, PairOperation::longitudinal_diff>(
+          points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+          parallel_spec, accumulators, duplicated_points);
+    } else if (pairwise_op_str == "scalar_correlate") {
       calc_pair_props_<AccumCollection, PairOperation::scalar_correlate>(
           points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
           parallel_spec, accumulators, duplicated_points);
-    } else if (operation_choice == PairOperation::vector_correlate) {
+    } else if (pairwise_op_str == "vector_correlate") {
       calc_pair_props_<AccumCollection, PairOperation::vector_correlate>(
           points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
           parallel_spec, accumulators, duplicated_points);
+    } else if (pairwise_op_str == "longitudinal_correlate") {
+      calc_pair_props_<AccumCollection, PairOperation::longitudinal_correlate>(
+          points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
+          parallel_spec, accumulators, duplicated_points);
+    } else {
+      accum_skipped = true;
     }
   };
   std::visit(func, accumulators);
+
+  if (accum_skipped) return false;
 
   // now copy the results from the accumulators to the output array
   std::visit([=](auto& accums) { accums.copy_vals(out_flt_vals); },
