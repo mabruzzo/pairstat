@@ -444,7 +444,7 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   auto func = [=, &accum_skipped](auto& accumulators) {
     using AccumCollection = std::decay_t<decltype(accumulators)>;
 
-    if (pairwise_op_str == "sf") {
+    if (pairwise_op_str == "vector_diff") {
       calc_pair_props_<AccumCollection, PairOperation::vector_diff>(
           points_a, my_points_b, dist_sqr_bin_edges_vec.data(), nbins,
           parallel_spec, accumulators, duplicated_points);
