@@ -243,35 +243,6 @@ def _construct_pointprops(pos, val, weights = None, val_is_vector = True,
     return PyPointsProps.factory(c_points, [pos_arr, val_arr, weights_arr])
 
 
-
-cdef class _WrappedVoidPtr: # this is just a helper class
-    cdef void* ptr
-    def __cinit__(self):
-        self.ptr = NULL
-
-cdef class PyBinSpecification:
-    cdef BinSpecification c_bin_spec # wrapped c++ instance
-    cdef object bin_edges # numpy array that owns the pointer stored in the
-                          # wrapped struct
-
-    def __cinit__(self, bin_edges):
-        self.bin_edges = np.asarray(bin_edges, dtype = np.float64, order = 'C')
-        if not self.bin_edges.flags['C_CONTIGUOUS']:
-            self.bin_edges = np.ascontiguousarray(self.bin_edges)
-
-        assert _verify_bin_edges(self.bin_edges)
-        n_bins = int(self.bin_edges.size - 1)
-
-        cdef double[::1] bin_edges_memview = self.bin_edges
-        self.c_bin_spec.bin_edges = &bin_edges_memview[0]
-        self.c_bin_spec.n_bins = n_bins
-
-    def wrapped_void_ptr(self):
-        cdef _WrappedVoidPtr out = _WrappedVoidPtr()
-        out.ptr = <void *>(&(self.c_bin_spec))
-        return out
-
-
 cdef object _process_statistic_args(object statconf_l, object dist_bin_edges,
                                     void** accumhandle):
     """
