@@ -1,4 +1,3 @@
-from collections import OrderedDict
 from collections.abc import Sequence
 from typing import Callable, List, NamedTuple, Optional
 import warnings
@@ -11,15 +10,6 @@ from libc.stddef cimport size_t
 from cpython.version cimport PY_MAJOR_VERSION
 
 from ._ArrayDict_cy import ArrayMap
-
-#==============================================================================
-# In the first chunk of this file, we define an interface for calc_vsf_props
-# - before it was written in cython, the interface was previously written using
-#   the ctypes module
-# - when I rewrote it, I largely kept the same general code structure
-# - with that in mind, the code structure (and readability) could definitely be
-#   improved
-#==============================================================================
 
 def _verify_bin_edges(bin_edges):
     nbins = np.size(bin_edges) - 1
@@ -282,64 +272,6 @@ cdef class PyBinSpecification:
         return out
 
 
-class VSFPropsRsltContainer:
-    def __init__(self, int64_quans, float64_quans):
-        duplicates = set(int64_quans.keys()).intersection(float64_quans.keys())
-        assert len(duplicates) == 0
-
-        def _parse_input_dict(input_dict):
-            total_length = 0
-            access_dict = {}
-            for key, subarr_shape in input_dict.items():
-                subarr_size = np.prod(subarr_shape)
-                subarr_idx = slice(total_length, total_length + subarr_size)
-                access_dict[key] = (subarr_idx, subarr_shape)
-                total_length += subarr_size
-            return access_dict, total_length
-
-        self.int64_access_dict,   int64_len   = _parse_input_dict(int64_quans)
-        self.float64_access_dict, float64_len = _parse_input_dict(float64_quans)
-
-        self.int64_arr   = np.empty((int64_len,),   dtype = np.int64  )
-        self.float64_arr = np.empty((float64_len,), dtype = np.float64)
-
-    @staticmethod
-    def _get(key, access_dict, arr):
-        idx, out_shape = access_dict[key]
-        out = arr[idx]
-        out.shape = out_shape # ensures we don't make a copy
-        return out
-
-    def __getitem__(self,key):
-        try:
-            return self._get(key, self.float64_access_dict, self.float64_arr)
-        except KeyError:
-            try:
-                return self._get(key, self.int64_access_dict, self.int64_arr)
-            except KeyError:
-                raise KeyError(key) from None
-
-    def extract_statistic_dict(self, statistic_name):
-        out = {}
-
-        def _extract(access_dict, arr):
-            for (stat,quan), v in access_dict.items():
-                if stat == statistic_name:
-                    out[quan] = self._get((stat,quan), access_dict, arr)
-
-        _extract(self.int64_access_dict,   self.int64_arr  )
-        _extract(self.float64_access_dict, self.float64_arr)
-
-        if len(out) == 0:
-            raise ValueError(f"there's no statistic called '{statistic_name}'")
-        return out
-
-    def get_flt_vals_arr(self):
-        return self.float64_arr
-
-    def get_i64_vals_arr(self):
-        return self.int64_arr
-
 cdef object _process_statistic_args(object statconf_l, object dist_bin_edges,
                                     void** accumhandle):
     """
@@ -349,36 +281,28 @@ cdef object _process_statistic_args(object statconf_l, object dist_bin_edges,
     returns. (cython issues a warning if you add an ``except*`` clause)
     """
 
-    # it's important that we retain order!
-    int64_quans = OrderedDict()
-    float64_quans = OrderedDict()
-
     # we sort the entries of statconf_l in alphabetical order because all of the fused
     # accumulators expect the statnames to be in that order...
     # -> (in the future, we will hopefully remove fused accumulators)
-    sorted_statconf_l = sorted(statconf_l, key = lambda statconf: statconf.name)
+    # -> index_statconf_pairs holds the pairs (original_index, statconf)
+    index_statconf_pairs = sorted(enumerate(statconf_l),
+                                  key = lambda pair: pair[1].name)
+    sorted_statconf_l = list(zip(*index_statconf_pairs))[1]
 
     # create the accumulator
     accumhandle[0] = _construct_accum_handle(dist_bin_edges, sorted_statconf_l)
 
-    # prepare VSFPropsRsltContainer
-    for statconf in sorted_statconf_l:
+    key_groups = [None for i in range(len(sorted_statconf_l))]
+    dtype_props = {np.int64 : [], np.float64 : []}
+    for original_index, statconf in index_statconf_pairs:
+        cur_key_group = []
+        for quan_name, dtype, shape in statconf.get_dset_props(dist_bin_edges):
+            cur_key_group.append( f'{statconf.name}-{quan_name}' )
+            dtype_props[dtype].append((cur_key_group[-1], dtype, shape))
+        key_groups[original_index] = cur_key_group
 
-        prop_l = statconf.get_dset_props(dist_bin_edges)
-        for quan_name, dtype, shape in prop_l:
-            key = (statconf.name, quan_name)
-            if (key in int64_quans) or (key in float64_quans):
-                raise ValueError(f"{key} already appears as an output for a "
-                                 "different statistic")
-            if dtype == np.int64:
-                int64_quans[key] = shape
-            elif dtype == np.float64:
-                float64_quans[key] = shape
-            else:
-                raise ValueError(f"can't handle datatype: {dtype}")
-
-    return VSFPropsRsltContainer(int64_quans = int64_quans,
-                                 float64_quans = float64_quans)
+    all_props = dtype_props[np.int64] + dtype_props[np.float64]
+    return ArrayMap(all_props), key_groups
 
 def _coerce_stat_list(arg):
     argname = 'stat_kw_pairs'
@@ -520,27 +444,14 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
 
     # construct stat_list and rslt_container
     cdef void* accumhandle = NULL
-    rslt_container = _process_statistic_args(statconf_l, dist_bin_edges, &accumhandle)
+    rslt_container, key_groups = _process_statistic_args(statconf_l, dist_bin_edges,
+                                                         &accumhandle)
 
     cdef ParallelSpec parallel_spec
     parallel_spec.nproc = nproc
     parallel_spec.force_sequential = force_sequential
 
-    # setup the pointers to the output buffers
-    cdef double* out_flt_vals = NULL
-    cdef double[::1] out_flt_memview
-    if rslt_container.get_flt_vals_arr().size > 0:
-        out_flt_memview = rslt_container.get_flt_vals_arr()
-        out_flt_vals = &(out_flt_memview[0])
-
-    cdef int64_t* out_i64_vals = NULL
-    cdef int64_t[::1] out_i64_memview
-    if rslt_container.get_i64_vals_arr().size > 0:
-        out_i64_memview = rslt_container.get_i64_vals_arr()
-        out_i64_vals = &(out_i64_memview[0])
-
     cdef bytes casted_pairwise_op = pairwise_op.encode("ASCII")
-
     cdef const char* c_pairwise_op = casted_pairwise_op
 
     cdef bint success = calc_vsf_props(
@@ -554,17 +465,16 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     if not success:
         raise RuntimeError("Something went wrong while in calc_vsf_props")
 
-    accumhandle_export_data(accumhandle, out_flt_vals = out_flt_vals,
-                            out_i64_vals = out_i64_vals)
+    _export_to_ArrayMap_from_handle(accumhandle, rslt_container)
 
     out = []
-    for statconf in statconf_l:
-        val_dict = rslt_container.extract_statistic_dict(statconf.name)
+    for statconf, key_grp in zip(statconf_l, key_groups):
+        name_len = len(statconf.name)
+        val_dict = {k[name_len+1:] : rslt_container[k] for k in key_grp}
 
         if postprocess_stat:
             statconf.postprocess_rslt(val_dict)
         out.append(val_dict)
-
     return out
 
 # this is an object used to denote that an argument wasn't provided while we
