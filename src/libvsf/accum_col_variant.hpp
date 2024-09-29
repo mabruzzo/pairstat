@@ -22,11 +22,11 @@ using WeightedCentralMomentAccumCollection =
 
 template <int Order>
 using OriginMomentAccumCollection =
-    ScalarAccumCollection<OriginMomentAccum<Order, std::int64_t>>;
+    Accumulator<OriginMomentStatistic<Order, std::int64_t>>;
 
 template <int Order>
 using WeightedOriginMomentAccumCollection =
-    ScalarAccumCollection<OriginMomentAccum<Order, double>>;
+    Accumulator<OriginMomentStatistic<Order, double>>;
 
 using AccumColVariant = std::variant<
     // list CentralMoment accumulators
