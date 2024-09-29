@@ -14,11 +14,11 @@ using MyFusedAccumCol = FusedAccumCollection<std::tuple<T0, T1>>;
 
 template <int Order>
 using CentralMomentAccumCollection =
-    ScalarAccumCollection<CentralMomentAccum<Order, std::int64_t>>;
+    Accumulator<CentralMomentStatistic<Order, std::int64_t>>;
 
 template <int Order>
 using WeightedCentralMomentAccumCollection =
-    ScalarAccumCollection<CentralMomentAccum<Order, double>>;
+    Accumulator<CentralMomentStatistic<Order, double>>;
 
 template <int Order>
 using OriginMomentAccumCollection =

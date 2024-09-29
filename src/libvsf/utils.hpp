@@ -30,4 +30,8 @@
   exit(1);
 }
 
+inline void require(bool condition, const char* message) {
+  if (!condition) error(message);
+}
+
 #endif /* UTILS_H */
