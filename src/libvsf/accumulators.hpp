@@ -49,6 +49,87 @@ inline double consolidate_mean_(double primary_mean, T primary_weight,
 #endif
 }
 
+/// Specifies a LUT
+///
+/// @note
+/// We put the enum declaration inside a struct so that the enumerator names
+/// must be namespace qualified. We DON'T use scoped enums because we want
+/// the enums to be interchangeable with integers
+template <int cmoment_stride, bool offset = false>
+struct MyLUT {
+  enum { mean = 0, cur_M2 = cmoment_stride, cur_M3 = 2 * cmoment_stride };
+};
+
+/// In an onine algorithm, update the mean and any central moments
+template <int COrder, int cmoment_stride, typename WeightT>
+inline void online_cmoment_update_(double weight, WeightT updated_weight_sum,
+                                   double val, double* data) {
+  using LUT = MyLUT<cmoment_stride>;
+
+  static_assert(0 < COrder && COrder <= 3);
+
+  if constexpr (std::is_same_v<WeightT, std::int64_t>) {
+    // in this branch, weights are integers. Specifically, we assume that
+    // weight is exactly 1
+    WeightT count = updated_weight_sum;
+
+    double val_minus_last_mean = val - data[LUT::mean];
+    double delta = val_minus_last_mean;
+    double delta_div_n = delta / updated_weight_sum;
+    data[LUT::mean] += delta_div_n;
+    if constexpr (COrder > 1) {
+      double val_minus_cur_mean = val - data[LUT::mean];
+      double delta2_nm1_div_n = val_minus_last_mean * val_minus_cur_mean;
+      if constexpr (COrder > 2) {
+        data[LUT::cur_M3] +=
+            (delta2_nm1_div_n * delta_div_n * (updated_weight_sum - 2) -
+             3 * data[LUT::cur_M2] * delta_div_n);
+      }
+      data[LUT::cur_M2] += delta2_nm1_div_n;
+    }
+
+  } else {
+    // in this branch, weights can be positive non-integer values
+    static_assert(!(std::is_same_v<WeightT, double> && COrder == 3),
+                  "3rd order central moments aren't supported with weights "
+                  "yet");
+    double delta = val - data[LUT::mean];
+    data[LUT::mean] +=
+        (delta * weight) / (updated_weight_sum + (updated_weight_sum == 0));
+    if constexpr (COrder > 1) {
+      double val_minus_cur_mean = val - data[LUT::mean];
+      data[LUT::cur_M2] += (weight * delta * val_minus_cur_mean);
+    }
+  }
+}
+
+template <int COrder, int cmoment_stride, typename WeightT>
+void general_cmoment_consolidate_(WeightT count, WeightT o_count,
+                                  double* d_primary, const double* d_other) {
+  using LUT = MyLUT<cmoment_stride>;
+
+  static_assert(0 < COrder && COrder <= 3);
+
+  double totcount = count + o_count;
+
+  if constexpr (COrder > 1) {
+    double delta = (d_other[LUT::mean] - d_primary[LUT::mean]);
+    double delta2_nprod_div_ntot =
+        (delta * delta) * (count * o_count / totcount);
+    if constexpr (COrder > 2) {
+      double term1 = delta2_nprod_div_ntot * (o_count - count);
+      double term2 = 3 * ((count * d_other[LUT::cur_M2]) -
+                          (o_count * d_primary[LUT::cur_M2]));
+      d_primary[LUT::cur_M3] = (d_primary[LUT::cur_M3] + d_other[LUT::cur_M3] +
+                                (delta * (term1 + term2)) / totcount);
+    }
+    d_primary[LUT::cur_M2] =
+        (d_primary[LUT::cur_M2] + d_other[LUT::cur_M2] + delta2_nprod_div_ntot);
+  }
+  d_primary[LUT::mean] = consolidate_mean_(
+      d_primary[LUT::mean], count, d_other[LUT::mean], o_count, totcount);
+}
+
 /// identify the index of the bin where x lies.
 ///
 /// @param x The value that is being queried
@@ -117,7 +198,7 @@ class CentralMomentStatistic {
 
   static constexpr bool dbl_precision_weight = std::is_same_v<CountT, double>;
 
-  /// Specifies a LUT for the moment_accums array.
+  /// Specifies a LUT
   ///
   /// @note
   /// We put the enum declaration inside a struct so that the enumerator names
@@ -162,20 +243,8 @@ public:  // interface
     if constexpr (std::is_same_v<CountT, std::int64_t>) {
       std::int64_t& count = data.get_i64(spatial_idx, 0);
       count++;
-      double val_minus_last_mean = val - data.get_f64(spatial_idx, LUT::mean);
-      double delta = val_minus_last_mean;
-      double delta_div_n = delta / count;
-      data.get_f64(spatial_idx, LUT::mean) += delta_div_n;
-      if constexpr (Order > 1) {
-        double val_minus_cur_mean = val - data.get_f64(spatial_idx, LUT::mean);
-        double delta2_nm1_div_n = val_minus_last_mean * val_minus_cur_mean;
-        if constexpr (Order > 2) {
-          data.get_f64(spatial_idx, LUT::cur_M3) +=
-              (delta2_nm1_div_n * delta_div_n * (count - 2) -
-               3 * data.get_f64(spatial_idx, LUT::cur_M2) * delta_div_n);
-        }
-        data.get_f64(spatial_idx, LUT::cur_M2) += delta2_nm1_div_n;
-      }
+      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 0);
+      online_cmoment_update_<Order, 1>(1.0, count, val, register_ptr);
     } else {
       error("This version of the function won't work!");
     }
@@ -189,14 +258,8 @@ public:  // interface
     } else {
       double& weight_sum = data.get_f64(spatial_idx, 0);
       weight_sum += weight;
-      double delta = val - data.get_f64(spatial_idx, LUT::mean);
-      data.get_f64(spatial_idx, LUT::mean) +=
-          (delta * weight) / (weight_sum + (weight_sum == 0));
-      if constexpr (Order > 1) {
-        double val_minus_cur_mean = val - data.get_f64(spatial_idx, LUT::mean);
-        data.get_f64(spatial_idx, LUT::cur_M2) +=
-            (weight * delta * val_minus_cur_mean);
-      }
+      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 1);
+      online_cmoment_update_<Order, 1>(weight, weight_sum, val, register_ptr);
     }
   }
 
@@ -225,29 +288,12 @@ public:  // interface
       add_entry(spatial_idx, d_other.get_f64(spatial_idx, LUT::mean),
                 d_primary);
     } else {  // general case
+
+      std::size_t offset = std::is_same_v<CountT, std::int64_t> ? 0 : 1;
+      double* ptr = d_primary.get_f64_register_ptr(spatial_idx, offset);
+      double* o_ptr = d_other.get_f64_register_ptr(spatial_idx, offset);
+      general_cmoment_consolidate_<Order, 1>(count, o_count, ptr, o_ptr);
       double totcount = count + o_count;
-      if constexpr (Order > 1) {
-        double delta = (d_other.get_f64(spatial_idx, LUT::mean) -
-                        d_primary.get_f64(spatial_idx, LUT::mean));
-        double delta2_nprod_div_ntot =
-            (delta * delta) * (count * o_count / totcount);
-        if constexpr (Order > 2) {
-          double term1 = delta2_nprod_div_ntot * (o_count - count);
-          double term2 =
-              3 * ((count * d_other.get_f64(spatial_idx, LUT::cur_M2)) -
-                   (o_count * d_primary.get_f64(spatial_idx, LUT::cur_M2)));
-          d_primary.get_f64(spatial_idx, LUT::cur_M3) =
-              (d_primary.get_f64(spatial_idx, LUT::cur_M3) +
-               d_other.get_f64(spatial_idx, LUT::cur_M3) +
-               (delta * (term1 + term2)) / totcount);
-        }
-        d_primary.get_f64(spatial_idx, LUT::cur_M2) =
-            (d_primary.get_f64(spatial_idx, LUT::cur_M2) +
-             d_other.get_f64(spatial_idx, LUT::cur_M2) + delta2_nprod_div_ntot);
-      }
-      d_primary.get_f64(spatial_idx, LUT::mean) = consolidate_mean_(
-          d_primary.get_f64(spatial_idx, LUT::mean), count,
-          d_other.get_f64(spatial_idx, LUT::mean), o_count, totcount);
       count = totcount;
     }
   }
@@ -270,15 +316,33 @@ public:  // interface
 /// @tparam CountT Specifies the type of the counts. When this is int64_t
 ///    the class does standard stuff. When it is double, the class computes
 ///    the weighted moments
+/// @tparam CalcVar When true, we compute the variance corresponding to each
+///    of the computed moments (each of the standard moments is effectively a
+///    mean) In principle, you can use this to estimate the standard error of
+///    each moment. No efforts are made to make this an unbiased estimator.
 ///
 /// As a historical note, we originally had separate accumulators for mean,
 /// variance, and weighted mean.
+///
+/// @note
+/// The variance corresponding to the 1st order moment (about the origin) is
+/// simply the variance for the entire distribution. The variance corresponding
+/// to the 2nd order moment is the variance of the entire distribution squared.
 template <int Order, typename CountT = int64_t>
 class OriginMomentStatistic {
   static_assert(1 <= Order, "at the moment we only allow 1 <= Order");
   static_assert(std::is_same_v<CountT, std::int64_t> ||
                     std::is_same_v<CountT, double>,
                 "invalid type was used.");
+
+  static constexpr bool CalcVar = false;
+
+  /// the max central moment order that we compute
+  /// * a value of 1 means that we just compute the mean for each moment about
+  ///   the origin (technically, the mean isn't a central moment)
+  /// * a value of 2 means that we compute the mean and variance for each
+  ///   moment about the origin
+  static constexpr int CMomentMaxOrder = 1 + CalcVar;
 
   static constexpr bool dbl_precision_weight = std::is_same_v<CountT, double>;
 
@@ -292,18 +356,28 @@ public:  // interface
   // this is just here so we can maintain consistency with histogram stat
   static constexpr bool alt_data_mapping = false;
 
-  /// Return a description of the properties (int64 followed by doubles
+  /// Return a description of the properties (int64 followed by doubles)
+  ///
+  /// The order of perp
   static PropDescr get_prop(int index) noexcept {
     if (index == 0) {
       return {"weight", std::is_same_v<CountT, double>, 1};
     } else if (index == 1) {
       return {"omoment1", true, 1};
+    } else if ((index == (1 + Order)) && CalcVar) {
+      return {"o1_variance*weight", true, 1};
     } else if ((Order >= 2) && (index == 2)) {
       return {"omoment2", true, 1};
+    } else if ((Order >= 2) && (index == (2 + Order)) && CalcVar) {
+      return {"o2_variance*weight", true, 1};
     } else if ((Order >= 3) && (index == 3)) {
       return {"omoment3", true, 1};
+    } else if ((Order >= 3) && (index == (3 + Order)) && CalcVar) {
+      return {"o3_variance*weight", true, 1};
     } else if ((Order >= 4) && (index == 4)) {
       return {"omoment4", true, 1};
+    } else if ((Order >= 4) && (index == (4 + Order)) && CalcVar) {
+      return {"o4_variance*weight", true, 1};
     }
     return {};
   }
@@ -316,12 +390,14 @@ public:  // interface
       std::int64_t& count = data.get_i64(spatial_idx, 0);
       count++;
       double val_raised_to_ip1 = 1;
+      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 0);
+
       for (int i = 0; i < Order; i++) {
         val_raised_to_ip1 *= val;
-        double delta = val_raised_to_ip1 - data.get_f64(spatial_idx, i);
-        double delta_div_n = delta / count;
-        data.get_f64(spatial_idx, i) += delta_div_n;
+        online_cmoment_update_<CMomentMaxOrder, Order>(
+            1.0, count, val_raised_to_ip1, register_ptr + i);
       }
+
     } else {
       error("This version of the function won't work!");
     }
@@ -335,12 +411,13 @@ public:  // interface
     } else {
       double& weight_sum = data.get_f64(spatial_idx, 0);
       weight_sum += weight;
+      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 1);
+
       double val_raised_to_ip1 = 1;
       for (int i = 0; i < Order; i++) {
         val_raised_to_ip1 *= val;
-        double delta = val_raised_to_ip1 - data.get_f64(spatial_idx, i + 1);
-        data.get_f64(spatial_idx, i + 1) +=
-            (delta * weight) / (weight_sum + (weight_sum == 0));
+        online_cmoment_update_<CMomentMaxOrder, Order>(
+            weight, weight_sum, val_raised_to_ip1, register_ptr + i);
       }
     }
   }
@@ -375,12 +452,14 @@ public:  // interface
       add_entry(spatial_idx, temp, d_primary);
 
     } else {  // general case
-      double totcount = count + o_count;
+      std::size_t offset = std::is_same_v<CountT, std::int64_t> ? 0 : 1;
+      double* ptr = d_primary.get_f64_register_ptr(spatial_idx, offset);
+      double* o_ptr = d_other.get_f64_register_ptr(spatial_idx, offset);
       for (int i = 0; i < Order; i++) {
-        d_primary.get_f64(spatial_idx, i + offset) = consolidate_mean_(
-            d_primary.get_f64(spatial_idx, i + offset), count,
-            d_other.get_f64(spatial_idx, i + offset), o_count, totcount);
+        general_cmoment_consolidate_<CMomentMaxOrder, Order>(
+            count, o_count, ptr + i, o_ptr + i);
       }
+      double totcount = count + o_count;
       count = totcount;
     }
   }

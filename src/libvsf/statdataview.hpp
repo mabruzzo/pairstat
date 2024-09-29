@@ -67,11 +67,47 @@ struct ImplProps_<1, N_f64> {
 /// This is a view in a similar sense to a Kokkos View (although this isn't
 /// very feature rich).
 ///
+/// @par Challenges with Interleaved Datatypes
+/// One of the goals of this class is to interleave the integer and floating
+/// point values. In other words, we wanted memory to be organized as an
+/// an array of structs (not a struct of arrays). To accomplish this, we made
+/// use of Templates.
+///
+/// @par
+/// We could achieve a similar effect with dynamic allocations (i.e. without
+/// using templates). Doing this properly (i.e. respecting C++'s object model)
+/// is a little tricky. I think we could do the following:
+///   - internally we would allocate and store a pointer to storage for all of
+///     the desired values. Immediately after allocation, we should call the
+///     "placement ``new``" operation to initialize every single quantity.
+///   - any time we try to access a value, we would compute the ptr to the
+///     location in storage where the value is stored, and then return
+///     ``std::launder(reinterpret_cast<T*>(ptr))``
+///   - during destruction, it's not clear what we need to do. Since we are
+///     using std::int64_t and double, we might not need to explicitly do
+///     anything (they are implicitly created types). This is a little unclear.
+///   - alternatively, we could make repeated use of std::start_lifetime_as (I
+///     think that destruction requirements would make more sense)
+///
 /// @note
 /// In the future, we may want to support wrapping memory managed by a
-/// structured numpy array. This will definitely takes some care:
-///   * this would be tricky enough to do something like this for C (making
-///     sure we get alignment and offsets exactly right)
+/// structured numpy array. This will definitely takes some care. There are
+/// definitely a lot of challenges related to undefined behavior and C++'s
+/// object model. Fundamentally, items in the stored array are implicitly
+/// creatable objects.
+///   - if we want numpy to pre-allocate the memory and pass it in and then
+///     much later interpret it as the storage used by this class, we will need
+///     to use std::start_lifetime_as.
+///   - alternatively, we should be able to use numpy's and cpython's C API to
+///     allocate data in C++ (or allocate it from Python and then call
+///     placement new) and then when it comes time to remove the last reference
+///     to the data, we use a callback to delete the referenec. Here is a
+///     stackoverflow link that touches on some of the machinery you would use
+///     in a simplified situation
+///     https://stackoverflow.com/questions/6811749/how-to-register-a-destructor-for-a-c-allocated-numpy-array
+///
+///
+/// sure we get alignment and offsets exactly right)
 ///   * there's an added challenge in C++ to ensure that we handle object
 ///     creation properly (e.g. using placement-new or std::start_lifetime_as)
 template <int N_i64, int N_f64>
@@ -193,6 +229,21 @@ public:
       return get_i64(register_index, idx);
     } else {
       return get_f64(register_index, idx);
+    }
+  }
+
+  /// return a pointer to the f64 data for the given register
+  ///
+  /// in the future, we may choose to get rid of this so that we can be more
+  /// agnositic about the underlying data layout
+  double* get_f64_register_ptr(std::size_t register_idx,
+                               std::size_t f64_offset = 0) const {
+    if constexpr (N_f64 == -1) {
+      return data_ + (f64_offset + register_idx + n_f64_);
+    } else if constexpr (N_f64 == 0) {
+      error("this function should not be executed");
+    } else {
+      return data_[register_idx].f64_vals + f64_offset;
     }
   }
 
