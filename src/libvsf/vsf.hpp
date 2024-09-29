@@ -68,17 +68,12 @@ extern "C" {
 ///     includes the interval ``bin_edges[i] <= x < bin_edges[i]``.
 /// @param[in]  nbins The number of position bins
 /// @param[in]  parallel_spec Specifies the parallelism arguments.
-/// @param[out] out_flt_vals Preallocated arrays to hold the output floating
-///     point values.
-/// @param[out] out_i64_vals Preallocated array to store the output int64_t
-///     values.
 ///
 /// @returns This returns ``true`` on success and ``false`` on failure.
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
                     const char* pairwise_op, void* accumhandle,
                     const double* bin_edges, size_t nbins,
-                    const ParallelSpec parallel_spec, double* out_flt_vals,
-                    int64_t* out_i64_vals);
+                    const ParallelSpec parallel_spec);
 
 /// returns whether the library was compiled with openmp support
 ///
