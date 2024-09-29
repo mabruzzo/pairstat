@@ -509,15 +509,30 @@ def _validate_stat_kw_pairs(arg):
                              "string paired with a dict")
 
 
+_KNOWN_OP = frozenset([
+    "vector_diff",
+    "longitudinal_diff",
+    "scalar_correlate",
+    "vector_correlate",
+    "longitudinal_correlate"
+])
+
+
 def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
                         weights_a = None, weights_b = None,
-                        pairwise_op = "sf",
+                        pairwise_op = "vector_diff",
                         stat_kw_pairs = [('variance', {})],
                         nproc = 1, force_sequential = False,
                         postprocess_stat = True):
     statconf_l = _coerce_stat_list(stat_kw_pairs)
 
-    val_is_vector = pairwise_op in ("sf", "vector_correlate")
+    if pairwise_op not in _KNOWN_OP:
+        raise ValueError(
+            f"{pairwise_op!r} is not a known pairwise_op. Known values "
+            f"include be one of {tuple(_KNOWN_OP)}"
+        )
+
+    val_is_vector = "scalar" not in pairwise_op
     cdef PyPointsProps points_a = _construct_pointprops(
             pos_a, val_a, weights = weights_a, val_is_vector = val_is_vector,
             dtype = 'f8', allow_null_contents = False)
@@ -627,6 +642,7 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
               dist_bin_edges = _unspecified,
               weights_a = None, weights_b = None,
               stat_kw_pairs = [('variance', {})],
+              longitudinal = False,
               nproc = 1, force_sequential = False,
               postprocess_stat = True):
     """
@@ -771,10 +787,16 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
     assert _val_b is not _unspecified
     assert dist_bin_edges is not _unspecified
 
+    if longitudinal:
+        pairwise_op = "longitudinal_diff"
+    else:
+        pairwise_op = "vector_diff"
+
     return _core_pairwise_work(
         pos_a = pos_a, pos_b = pos_b, val_a = _val_a, val_b = _val_b,
         dist_bin_edges = dist_bin_edges, 
-        weights_a = weights_a, weights_b = weights_b, pairwise_op = "sf",
+        weights_a = weights_a, weights_b = weights_b,
+        pairwise_op = pairwise_op,
         stat_kw_pairs = stat_kw_pairs, nproc = nproc,
         force_sequential = force_sequential,
         postprocess_stat = postprocess_stat)
@@ -782,6 +804,7 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
 
 def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
                          *, stat_kw_pairs = [('mean', {})],
+                         longitudinal = False,
                          nproc = 1, force_sequential = False):
     """
     Calculates the 2pcf (two-point correlation function) for pairs of points.
@@ -855,7 +878,9 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     **NOT** attempt to make any corrections to get an unbiased estimate of
     variance.
     """
-    if np.ndim(val_a) == 2:
+    if longitudinal:
+        pairwise_op = "longitudinal_correlate"
+    elif np.ndim(val_a) == 2:
         pairwise_op = "vector_correlate"
     else:
         pairwise_op = "scalar_correlate"
