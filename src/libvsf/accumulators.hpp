@@ -239,22 +239,13 @@ public:  // interface
   CentralMomentStatistic(void* arg) { require(arg == nullptr, "invalid arg"); }
 
   static inline void add_entry(std::size_t spatial_idx, double val,
-                               DataView& data) noexcept {
+                               double weight, DataView& data) noexcept {
     if constexpr (std::is_same_v<CountT, std::int64_t>) {
+      /// we ignore the weight
       std::int64_t& count = data.get_i64(spatial_idx, 0);
       count++;
       double* register_ptr = data.get_f64_register_ptr(spatial_idx, 0);
       online_cmoment_update_<Order, 1>(1.0, count, val, register_ptr);
-    } else {
-      error("This version of the function won't work!");
-    }
-  }
-
-  static inline void add_entry(std::size_t spatial_idx, double val,
-                               double weight, DataView& data) noexcept {
-    if constexpr (std::is_same_v<CountT, std::int64_t>) {
-      /// we ignore the weight
-      add_entry(spatial_idx, val, data);
     } else {
       double& weight_sum = data.get_f64(spatial_idx, 0);
       weight_sum += weight;
@@ -281,12 +272,14 @@ public:  // interface
       // overwrite the value of `this` with the contents of other
       d_primary.overwrite_register_from_other(d_other, spatial_idx);
       // add the value of the entry
-      add_entry(spatial_idx, temp, d_primary);
+      double dummy_weight = 1.0;
+      add_entry(spatial_idx, temp, dummy_weight, d_primary);
 
     } else if ((o_count == 1) && std::is_same_v<CountT, std::int64_t>) {
       // equiv to adding a single entry to *this
+      double dummy_weight = 1.0;
       add_entry(spatial_idx, d_other.get_f64(spatial_idx, LUT::mean),
-                d_primary);
+                dummy_weight, d_primary);
     } else {  // general case
 
       std::size_t offset = std::is_same_v<CountT, std::int64_t> ? 0 : 1;
@@ -385,40 +378,28 @@ public:  // interface
   OriginMomentStatistic(void* arg) { require(arg == nullptr, "invalid arg"); }
 
   static inline void add_entry(std::size_t spatial_idx, double val,
-                               DataView& data) noexcept {
-    if constexpr (std::is_same_v<CountT, std::int64_t>) {
-      std::int64_t& count = data.get_i64(spatial_idx, 0);
-      count++;
-      double val_raised_to_ip1 = 1;
-      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 0);
-
-      for (int i = 0; i < Order; i++) {
-        val_raised_to_ip1 *= val;
-        online_cmoment_update_<CMomentMaxOrder, Order>(
-            1.0, count, val_raised_to_ip1, register_ptr + i);
-      }
-
-    } else {
-      error("This version of the function won't work!");
-    }
-  }
-
-  static inline void add_entry(std::size_t spatial_idx, double val,
                                double weight, DataView& data) noexcept {
-    if constexpr (std::is_same_v<CountT, std::int64_t>) {
-      /// we ignore the weight
-      add_entry(val);
-    } else {
-      double& weight_sum = data.get_f64(spatial_idx, 0);
-      weight_sum += weight;
-      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 1);
+    CountT& weight_sum = data.template get<CountT>(spatial_idx, 0);
 
-      double val_raised_to_ip1 = 1;
-      for (int i = 0; i < Order; i++) {
-        val_raised_to_ip1 *= val;
-        online_cmoment_update_<CMomentMaxOrder, Order>(
-            weight, weight_sum, val_raised_to_ip1, register_ptr + i);
-      }
+    // when CountT is a double, we offset the indices for accessing moments
+    const std::size_t offset = std::is_same_v<CountT, double>;
+    double* register_ptr = data.get_f64_register_ptr(spatial_idx, offset);
+
+    if constexpr (std::is_same_v<CountT, std::int64_t>) {
+      // in this case, weight_sum, just tracks the total number of values
+      // encountered in spatial_idx so far (i.e. weight_sum is an integer
+      // count). Thus we ignore the weight argumenttial_idx, 0);
+      weight_sum++;
+      weight = 1.0;
+    } else {
+      weight_sum += weight;
+    }
+    double val_raised_to_ip1 = 1;
+
+    for (int i = 0; i < Order; i++) {
+      val_raised_to_ip1 *= val;
+      online_cmoment_update_<CMomentMaxOrder, Order>(
+          weight, weight_sum, val_raised_to_ip1, register_ptr + i);
     }
   }
 
@@ -444,12 +425,14 @@ public:  // interface
       // overwrite the value of `this` with the contents of other
       d_primary.overwrite_register_from_other(d_other, spatial_idx);
       // add the value of the entry
-      add_entry(spatial_idx, temp, d_primary);
+      double dummy_weight = 1.0;  // <- this choice is unimportant!
+      add_entry(spatial_idx, temp, dummy_weight, d_primary);
 
     } else if ((o_count == 1) && std::is_same_v<CountT, std::int64_t>) {
       // equiv to adding a single entry to d_primary
       double temp = d_other.get_f64(spatial_idx, 0 + offset);
-      add_entry(spatial_idx, temp, d_primary);
+      double dummy_weight = 1.0;  // <- this choice is unimportant!
+      add_entry(spatial_idx, temp, dummy_weight, d_primary);
 
     } else {  // general case
       std::size_t offset = std::is_same_v<CountT, std::int64_t> ? 0 : 1;
@@ -520,31 +503,16 @@ public:
     }
   }
 
-  /// Add an entry (without a weight)
-  inline void add_entry(std::size_t spatial_bin_index, double val,
-                        DataView& data) noexcept {
-    if constexpr (std::is_same_v<T, std::int64_t>) {
-      std::size_t data_bin_index =
-          identify_bin_index(val, data_bin_edges_.data(), n_data_bins_);
-      if (data_bin_index < n_data_bins_) {
-        std::size_t i = data_bin_index + spatial_bin_index * n_data_bins_;
-        data.get_i64(spatial_bin_index, data_bin_index)++;
-      }
-    } else {
-      error("a weight must be provided!");
-    }
-  }
-
-  /// Add an entry (with a weight)
+  /// Add an entry
   inline void add_entry(std::size_t spatial_bin_index, double val,
                         double weight, DataView& data) noexcept {
-    if constexpr (std::is_same_v<T, std::int64_t>) {
-      // ignore the weight
-      add_entry(spatial_bin_index, val);
-    } else {
-      std::size_t data_bin_index =
-          identify_bin_index(val, data_bin_edges_.data(), n_data_bins_);
-      if (data_bin_index < n_data_bins_) {
+    std::size_t data_bin_index =
+        identify_bin_index(val, data_bin_edges_.data(), n_data_bins_);
+
+    if (data_bin_index < n_data_bins_) {
+      if constexpr (std::is_same_v<T, std::int64_t>) {  // ignore the weight
+        data.get_i64(spatial_bin_index, data_bin_index)++;
+      } else {
         data.get_f64(spatial_bin_index, data_bin_index) += weight;
       }
     }
@@ -652,7 +620,11 @@ public:  // interface
   void purge() noexcept { data_.zero_fill(); }
 
   inline void add_entry(std::size_t spatial_bin_index, double val) noexcept {
-    statistic_.add_entry(spatial_bin_index, val, this->data_);
+    if (requires_weight) {
+      error("this accumulator requires weight values!");
+    } else {
+      statistic_.add_entry(spatial_bin_index, val, 1.0, this->data_);
+    }
   }
 
   inline void add_entry(std::size_t spatial_bin_index, double val,
