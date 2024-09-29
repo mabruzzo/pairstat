@@ -7,15 +7,6 @@
 
 void* accumhandle_create(const StatListItem* stat_list,
                          std::size_t stat_list_len, std::size_t num_dist_bins) {
-  if (stat_list_len != 1) {
-    // it currently doesn't make any sense to try to work with
-    // CompoundAccumCollection...
-    // it doesn't define everything necessary to be useful
-    error(
-        "This function currently only expects a single stat_list item to be "
-        "passed.");
-  }
-
   // this is very inefficient, but we don't have a ton of options if we want
   // to avoid repeating a lot of code
   AccumColVariant tmp =

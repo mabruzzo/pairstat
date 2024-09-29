@@ -74,8 +74,7 @@ cdef extern from "vsf.hpp":
     # is okay?
 
     bint calc_vsf_props(const PointProps points_a, const PointProps points_b,
-                        const char * pairwise_op,
-                        const StatListItem* stat_list, size_t stat_list_len,
+                        const char * pairwise_op, void* accumhandle,
                         const double *bin_edges, size_t nbins,
                         const ParallelSpec parallel_spec,
                         double *out_flt_vals, int64_t *out_i64_vals)
@@ -397,7 +396,8 @@ class VSFPropsRsltContainer:
     def get_i64_vals_arr(self):
         return self.int64_arr
 
-def _process_statistic_args(statconf_l, dist_bin_edges):
+cdef object _process_statistic_args(object statconf_l, object dist_bin_edges,
+                                    void** accumhandle) except *:
     """
     Construct the appropriate instance of StatList as well as information about
     the output data
@@ -409,12 +409,17 @@ def _process_statistic_args(statconf_l, dist_bin_edges):
 
     stat_list = StatList()
 
-    # it's important that we consider the entries of stat_kw_pairs in
-    # alphabetical order of the statistic names so that the stat_list entries
-    # are also initialized in alphabetical order
-    for statconf in sorted(statconf_l, key = lambda statconf: statconf.name):
+    # we sort the entries of statconf_l in alphabetical order because all of the fused
+    # accumulators expect the statnames to be in that order...
+    # -> (in the future, we will hopefully remove fused accumulators)
+    sorted_statconf_l = sorted(statconf_l, key = lambda statconf: statconf.name)
 
-        # first, look at output quantities associated with stat_name
+    # create the accumulator
+    accumhandle[0] = _construct_accum_handle(dist_bin_edges, sorted_statconf_l)
+
+    # prepare VSFPropsRsltContainer
+    for statconf in sorted_statconf_l:
+
         prop_l = statconf.get_dset_props(dist_bin_edges)
         for quan_name, dtype, shape in prop_l:
             key = (statconf.name, quan_name)
@@ -428,23 +433,8 @@ def _process_statistic_args(statconf_l, dist_bin_edges):
             else:
                 raise ValueError(f"can't handle datatype: {dtype}")
 
-        # now, update StatList
-        if statconf.name in ['histogram', 'weightedhistogram']:
-            val_bin_edges = np.asanyarray(
-                statconf._kwargs()['val_bin_edges'], dtype = 'f8'
-            )
-            if not _verify_bin_edges(val_bin_edges):
-                raise ValueError(
-                    'kwargs["val_bin_edges"] must be a 1D monotonically '
-                    'increasing array with 2 or more values'
-                )
-            val_bin_spec = PyBinSpecification(bin_edges = val_bin_edges)
-            stat_list.append(statconf.name, val_bin_spec)
-        else:
-            stat_list.append(statistic_name = statconf.name, statistic_arg = None)
-
-    return stat_list, VSFPropsRsltContainer(int64_quans = int64_quans,
-                                            float64_quans = float64_quans)
+    return VSFPropsRsltContainer(int64_quans = int64_quans,
+                                 float64_quans = float64_quans)
 
 def _coerce_stat_list(arg):
     argname = 'stat_kw_pairs'
@@ -585,7 +575,8 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     cdef const double[::1] bin_edges_view = dist_bin_edges
 
     # construct stat_list and rslt_container
-    stat_list, rslt_container = _process_statistic_args(statconf_l, dist_bin_edges)
+    cdef void* accumhandle = NULL
+    rslt_container = _process_statistic_args(statconf_l, dist_bin_edges, &accumhandle)
 
     cdef ParallelSpec parallel_spec
     parallel_spec.nproc = nproc
@@ -611,8 +602,7 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     cdef bint success = calc_vsf_props(
         points_a = points_a.c_points, points_b = points_b.c_points,
         pairwise_op = c_pairwise_op,
-        stat_list = (<StatList?>stat_list).data,
-        stat_list_len = len(stat_list),
+        accumhandle = accumhandle,
         bin_edges = &(bin_edges_view[0]), nbins = ndist_bins,
         parallel_spec = parallel_spec, 
         out_flt_vals = out_flt_vals, out_i64_vals = out_i64_vals
@@ -941,44 +931,63 @@ cdef BinSpecification _build_BinSpecification(arr, wrap_array = True):
     return out
 
 
-cdef void* _construct_accum_handle(object dist_bin_edges, object statconf) except NULL:
+cdef bytes _coerce_name_to_bytes(name) except*:
+    if isinstance(name, str):
+        return name.encode('ASCII')
+    elif isinstance(name, (bytes, bytearray)):
+        return bytes(name)
+    else:
+        raise TypeError("name must have type: str, bytes, or bytearray")
+
+
+cdef void* _construct_accum_handle(object dist_bin_edges, object statconf_l) except NULL:
     assert PY_MAJOR_VERSION >= 3
 
-    cdef object name = statconf.name
-    cdef object kwargs = statconf._kwargs()
-    if 'val_bin_edges' in kwargs:
-        assert len(kwargs) == 1
-        val_bin_edges = kwargs['val_bin_edges']
-    else:
-        assert len(kwargs) == 0
-        val_bin_edges = None
+    if not isinstance(statconf_l, (list,tuple)):
+        statconf_l = [statconf_l]
+
+    assert len(statconf_l) in [1,2]
 
     cdef size_t num_dist_bins = dist_bin_edges.size - 1
 
-    cdef bytes coerced_name_str
+    # define variables used to hold statistic names
+    cdef bytes coerced_name_str0
+    cdef bytes coerced_name_str1
 
-    if isinstance(name, str):
-        coerced_name_str = name.encode('ASCII')
-    elif isinstance(name, (bytes, bytearray)):
-        coerced_name_str = bytes(name)
-    else:
-        raise ValueError("name must have the type: str, bytes, or bytearray")
+    # allocate space for variables that may be used for bin specification
+    cdef BinSpecification[2] bin_spec
 
-    # lifetime of c_name_str is tied to coerced_name_str
-    cdef char* c_name_str = coerced_name_str
+    # allocate space for variables that may be used for stat list
+    cdef StatListItem[2] entries
 
-    cdef StatListItem list_entry
-    list_entry.statistic = c_name_str
+    cdef Py_ssize_t i
+    for i,statconf in enumerate(statconf_l):
+        name = statconf.name
+        kwargs = statconf._kwargs()
+        if 'val_bin_edges' in kwargs:
+            assert len(kwargs) == 1
+            val_bin_edges = kwargs['val_bin_edges']
+        else:
+            assert len(kwargs) == 0
+            val_bin_edges = None
 
-    cdef BinSpecification bin_spec    
-    if val_bin_edges is not None:
-        # lifetime of bin_spec is tied to statconf
-        bin_spec = _build_BinSpecification(val_bin_edges, True)
-        list_entry.arg_ptr = <void*>(&bin_spec)
-    else:
-        list_entry.arg_ptr = NULL
+        if i == 0:
+            # lifetime of str is tied to the coerced_name_str0 variable
+            coerced_name_str0 = _coerce_name_to_bytes(name)
+            entries[0].statistic = coerced_name_str0
+        else:
+            # lifetime of str is tied to the coerced_name_str1 variable
+            coerced_name_str1 = _coerce_name_to_bytes(name)
+            entries[1].statistic = coerced_name_str1
 
-    return accumhandle_create(&list_entry, 1, num_dist_bins)
+        if val_bin_edges is not None:
+            # lifetime of bin_spec is tied to statconf
+            bin_spec[i] = _build_BinSpecification(val_bin_edges, True)
+            entries[i].arg_ptr = <void*>(bin_spec+i)
+        else:
+            entries[i].arg_ptr = NULL
+
+    return accumhandle_create(entries, len(statconf_l), num_dist_bins)
 
 
 cdef int64_t* _ArrayMap_i64_ptr(object array_map):

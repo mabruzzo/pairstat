@@ -7,6 +7,9 @@
 // TODO: it would be REALLY nice to be able to directly and dynamically query
 //       the required size of each output buffer. (And to be able to query the
 //       meaning of each value)
+//
+// TODO: I REALLY don't like the idea of passing unwrapped void pointers
+//       arround. It would be better to pass a pointer to an opaque type
 
 #include "vsf.hpp"
 
@@ -21,6 +24,16 @@ extern "C" {
 /// @param[in]  stat_list_len Specifies the number of entries in stat_list.
 /// @param[in]  num_dist_bins The number of distance bins used in the
 ///     accumulator.
+///
+/// @note
+/// Be aware that the FusedAccumulators can't do most of the things that other
+/// accumulators can do through the accumhandle interface. In fact the only
+/// reason to try to create a FusedAccumulator is so you can use it for
+/// computing structure functions.
+///
+/// @note
+/// We may remove FusedAccumulators in the future. At the moment, they just
+/// exist for backwards compatability.
 void* accumhandle_create(const StatListItem* stat_list, size_t stat_list_len,
                          size_t num_dist_bins);
 

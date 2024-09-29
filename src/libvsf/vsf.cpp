@@ -393,10 +393,10 @@ void calc_pair_props_(const PointProps points_a, const PointProps points_b,
 }  // namespace
 
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
-                    const char* pairwise_op, const StatListItem* stat_list,
-                    std::size_t stat_list_len, const double* bin_edges,
-                    std::size_t nbins, const ParallelSpec parallel_spec,
-                    double* out_flt_vals, int64_t* out_i64_vals) {
+                    const char* pairwise_op, void* accumhandle,
+                    const double* bin_edges, std::size_t nbins,
+                    const ParallelSpec parallel_spec, double* out_flt_vals,
+                    int64_t* out_i64_vals) {
   const bool duplicated_points =
       ((points_b.positions == nullptr) && (points_b.values == nullptr));
 
@@ -412,6 +412,8 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
     return false;
   } else if ((points_a.weights == nullptr) !=
              (my_points_b.weights == nullptr)) {
+    return false;
+  } else if (accumhandle == nullptr) {
     return false;
   }
 
@@ -429,8 +431,8 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   }
 
   // construct accumulators (they're stored in a std::variant for convenience)
-  AccumColVariant accumulators =
-      build_accum_collection(stat_list, stat_list_len, nbins);
+  AccumColVariant* ptr = static_cast<AccumColVariant*>(accumhandle);
+  AccumColVariant& accumulators = *ptr;
 
   bool requires_weight =
       std::visit([](auto& a) { return a.requires_weight; }, accumulators);
