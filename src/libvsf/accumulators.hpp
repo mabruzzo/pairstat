@@ -321,14 +321,12 @@ public:  // interface
 /// The variance corresponding to the 1st order moment (about the origin) is
 /// simply the variance for the entire distribution. The variance corresponding
 /// to the 2nd order moment is the variance of the entire distribution squared.
-template <int Order, typename CountT = int64_t>
+template <int Order, typename CountT = int64_t, bool CalcVar = false>
 class OriginMomentStatistic {
   static_assert(1 <= Order, "at the moment we only allow 1 <= Order");
   static_assert(std::is_same_v<CountT, std::int64_t> ||
                     std::is_same_v<CountT, double>,
                 "invalid type was used.");
-
-  static constexpr bool CalcVar = false;
 
   /// the max central moment order that we compute
   /// * a value of 1 means that we just compute the mean for each moment about
@@ -340,9 +338,10 @@ class OriginMomentStatistic {
   static constexpr bool dbl_precision_weight = std::is_same_v<CountT, double>;
 
 public:  // interface
-  // either StatDataView<1,Order> OR StatDataView<0,1+Order>
-  using DataView =
-      StatDataView<!dbl_precision_weight, Order + dbl_precision_weight>;
+  // either StatDataView<1,Order*CMomentMaxOrder> OR
+  //        StatDataView<0,1+Order*CMomentMaxOrder>
+  using DataView = StatDataView<!dbl_precision_weight,
+                                Order * CMomentMaxOrder + dbl_precision_weight>;
 
   static constexpr bool requires_weight = dbl_precision_weight;
 

@@ -13,39 +13,37 @@ template <class T0, class T1>
 using MyFusedAccumCol = FusedAccumCollection<std::tuple<T0, T1>>;
 
 template <int Order>
-using CentralMomentAccumCollection =
-    Accumulator<CentralMomentStatistic<Order, std::int64_t>>;
+using MomentAccum =
+    Accumulator<OriginMomentStatistic<Order, std::int64_t, false>>;
 
 template <int Order>
-using WeightedCentralMomentAccumCollection =
-    Accumulator<CentralMomentStatistic<Order, double>>;
+using MomentWithVarAccum =
+    Accumulator<OriginMomentStatistic<Order, std::int64_t, true>>;
 
 template <int Order>
-using OriginMomentAccumCollection =
-    Accumulator<OriginMomentStatistic<Order, std::int64_t>>;
+using WeightedMomentAccum =
+    Accumulator<OriginMomentStatistic<Order, double, false>>;
 
 template <int Order>
-using WeightedOriginMomentAccumCollection =
-    Accumulator<OriginMomentStatistic<Order, double>>;
+using WeightedMomentWithVarAccum =
+    Accumulator<OriginMomentStatistic<Order, double, true>>;
 
 using AccumColVariant = std::variant<
-    // list CentralMoment accumulators
-    CentralMomentAccumCollection<1>, WeightedCentralMomentAccumCollection<1>,
-    CentralMomentAccumCollection<2>, WeightedCentralMomentAccumCollection<2>,
-    CentralMomentAccumCollection<3>,
-    // list OriginMoment accumulators
-    OriginMomentAccumCollection<2>, WeightedOriginMomentAccumCollection<2>,
-    OriginMomentAccumCollection<3>, WeightedOriginMomentAccumCollection<3>,
-    OriginMomentAccumCollection<4>, WeightedOriginMomentAccumCollection<4>,
+    MomentAccum<1>, WeightedMomentAccum<1>, MomentWithVarAccum<1>,
+    WeightedMomentWithVarAccum<1>, MomentAccum<2>, WeightedMomentAccum<2>,
+    MomentWithVarAccum<2>, WeightedMomentWithVarAccum<2>, MomentAccum<3>,
+    WeightedMomentAccum<3>, MomentWithVarAccum<3>,
+    WeightedMomentWithVarAccum<3>, MomentAccum<4>, WeightedMomentAccum<4>,
+    MomentWithVarAccum<4>, WeightedMomentWithVarAccum<4>,
+    Accumulator<CentralMomentStatistic<3, std::int64_t>>,
     // list Historgram accumulators
     HistogramAccumCollection, WeightedHistogramAccumCollection,
     // here we start listing the fused options
-    MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<1>>,
-    MyFusedAccumCol<HistogramAccumCollection, CentralMomentAccumCollection<2>>,
+    MyFusedAccumCol<HistogramAccumCollection, MomentAccum<1>>,
+    MyFusedAccumCol<HistogramAccumCollection, MomentWithVarAccum<1>>,
+    MyFusedAccumCol<WeightedHistogramAccumCollection, WeightedMomentAccum<1>>,
     MyFusedAccumCol<WeightedHistogramAccumCollection,
-                    WeightedCentralMomentAccumCollection<1>>,
-    MyFusedAccumCol<WeightedHistogramAccumCollection,
-                    WeightedCentralMomentAccumCollection<2>>>;
+                    WeightedMomentWithVarAccum<1>>>;
 
 struct BuildContext_ {
   const StatListItem* stat_list;
@@ -76,6 +74,16 @@ struct BuildContext_ {
   }
 };
 
+inline std::string get_stat_name_(const StatListItem& item) {
+  std::string name(item.statistic);
+  // remap some older names
+  if (name == "mean") return "omoment1";
+  if (name == "weightedmean") return "weightedomoment1";
+  if (name == "variance") return "omoment1_var";
+  if (name == "weightedvariance") return "weightedomoment1_var";
+  return name;
+}
+
 /// Construct an instance of AccumColVariant
 inline AccumColVariant build_accum_collection(
     const StatListItem* stat_list, std::size_t stat_list_len,
@@ -85,32 +93,49 @@ inline AccumColVariant build_accum_collection(
     error("stat_list_len must not be 0");
 
   } else if (stat_list_len == 1) {
-    std::string stat(stat_list[0].statistic);
+    std::string stat = get_stat_name_(stat_list[0]);
 
-    if (stat == "mean") {
-      return ctx.build1<CentralMomentAccumCollection<1>>();
-    } else if (stat == "variance") {
-      return ctx.build1<CentralMomentAccumCollection<2>>();
-    } else if (stat == "cmoment3") {
-      return ctx.build1<CentralMomentAccumCollection<3>>();
+    // this could be improved a lot! We could write a simple regex for most of
+    // these cases and then dispatch to a factory template function
+    if (stat == "omoment1") {
+      return ctx.build1<MomentAccum<1>>();
+    } else if (stat == "weightedomoment1") {
+      return ctx.build1<WeightedMomentAccum<1>>();
+    } else if (stat == "omoment1_var") {
+      return ctx.build1<MomentWithVarAccum<1>>();
+    } else if (stat == "weightedomoment1_var") {
+      return ctx.build1<WeightedMomentWithVarAccum<1>>();
     } else if (stat == "omoment2") {
-      return ctx.build1<OriginMomentAccumCollection<2>>();
+      return ctx.build1<MomentAccum<2>>();
     } else if (stat == "weightedomoment2") {
-      return ctx.build1<WeightedOriginMomentAccumCollection<2>>();
+      return ctx.build1<WeightedMomentAccum<2>>();
+    } else if (stat == "omoment2_var") {
+      return ctx.build1<MomentWithVarAccum<2>>();
+    } else if (stat == "weightedomoment2_var") {
+      return ctx.build1<WeightedMomentWithVarAccum<2>>();
     } else if (stat == "omoment3") {
-      return ctx.build1<OriginMomentAccumCollection<3>>();
+      return ctx.build1<MomentAccum<3>>();
     } else if (stat == "weightedomoment3") {
-      return ctx.build1<WeightedOriginMomentAccumCollection<3>>();
+      return ctx.build1<WeightedMomentAccum<3>>();
+    } else if (stat == "omoment3_var") {
+      return ctx.build1<MomentWithVarAccum<3>>();
+    } else if (stat == "weightedomoment3_var") {
+      return ctx.build1<WeightedMomentWithVarAccum<3>>();
     } else if (stat == "omoment4") {
-      return ctx.build1<OriginMomentAccumCollection<4>>();
+      return ctx.build1<MomentAccum<4>>();
     } else if (stat == "weightedomoment4") {
-      return ctx.build1<WeightedOriginMomentAccumCollection<4>>();
+      return ctx.build1<WeightedMomentAccum<4>>();
+    } else if (stat == "omoment4_var") {
+      return ctx.build1<MomentWithVarAccum<4>>();
+    } else if (stat == "weightedomoment4_var") {
+      return ctx.build1<WeightedMomentWithVarAccum<4>>();
+    } else if (stat == "cmoment3") {
+      // todo: remove this case!
+      return ctx.build1<Accumulator<CentralMomentStatistic<3, std::int64_t>>>();
     } else if (stat == "histogram") {
       return ctx.build1<HistogramAccumCollection>();
-    } else if (stat == "weightedmean") {
-      return ctx.build1<WeightedCentralMomentAccumCollection<1>>();
     } else if (stat == "weightedvariance") {
-      return ctx.build1<WeightedCentralMomentAccumCollection<2>>();
+      return ctx.build1<WeightedMomentWithVarAccum<1>>();
     } else if (stat == "weightedhistogram") {
       return ctx.build1<WeightedHistogramAccumCollection>();
     } else {
@@ -118,25 +143,28 @@ inline AccumColVariant build_accum_collection(
     }
 
   } else if (stat_list_len == 2) {
-    std::string stat0(stat_list[0].statistic);
-    std::string stat1(stat_list[1].statistic);
+    // at this point, I'm skeptical that the FusedAccumulator was a good idea
+    // -> in the future, we will remove it (or at the very least, we'll try to
+    //    roughly benchmark its speed)
 
-    if ((stat0 == "histogram") && (stat1 == "mean")) {
-      return ctx
-          .build2<HistogramAccumCollection, CentralMomentAccumCollection<1>>();
+    std::string stat0 = get_stat_name_(stat_list[0]);
+    std::string stat1 = get_stat_name_(stat_list[1]);
 
-    } else if ((stat0 == "histogram") && (stat1 == "variance")) {
-      return ctx
-          .build2<HistogramAccumCollection, CentralMomentAccumCollection<2>>();
+    if ((stat0 == "histogram") && (stat1 == "omoment1")) {
+      return ctx.build2<HistogramAccumCollection, MomentAccum<1>>();
 
-    } else if ((stat0 == "weightedhistogram") && (stat1 == "weightedmean")) {
-      return ctx.build2<WeightedHistogramAccumCollection,
-                        WeightedCentralMomentAccumCollection<1>>();
+    } else if ((stat0 == "histogram") && (stat1 == "omoment1_var")) {
+      return ctx.build2<HistogramAccumCollection, MomentWithVarAccum<1>>();
 
     } else if ((stat0 == "weightedhistogram") &&
-               (stat1 == "weightedvariance")) {
-      return ctx.build2<WeightedHistogramAccumCollection,
-                        WeightedCentralMomentAccumCollection<1>>();
+               (stat1 == "weightedomoment1")) {
+      return ctx
+          .build2<WeightedHistogramAccumCollection, WeightedMomentAccum<1>>();
+
+    } else if ((stat0 == "weightedhistogram") &&
+               (stat1 == "weightedomoment1_var")) {
+      return ctx
+          .build2<WeightedHistogramAccumCollection, WeightedMomentAccum<1>>();
 
     } else {
       std::string err_msg = ("unrecognized stat combination: \"" + stat0 +
