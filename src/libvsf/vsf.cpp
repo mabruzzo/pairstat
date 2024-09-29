@@ -395,8 +395,7 @@ void calc_pair_props_(const PointProps points_a, const PointProps points_b,
 bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
                     const char* pairwise_op, void* accumhandle,
                     const double* bin_edges, std::size_t nbins,
-                    const ParallelSpec parallel_spec, double* out_flt_vals,
-                    int64_t* out_i64_vals) {
+                    const ParallelSpec parallel_spec) {
   const bool duplicated_points =
       ((points_b.positions == nullptr) && (points_b.values == nullptr));
 
@@ -473,12 +472,6 @@ bool calc_vsf_props(const PointProps points_a, const PointProps points_b,
   std::visit(func, accumulators);
 
   if (accum_skipped) return false;
-
-  // now copy the results from the accumulators to the output array
-  std::visit([=](auto& accums) { accums.copy_vals(out_flt_vals); },
-             accumulators);
-  std::visit([=](auto& accums) { accums.copy_vals(out_i64_vals); },
-             accumulators);
 
   return true;
 }

@@ -76,10 +76,31 @@ cdef extern from "vsf.hpp":
     bint calc_vsf_props(const PointProps points_a, const PointProps points_b,
                         const char * pairwise_op, void* accumhandle,
                         const double *bin_edges, size_t nbins,
-                        const ParallelSpec parallel_spec,
-                        double *out_flt_vals, int64_t *out_i64_vals)
+                        const ParallelSpec parallel_spec)
 
     bint cxx_compiled_with_openmp "compiled_with_openmp"()
+
+cdef extern from "accum_handle.hpp":
+
+    void* accumhandle_create(const StatListItem* stat_list,
+                             size_t stat_list_len,
+                             size_t num_dist_bins)
+
+    void accumhandle_destroy(void* handle)
+
+    void accumhandle_export_data(void* handle, double *out_flt_vals,
+                                 int64_t *out_i64_vals)
+
+    void accumhandle_restore(void* handle, const double *in_flt_vals,
+                             const int64_t *in_i64_vals)
+
+    void accumhandle_consolidate_into_primary(void* handle_primary,
+                                              void* handle_secondary)
+
+    void accumhandle_add_entries(void* handle, int purge_everything_first,
+                                 size_t spatial_bin_index, size_t num_entries,
+                                 double * values, double * weights)
+
 
 def compiled_with_openmp():
     return bool(cxx_compiled_with_openmp())
@@ -260,83 +281,6 @@ cdef class PyBinSpecification:
         out.ptr = <void *>(&(self.c_bin_spec))
         return out
 
-cdef enum:
-    _MAX_STATLIST_CAPACITY = 4
-
-cdef class StatList:
-    cdef StatListItem[_MAX_STATLIST_CAPACITY] data
-
-    # current length (less than or equal to _MAX_STATLIST_CAPACITY)
-    cdef int length
-
-    # the c-string stored in data[i].statistic is a pointer to the buffer
-    # of the Python byte string stored in self._py_byte_strs (this is supported
-    # by cython magic)
-    # -> an important reason for this attributes existence is that it ensures
-    #    that the lifetime of the contained strings are consistent with the
-    #    lifetime of the rest of the object
-    # -> the mechanism for extracting the reference to this string is
-    #    handled by cython magic
-    cdef object _py_byte_strs
-
-    # data[i].arg_ptr is either NULL or a pointer. In cases where its not NULL,
-    # it is a pointer to a value wrapped by the extension-type held in
-    # self._attached_storage[i].
-    cdef object _arg_storage
-
-    def __cinit__(self):
-        self.length = 0
-        for i in range(_MAX_STATLIST_CAPACITY):
-            self.data[i].statistic = NULL
-            self.data[i].arg_ptr = NULL
-
-        self._py_byte_strs = [None for i in range(_MAX_STATLIST_CAPACITY)]
-        self._arg_storage = [None for i in range(_MAX_STATLIST_CAPACITY)]
-
-    def append(self, statistic_name, statistic_arg = None):
-        assert (self.length + 1) <= _MAX_STATLIST_CAPACITY
-        ind = self.length
-        self.length+=1
-
-        # handle the statistic name (convert it to bytes instance)
-        if isinstance(statistic_name, str):
-            statistic_name = statistic_name.encode('ascii')
-        elif isinstance(statistic_name, bytearray):
-            statistic_name = bytes(statistic_name)
-        elif not isinstance(statistic_name, bytes):
-            raise ValueError("statistic_name must be coercable to bytes")
-        self._py_byte_strs[ind] = statistic_name
-
-        # we rely on cython magic to get a pointer to the byte buffer of the
-        # Python byte string
-        cdef char* c_stat_name = <bytes>(self._py_byte_strs[ind])
-
-        cdef void* arg_ptr = NULL
-        self._arg_storage[ind] = statistic_arg
-        if self._arg_storage[ind] is not None:
-            ptr_wrapper = self._arg_storage[ind].wrapped_void_ptr()
-            arg_ptr = (<_WrappedVoidPtr?>(ptr_wrapper)).ptr
-
-        self.data[ind].statistic = c_stat_name
-        self.data[ind].arg_ptr = arg_ptr
-
-    def __len__(self):
-        return self.length
-
-    def __str__(self):
-        cdef uintptr_t tmp
-        elements = []
-        for i in range(self.length):
-            if self.data[i].arg_ptr == NULL:
-                ptr_str = 'NULL'
-            else:
-                tmp = <uintptr_t>(self.data[i].arg_ptr)
-                ptr_str = 'ptr(' + hex(int(tmp)) + ')'
-
-            elements.append('{' + self._py_byte_strs[i].decode('ascii') + ',' +
-                            ptr_str + '}')
-        return '[' + ','.join(elements) + ']'
-
 
 class VSFPropsRsltContainer:
     def __init__(self, int64_quans, float64_quans):
@@ -397,17 +341,17 @@ class VSFPropsRsltContainer:
         return self.int64_arr
 
 cdef object _process_statistic_args(object statconf_l, object dist_bin_edges,
-                                    void** accumhandle) except *:
+                                    void** accumhandle):
     """
-    Construct the appropriate instance of StatList as well as information about
-    the output data
+    Construct the accumhandle as well as information about the output data
+
+    Since we return a python object, cython always checks for exceptions when this
+    returns. (cython issues a warning if you add an ``except*`` clause)
     """
 
     # it's important that we retain order!
     int64_quans = OrderedDict()
     float64_quans = OrderedDict()
-
-    stat_list = StatList()
 
     # we sort the entries of statconf_l in alphabetical order because all of the fused
     # accumulators expect the statnames to be in that order...
@@ -604,12 +548,14 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         pairwise_op = c_pairwise_op,
         accumhandle = accumhandle,
         bin_edges = &(bin_edges_view[0]), nbins = ndist_bins,
-        parallel_spec = parallel_spec, 
-        out_flt_vals = out_flt_vals, out_i64_vals = out_i64_vals
+        parallel_spec = parallel_spec
     )
 
     if not success:
         raise RuntimeError("Something went wrong while in calc_vsf_props")
+
+    accumhandle_export_data(accumhandle, out_flt_vals = out_flt_vals,
+                            out_i64_vals = out_i64_vals)
 
     out = []
     for statconf in statconf_l:
@@ -880,34 +826,6 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         dist_bin_edges = dist_bin_edges, weights_a = None, weights_b = None,
         pairwise_op = pairwise_op, stat_kw_pairs = stat_kw_pairs, nproc = nproc,
         force_sequential = force_sequential, postprocess_stat = True)
-
-#==============================================================================
-# It's been a long time since I've looked at the next chunk of code, but I
-# think it could be integrated with the above chunk to some degree
-# - the following section is related to defining "Kernels" for
-#   structure-function statistics
-#==============================================================================
-
-cdef extern from "accum_handle.hpp":
-
-    void* accumhandle_create(const StatListItem* stat_list,
-                             size_t stat_list_len,
-                             size_t num_dist_bins)
-
-    void accumhandle_destroy(void* handle)
-
-    void accumhandle_export_data(void* handle, double *out_flt_vals,
-                                 int64_t *out_i64_vals)
-
-    void accumhandle_restore(void* handle, const double *in_flt_vals,
-                             const int64_t *in_i64_vals)
-
-    void accumhandle_consolidate_into_primary(void* handle_primary,
-                                              void* handle_secondary)
-
-    void accumhandle_add_entries(void* handle, int purge_everything_first,
-                                 size_t spatial_bin_index, size_t num_entries,
-                                 double * values, double * weights)
 
 
 cdef BinSpecification _build_BinSpecification(arr, wrap_array = True):
