@@ -25,6 +25,25 @@
 template <class>
 inline constexpr bool dummy_false_v_ = false;
 
+/// functions within this namespace are used to implement logic for computing
+/// central moments.
+///
+/// Historically, this was the core logic supported by the accumulators (the
+/// ability to compute histograms was also part of the core logic).
+///
+/// * Order 1 computes the mean. Technically the mean is not a central moment,
+///   but it is needed for the other central moments (technically, the first
+///   central moment has a value of zero)
+/// * Order 2 computes the mean and variance.
+/// * Order 3 is the 3rd central moment. The 3rd central moment is closely
+///   related to (but distinct from) skewness. (this logic was only ever
+///   implmented in the case without weights -- it is no longer used)
+///
+/// @note
+/// If we ever want to generalize to higher order moments, we can look at
+/// https://zenodo.org/records/1232635
+namespace cmoment_tools {
+
 /// compute the total count
 ///
 /// @note
@@ -130,6 +149,8 @@ void general_cmoment_consolidate_(WeightT count, WeightT o_count,
       d_primary[LUT::mean], count, d_other[LUT::mean], o_count, totcount);
 }
 
+}  // namespace cmoment_tools
+
 /// identify the index of the bin where x lies.
 ///
 /// @param x The value that is being queried
@@ -163,142 +184,6 @@ struct PropDescr {
   const char* name = nullptr;
   bool is_f64 = true;
   int count = 1;
-};
-
-/// Implements a statistic (for measuring central moments) that can be
-/// used to specialize Accumulator
-///
-/// @tparam Order Specifies the highest order moment that is computed. We also
-///    compute all lower order moments
-/// @tparam CountT Specifies the type of the counts. When this is int64_t
-///    the class does standard stuff. When it is double, the class computes
-///    the weighted moments
-///
-/// As a historical note, we originally had separate accumulators for mean,
-/// variance, and weighted mean.
-///
-/// @note
-/// The 1st and 2nd second moments exactly the same as mean and variance.
-/// While the 3rd and 4th moments are related to skew and kurtosis, they are
-/// not exactly the same.
-///
-/// @note
-/// In the future, to generalize to higher order moments, we can look at
-/// https://zenodo.org/records/1232635
-template <int Order, typename CountT = int64_t>
-class CentralMomentStatistic {
-  static_assert((1 <= Order) && (Order <= 3),
-                "at the moment we only allow 1 <= Order <=3");
-  static_assert(std::is_same_v<CountT, std::int64_t> ||
-                    std::is_same_v<CountT, double>,
-                "invalid type was used.");
-  static_assert(((std::is_same_v<CountT, double> && (Order <= 2)) ||
-                 std::is_same_v<CountT, std::int64_t>),
-                "Can only currently use weights when Order <= 2.");
-
-  static constexpr bool dbl_precision_weight = std::is_same_v<CountT, double>;
-
-  /// Specifies a LUT
-  ///
-  /// @note
-  /// We put the enum declaration inside a struct so that the enumerator names
-  /// must be namespace qualified. We DON'T use scoped enums because we want
-  /// the enums to be interchangeable with integers
-  struct LUT {
-    enum {
-      mean = 0 + dbl_precision_weight,
-      cur_M2 = 1 + dbl_precision_weight,
-      cur_M3 = 2 + dbl_precision_weight
-    };
-  };
-
-public:  // interface
-  // either StatDataView<1,Order> OR StatDataView<0,1+Order>
-  using DataView =
-      StatDataView<!dbl_precision_weight, Order + dbl_precision_weight>;
-
-  static constexpr bool requires_weight = dbl_precision_weight;
-
-  // this is just here so we can maintain consistency with histogram stat
-  static constexpr bool alt_data_mapping = false;
-
-  /// Return a description of the properties (int64 followed by doubles
-  static PropDescr get_prop(int index) noexcept {
-    if (index == 0) {
-      return {"weight", std::is_same_v<CountT, double>, 1};
-    } else if (index == 1) {
-      return {"mean", true, 1};
-    } else if ((Order >= 2) && (index == 2)) {
-      return {"variance*weight", true, 1};
-    } else if ((Order >= 3) && (index == 3)) {
-      return {"cmoment3*count", true, 1};
-    }
-    return {};
-  }
-
-  CentralMomentStatistic(void* arg) { require(arg == nullptr, "invalid arg"); }
-
-  static inline void add_entry(std::size_t spatial_idx, double val,
-                               double weight, DataView& data) noexcept {
-    if constexpr (std::is_same_v<CountT, std::int64_t>) {
-      /// we ignore the weight
-      std::int64_t& count = data.get_i64(spatial_idx, 0);
-      count++;
-      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 0);
-      online_cmoment_update_<Order, 1>(1.0, count, val, register_ptr);
-    } else {
-      double& weight_sum = data.get_f64(spatial_idx, 0);
-      weight_sum += weight;
-      double* register_ptr = data.get_f64_register_ptr(spatial_idx, 1);
-      online_cmoment_update_<Order, 1>(weight, weight_sum, val, register_ptr);
-    }
-  }
-
-  /// Updates the values of `d_primary` to include contributions from `d_other`
-  static void consolidate_helper_(std::size_t spatial_idx, DataView& d_primary,
-                                  const DataView& d_other) noexcept {
-    CountT& count = d_primary.template get<CountT>(spatial_idx, 0);
-    CountT& o_count = d_other.template get<CountT>(spatial_idx, 0);
-
-    if (count == 0) {
-      d_primary.overwrite_register_from_other(d_other, spatial_idx);
-    } else if (o_count == 0) {
-      // do nothing
-    } else if ((count == 1) && std::is_same_v<CountT, std::int64_t>) {
-      // set temp equal to the value of the mean, currently held by `this`
-      // (since the count is 1, this it exactly equal to the value of the sole
-      // entry previously encountered by `this`)
-      double temp = d_primary.get_f64(spatial_idx, LUT::mean);
-      // overwrite the value of `this` with the contents of other
-      d_primary.overwrite_register_from_other(d_other, spatial_idx);
-      // add the value of the entry
-      double dummy_weight = 1.0;
-      add_entry(spatial_idx, temp, dummy_weight, d_primary);
-
-    } else if ((o_count == 1) && std::is_same_v<CountT, std::int64_t>) {
-      // equiv to adding a single entry to *this
-      double dummy_weight = 1.0;
-      add_entry(spatial_idx, d_other.get_f64(spatial_idx, LUT::mean),
-                dummy_weight, d_primary);
-    } else {  // general case
-
-      std::size_t offset = std::is_same_v<CountT, std::int64_t> ? 0 : 1;
-      double* ptr = d_primary.get_f64_register_ptr(spatial_idx, offset);
-      double* o_ptr = d_other.get_f64_register_ptr(spatial_idx, offset);
-      general_cmoment_consolidate_<Order, 1>(count, o_count, ptr, o_ptr);
-      double totcount = count + o_count;
-      count = totcount;
-    }
-  }
-
-  /// Updates the values of `d_primary` to include contributions from `d_other`
-  static void consolidate(DataView& d_primary,
-                          const DataView& d_other) noexcept {
-    const std::size_t n_spatial_bins = d_primary.num_registers();
-    for (std::size_t i = 0; i < n_spatial_bins; i++) {
-      consolidate_helper_(i, d_primary, d_other);
-    }
-  }
 };
 
 /// Implements a Statistic for measuring moments about the origin that can
@@ -397,7 +282,7 @@ public:  // interface
 
     for (int i = 0; i < Order; i++) {
       val_raised_to_ip1 *= val;
-      online_cmoment_update_<CMomentMaxOrder, Order>(
+      cmoment_tools::online_cmoment_update_<CMomentMaxOrder, Order>(
           weight, weight_sum, val_raised_to_ip1, register_ptr + i);
     }
   }
@@ -438,7 +323,7 @@ public:  // interface
       double* ptr = d_primary.get_f64_register_ptr(spatial_idx, offset);
       double* o_ptr = d_other.get_f64_register_ptr(spatial_idx, offset);
       for (int i = 0; i < Order; i++) {
-        general_cmoment_consolidate_<CMomentMaxOrder, Order>(
+        cmoment_tools::general_cmoment_consolidate_<CMomentMaxOrder, Order>(
             count, o_count, ptr + i, o_ptr + i);
       }
       double totcount = count + o_count;

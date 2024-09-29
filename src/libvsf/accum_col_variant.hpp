@@ -35,7 +35,6 @@ using AccumColVariant = std::variant<
     WeightedMomentAccum<3>, MomentWithVarAccum<3>,
     WeightedMomentWithVarAccum<3>, MomentAccum<4>, WeightedMomentAccum<4>,
     MomentWithVarAccum<4>, WeightedMomentWithVarAccum<4>,
-    Accumulator<CentralMomentStatistic<3, std::int64_t>>,
     // list Historgram accumulators
     HistogramAccumCollection, WeightedHistogramAccumCollection,
     // here we start listing the fused options
@@ -129,9 +128,6 @@ inline AccumColVariant build_accum_collection(
       return ctx.build1<MomentWithVarAccum<4>>();
     } else if (stat == "weightedomoment4_var") {
       return ctx.build1<WeightedMomentWithVarAccum<4>>();
-    } else if (stat == "cmoment3") {
-      // todo: remove this case!
-      return ctx.build1<Accumulator<CentralMomentStatistic<3, std::int64_t>>>();
     } else if (stat == "histogram") {
       return ctx.build1<HistogramAccumCollection>();
     } else if (stat == "weightedvariance") {
