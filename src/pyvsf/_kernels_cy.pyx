@@ -91,6 +91,8 @@ cdef extern from "accum_handle.hpp":
                                  size_t spatial_bin_index, size_t num_entries,
                                  double * values, double * weights)
 
+    void accumhandle_postprocess(void* handle)
+
 
 def compiled_with_openmp():
     return bool(cxx_compiled_with_openmp())
@@ -446,6 +448,8 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         if postprocess_stat:
             statconf.postprocess_rslt(val_dict)
         out.append(val_dict)
+
+    accumhandle_destroy(accumhandle)
     return out
 
 # this is an object used to denote that an argument wasn't provided while we

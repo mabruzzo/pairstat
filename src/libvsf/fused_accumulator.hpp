@@ -125,6 +125,11 @@ public:
     for_each_tuple_entry(accum_collec_tuple_, func);
   }
 
+  /// postprocess the values of `*this`
+  inline void postprocess() noexcept {
+    for_each_tuple_entry(accum_collec_tuple_, [](auto &e) { e.postprocess(); });
+  }
+
   /// Copies the int64_t values of each accumulator to an external buffer
   template <typename T>
   void copy_vals(T* out_vals) const noexcept {

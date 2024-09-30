@@ -70,7 +70,7 @@ void accumhandle_restore(void* handle, const double* in_flt_vals,
 void accumhandle_consolidate_into_primary(void* handle_primary,
                                           void* handle_secondary);
 
-/// Updates `handle_primary` by adding the specified entries with the specified
+/// Updates `handle` by adding the specified entries with the specified
 /// values (primarily for testing purposes)
 ///
 /// @param[in,out] handle The accumulator collection to be updated
@@ -87,6 +87,11 @@ void accumhandle_add_entries(void* handle, int purge_everything_first,
                              std::size_t spatial_bin_index,
                              std::size_t num_entries, double* values,
                              double* weights);
+
+/// performs any postprocessing on the values stored inside of ``handle``
+///
+/// postprocess the values of `*this`
+void accumhandle_postprocess(void* handle);
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,7 @@
 //    also implements a few other useful pieces of functionality.
 
 #include <algorithm>  // std::fill
+#include <cmath>      // NAN
 #include <cstdint>    // std::int64_t
 #include <string>
 #include <type_traits>  // std::is_same_v
@@ -339,6 +340,43 @@ public:  // interface
       consolidate_helper_(i, d_primary, d_other);
     }
   }
+
+  /// When we compute a variance, we DO NOT attempt to compute the unbiased
+  /// estimator of variance (we don't apply any form of Bessel's correction)
+  ///
+  /// * it does not make a lot of sense to apply Bessel's correction when using
+  ///   weights (in the general case with simulation data). For an explanation
+  ///   of the rationale, see the docstring of the utils.weighted_variance
+  ///   function
+  /// * for parity, we also choose not to apply Bessel's correction when using
+  ///   integer counts
+  static void postprocess(const DataView& data) noexcept {
+    // when CountT is a double, we need to offset the indices for accessing all
+    // of the moments by a value of 1
+    const std::size_t offset = std::is_same_v<CountT, double>;
+    const std::size_t n_f64 = offset + (1+CalcVar)*Order;
+
+    const std::size_t n_spatial_bins = data.num_registers();
+    for (std::size_t spatial_idx = 0; spatial_idx < n_spatial_bins; spatial_idx++) {
+      CountT& weight_sum = data.template get<CountT>(spatial_idx, 0);
+
+      if (weight_sum == 0) {
+        // when weight_sum is 0, set all non-weight_sum vals to NaN
+        for (std::size_t i = offset; i < n_f64; i++) {
+          data.get_f64(spatial_idx, i) = NAN;
+        }
+      } else {
+        // when we compute variances, we need to divide each variance by the
+        // total weight (as note in docstring, we omit Bessel's correction)
+        if constexpr (CalcVar) {
+          for (std::size_t i = offset+Order; i < n_f64; i++) {
+            data.get_f64(spatial_idx, i) /= weight_sum;
+          }
+        }
+      }
+
+    }
+  }
 };
 
 template <typename T>
@@ -413,6 +451,8 @@ public:
     if (index == 0) return {"weight", dbl_precision_weight, int(n_data_bins_)};
     return {};
   }
+
+  static void postprocess(const DataView& data) noexcept { /* do nothing */ }
 };
 
 /// helper function that applies the given function object to each of a
@@ -522,6 +562,9 @@ public:  // interface
             "a mismatch was encountered during consolidation");
     Stat::consolidate(this->data_, other.data_);
   }
+
+  /// postprocess the values of `*this`
+  inline void postprocess() noexcept { Stat::postprocess(this->data_); }
 
   /// Return the Floating Point Value Properties
   ///
