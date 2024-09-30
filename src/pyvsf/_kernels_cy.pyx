@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Callable, List, NamedTuple, Optional
+from typing import Callable, List, NamedTuple, Optional, Tuple, Type, Union
 import warnings
 
 import numpy as np
@@ -493,8 +493,8 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
         optional 1D arrays that can be used to specify weights for point. When
         specified, the size of ``weights_a`` should match 
         ``np.shape(pos_a)[1]`` and the size of ``weights_b`` should match
-        ``np.shape(pos_b)[1]``. It is an error to specify weights when no
-        statistics will be computed that use them.
+        ``np.shape(pos_b)[1]``. It is an error to specify weights when the
+        specified statistics won't use them.
     stat_kw_pairs : sequence of (str, dict) tuples
         Each entry is a tuple holding the name of a statistic to compute and a
         dictionary of kwargs needed to compute that statistic. A list of valid
@@ -982,6 +982,43 @@ def _hist_sanitize_kwargs(kwargs):
     _check_bin_edges_arg(kwargs['val_bin_edges'], "'val_bin_edges' kwarg")
     return kwargs
 
+def _infer_dist_bin_count(statconf, rslt_dict):
+    # hacky function to infer the number of distance bins used by the accumulator that
+    # constructed rslt_dict
+    dummy_dist_bin_edges = np.array([0.0, 1.0])
+    first_dset_prop = statconf.get_dset_props(dummy_dist_bin_edges)[0]
+    elements_per_dist_bin = np.prod(first_dset_prop.shape)
+    nelements = rslt_dict[first_dset_prop.name].size
+    n_dist_bins = nelements // elements_per_dist_bin
+    assert (elements_per_dist_bin * n_dist_bins) == nelements  # sanity check!
+    return n_dist_bins
+
+
+def _postprocess(statconf, rslt_dict):
+    # first, we need to infer the number of distance bins
+    dummy_dist_bin_edges = np.arange(
+        _infer_dist_bin_count(statconf, rslt_dict) + 1, dtype=np.float64
+    )
+
+    rslt_is_ArrayMap = isinstance(rslt_dict, ArrayMap)
+    if rslt_is_ArrayMap:
+        arr_map = rslt_dict
+    else:
+        arr_map = ArrayMap(statconf.get_dset_props(dummy_dist_bin_edges))
+        for key in arr_map:
+            arr_map[key][...] = rslt_dict[key]
+
+    cdef void* handle = _construct_accum_handle(dummy_dist_bin_edges, [statconf])
+    _restore_handle_from_ArrayMap(handle, arr_map)
+    accumhandle_postprocess(handle)
+    _export_to_ArrayMap_from_handle(handle, arr_map)
+    accumhandle_destroy(handle)
+
+    if not rslt_is_ArrayMap:
+        for key in arr_map:
+            rslt_dict[key][...] = arr_map[key]
+
+
 def _set_empty_count_locs_to_NaN(rslt_dict, countweight_key):
     w_mask = (rslt_dict[countweight_key]  == 0)
     for k,v in rslt_dict.items():
@@ -1026,15 +1063,8 @@ class _StatProps(NamedTuple):
     # (this does not include a weight_sum dset)
     flt_dsets: Tuple[str, ...]
 
-    # when the following is True, a warning is raised when the user uses this stat
-    experimental: bool = False
-
     # when the following is True, then a weighted counterpart exists
     no_weighted_variant: bool = False
-
-    # when not None, this specifies a postprocessing function (a value of None implies
-    # that no postprocessing is required)
-    postprocess_fn: Optional[Callable] = _set_empty_count_locs_to_NaN
 
     # the following 3 are intended to provide a mechanism for the histogram family of
     # statistics to override some default behavior
@@ -1051,7 +1081,6 @@ def _construct_statprops():
         _StatProps(
             name="variance",
             flt_dsets=("mean", "variance"),
-            postprocess_fn=_postprocess_centralmoments
         ),
         _StatProps(name="omoment2", flt_dsets=("mean","omoment2")),
         _StatProps(name="omoment3", flt_dsets=("mean","omoment2","omoment3")),
@@ -1064,7 +1093,6 @@ def _construct_statprops():
             nondflt_shape_fn = _hist_dset_shape,
             count_weight_names = ('2D_counts', '2D_weight_sums'),
             handle_kwargs_fn = _hist_sanitize_kwargs,
-            postprocess_fn=None
         )
     ]
     return dict((e.name, e) for e in l)
@@ -1089,14 +1117,14 @@ def _find_statprop(name):
     if (statprop is None) or (weighted and statprop.no_weighted_variant):
         raise ValueError(f"There is no statistic known as `{name}`")
 
-    if statprop.experimental:
-        warnings.warn(
-            f"The `{name}` statistic is considered experimental. The behavior and "
-            "naming of this statistic or its associates dsets may change at ANY "
-            "time. We may also remove it entirely",
-            ExperimentalWarning
-        )
     return statprop, weighted
+
+
+class _DSetProp(NamedTuple):
+    name : str
+    dtype : Type[Union[np.float64, np.int64]]
+    shape : Tuple[int, int]
+
 
 def _get_dset_props_helper(statconf, dist_bin_edges):
     """
@@ -1124,11 +1152,11 @@ def _get_dset_props_helper(statconf, dist_bin_edges):
 
     dset_props = []
     if weighted:
-        dset_props.append((statprop.count_weight_names[1], np.float64, shape))
+        dset_props.append(_DSetProp(statprop.count_weight_names[1], np.float64, shape))
     else:
-        dset_props.append((statprop.count_weight_names[0], np.int64, shape))
+        dset_props.append(_DSetProp(statprop.count_weight_names[0], np.int64, shape))
     for dset_name in statprop.flt_dsets:
-        dset_props.append((dset_name, np.float64, shape))
+        dset_props.append(_DSetProp(dset_name, np.float64, shape))
     count_weight_index = 0
     return dset_props, count_weight_index
 
@@ -1178,11 +1206,24 @@ class StatConf:
         _validate_counts_or_weights(self, rslt, key, max_total_count)
 
     def postprocess_rslt(self, rslt):
-        statprop,_ = _find_statprop(self.name)
-        if (len(rslt) > 0) and (statprop.postprocess_fn is not None):
-            countweight_key = _get_counts_or_weights_key(self)
-            postprocess_fn = statprop.postprocess_fn
-            postprocess_fn(rslt, countweight_key)
+        if len(rslt) == 0:
+            return None
+        elif self.name in ["variance", "omoment1_var"]:
+            # legacy behavior where we applied bessel's correction. technically, the
+            # result produced in rslt['variance'] by the core C++ sf function is really
+            # variance*counts
+
+            rslt_dict = rslt
+            w = (rslt_dict['counts'] > 1)
+            rslt_dict['variance'][w] /= (rslt_dict['counts'][w] - 1)
+            rslt_dict['variance'][~w] = 0.0
+
+            w_mask = (rslt_dict['counts']  == 0)
+            for k,v in rslt_dict.items():
+                if k != 'counts':
+                    v[w_mask] = np.nan
+        else:
+            _postprocess(self, rslt)
 
 def get_statconf(statistic, kwargs):
     return StatConf(statistic, kwargs)
