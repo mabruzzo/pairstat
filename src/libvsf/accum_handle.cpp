@@ -88,3 +88,8 @@ void accumhandle_add_entries(void* handle, int purge_everything_first,
       },
       *ptr);
 }
+
+void accumhandle_postprocess(void* handle) {
+  AccumColVariant* ptr = static_cast<AccumColVariant*>(handle);
+  std::visit([=](auto& accum) { accum.postprocess(); }, *ptr);
+}
