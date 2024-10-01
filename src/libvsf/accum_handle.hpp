@@ -93,6 +93,26 @@ void accumhandle_add_entries(void* handle, int purge_everything_first,
 /// postprocess the values of `*this`
 void accumhandle_postprocess(void* handle);
 
+/// get the name of the accumulator's ith property (as a nul-terminated string)
+///
+/// A NULL string is returned if there isn't any such property
+///
+/// @note
+/// The string is a literal. You should not try to free it.
+const char* accumhandle_prop_name(void* handle, int i);
+
+/// query whether the accumulator's ith property is a double (if its not a
+/// double, then it's a std::int64_t).
+///
+/// The behavior is undefined if the accumulator doesn't have an ith property
+int accumhandle_prop_isdouble(void* handle, int i);
+
+/// query the number of elements associated with accumulator's ith property for
+/// a single spatial bin.
+///
+/// The behavior is undefined if the accumulator doesn't have an ith property
+int accumhandle_prop_count(void* handle, int i);
+
 #ifdef __cplusplus
 }
 #endif

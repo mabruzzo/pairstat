@@ -180,10 +180,13 @@ std::size_t identify_bin_index(T x, const T* bin_edges, std::size_t nbins) {
   }
 }
 
-/// Describes a statistic property
+/// Describes a statistic's property
 struct PropDescr {
+  /// indicates the name of the property.
   const char* name = nullptr;
+  /// indicates whether the property is represented by a double or std::int64_t
   bool is_f64 = true;
+  /// the number of entries associated with this quantity for each spatial bin
   int count = 1;
 };
 
@@ -236,26 +239,27 @@ public:  // interface
 
   /// Return a description of the properties (int64 followed by doubles)
   ///
-  /// The order of perp
+  /// The order of properties goes weight, moments about the origin, and then
+  /// variances (if applicable).
   static PropDescr get_prop(int index) noexcept {
     if (index == 0) {
-      return {"weight", std::is_same_v<CountT, double>, 1};
+      return {"weight_sum", std::is_same_v<CountT, double>, 1};
     } else if (index == 1) {
       return {"omoment1", true, 1};
     } else if ((index == (1 + Order)) && CalcVar) {
-      return {"o1_variance*weight", true, 1};
+      return {"o1_variance", true, 1};
     } else if ((Order >= 2) && (index == 2)) {
       return {"omoment2", true, 1};
     } else if ((Order >= 2) && (index == (2 + Order)) && CalcVar) {
-      return {"o2_variance*weight", true, 1};
+      return {"o2_variance", true, 1};
     } else if ((Order >= 3) && (index == 3)) {
       return {"omoment3", true, 1};
     } else if ((Order >= 3) && (index == (3 + Order)) && CalcVar) {
-      return {"o3_variance*weight", true, 1};
+      return {"o3_variance", true, 1};
     } else if ((Order >= 4) && (index == 4)) {
       return {"omoment4", true, 1};
     } else if ((Order >= 4) && (index == (4 + Order)) && CalcVar) {
-      return {"o4_variance*weight", true, 1};
+      return {"o4_variance", true, 1};
     }
     return {};
   }
@@ -354,10 +358,11 @@ public:  // interface
     // when CountT is a double, we need to offset the indices for accessing all
     // of the moments by a value of 1
     const std::size_t offset = std::is_same_v<CountT, double>;
-    const std::size_t n_f64 = offset + (1+CalcVar)*Order;
+    const std::size_t n_f64 = offset + (1 + CalcVar) * Order;
 
     const std::size_t n_spatial_bins = data.num_registers();
-    for (std::size_t spatial_idx = 0; spatial_idx < n_spatial_bins; spatial_idx++) {
+    for (std::size_t spatial_idx = 0; spatial_idx < n_spatial_bins;
+         spatial_idx++) {
       CountT& weight_sum = data.template get<CountT>(spatial_idx, 0);
 
       if (weight_sum == 0) {
@@ -369,12 +374,11 @@ public:  // interface
         // when we compute variances, we need to divide each variance by the
         // total weight (as note in docstring, we omit Bessel's correction)
         if constexpr (CalcVar) {
-          for (std::size_t i = offset+Order; i < n_f64; i++) {
+          for (std::size_t i = offset + Order; i < n_f64; i++) {
             data.get_f64(spatial_idx, i) /= weight_sum;
           }
         }
       }
-
     }
   }
 };
@@ -446,9 +450,11 @@ public:
     d_primary.inplace_add(d_other);
   }
 
-  /// Return a description of the properties (int64 followed by doubles
+  /// Return a description of the properties (int64 followed by doubles)
   PropDescr get_prop(int index) const noexcept {
-    if (index == 0) return {"weight", dbl_precision_weight, int(n_data_bins_)};
+    if (index == 0) {
+      return {"weight_sum", dbl_precision_weight, int(n_data_bins_)};
+    }
     return {};
   }
 
@@ -565,6 +571,12 @@ public:  // interface
 
   /// postprocess the values of `*this`
   inline void postprocess() noexcept { Stat::postprocess(this->data_); }
+
+  /// return the ``i``th property description.
+  ///
+  /// If the name field is a nullptr, that means that there isn't an associated
+  /// property. Integer properties always precede the floating point properties
+  PropDescr try_get_prop_descr(int i) const { return statistic_.get_prop(i); }
 
   /// Return the Floating Point Value Properties
   ///

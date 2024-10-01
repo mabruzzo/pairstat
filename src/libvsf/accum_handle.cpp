@@ -93,3 +93,22 @@ void accumhandle_postprocess(void* handle) {
   AccumColVariant* ptr = static_cast<AccumColVariant*>(handle);
   std::visit([=](auto& accum) { accum.postprocess(); }, *ptr);
 }
+
+static PropDescr get_descr_(void* handle, int i) {
+  AccumColVariant* ptr = static_cast<AccumColVariant*>(handle);
+  PropDescr descr;
+  std::visit([&](auto& accum) { descr = accum.try_get_prop_descr(i); }, *ptr);
+  return descr;
+}
+
+const char* accumhandle_prop_name(void* handle, int i) {
+  return get_descr_(handle, i).name;
+}
+
+int accumhandle_prop_isdouble(void* handle, int i) {
+  return get_descr_(handle, i).is_f64 ? 1 : 0;
+}
+
+int accumhandle_prop_count(void* handle, int i) {
+  return get_descr_(handle, i).count;
+}
