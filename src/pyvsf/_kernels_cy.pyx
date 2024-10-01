@@ -975,13 +975,6 @@ def _validate_counts_or_weights(statconf, rslt, key, *, max_total_count = None):
                 f"is only {max_total_count}."
             )
 
-def _hist_sanitize_kwargs(kwargs):
-    if (kwargs is None) or (list(kwargs.keys()) != ['val_bin_edges']):
-        raise ValueError("'val_bin_edges' is required as the single kwarg for "
-                        "computing histogram-statistics")
-    _check_bin_edges_arg(kwargs['val_bin_edges'], "'val_bin_edges' kwarg")
-    return kwargs
-
 def _infer_dist_bin_count(statconf, rslt_dict):
     # hacky function to infer the number of distance bins used by the accumulator that
     # constructed rslt_dict
@@ -1018,98 +1011,8 @@ def _postprocess(statconf, rslt_dict):
         for key in arr_map:
             rslt_dict[key][...] = arr_map[key]
 
-
-def _set_empty_count_locs_to_NaN(rslt_dict, countweight_key):
-    w_mask = (rslt_dict[countweight_key]  == 0)
-    for k,v in rslt_dict.items():
-        if k == countweight_key:
-            continue
-        else:
-            v[w_mask] = np.nan
-
-def _postprocess_centralmoments(rslt_dict, countweight_key):
-
-    if countweight_key == 'counts':
-        # technically the result produced in rslt['variance'] by the core C++ sf
-        # function is really variance*counts
-
-        w = (rslt_dict['counts'] > 1)
-        # it may not make any sense to use Bessel's correction
-        rslt_dict['variance'][w] /= (rslt_dict['counts'][w] - 1)
-        rslt_dict['variance'][~w] = 0.0
-
-    elif countweight_key == 'weight_sum':
-        # technically the result produced in rslt['variance'] by the core C++ sf
-        # function is really variance*weights
-
-        # the following selection is not exaclty analogous to the unweighted case,
-        # but it's the best we can do (it should be ok)
-        w = (rslt_dict['weight_sum'] > 0.0)
-
-        # we do NOT apply a form of Bessel's correction. For an explanation, see
-        # the docstring of utils.weighted_variance
-        rslt_dict['variance'][w] /= rslt_dict['weight_sum'][w]
-        rslt_dict['variance'][~w] = 0.0
-
-    _set_empty_count_locs_to_NaN(rslt_dict, countweight_key = countweight_key)
-
-
-class _StatProps(NamedTuple):
-    # this is the name known by the C++ layer
-    # (in the future, we might make it possible to add aliases)
-    name: str
-
-    # this lists all flt dsets regardless of the type that is used
-    # (this does not include a weight_sum dset)
-    flt_dsets: Tuple[str, ...]
-
-    # when the following is True, then a weighted counterpart exists
-    no_weighted_variant: bool = False
-
-    # when specified, this provides custom behavior for processing kwargs
-    handle_kwargs_fn: Optional[Callable] = None
-
-def _construct_statprops():
-    l = [
-        _StatProps(name="mean", flt_dsets=("mean",)),
-        _StatProps(
-            name="variance",
-            flt_dsets=("mean", "variance"),
-        ),
-        _StatProps(name="omoment2", flt_dsets=("mean","omoment2")),
-        _StatProps(name="omoment3", flt_dsets=("mean","omoment2","omoment3")),
-        _StatProps(
-            name="omoment4", flt_dsets=("mean","omoment2","omoment3","omoment4")
-        ),
-        _StatProps(
-            name="histogram",
-            flt_dsets=(),
-            handle_kwargs_fn = _hist_sanitize_kwargs,
-        )
-    ]
-    return dict((e.name, e) for e in l)
-
-_STATPROPS = _construct_statprops()
-_ALL_SF_STAT_NAMES = (
-    tuple(name for name in _STATPROPS) +
-    tuple(f'weighted{name}' for name, statprop in _STATPROPS.items()
-          if not statprop.no_weighted_variant)
-)
-
 class ExperimentalWarning(UserWarning):
     pass
-
-def _find_statprop(name):
-    if name.startswith('weighted'):
-        search_name, weighted = name[8:], True
-    else:
-        search_name, weighted = name, False
-
-    statprop = _STATPROPS.get(search_name,None)
-    if (statprop is None) or (weighted and statprop.no_weighted_variant):
-        raise ValueError(f"There is no statistic known as `{name}`")
-
-    return statprop, weighted
 
 def _get_prop_descr_l(statconf):
 
@@ -1141,13 +1044,21 @@ class _DSetProp(NamedTuple):
     shape : Tuple[int, int]
 
 _LEGACY_PROPNAME_REMAP = {
-    ("mean", False) : ('counts', "mean"),
-    ("mean", True) : (None, "mean"),
-    ("variance", False) : ('counts', "mean", "variance"),
-    ("variance", True) : (None, "mean", "variance"),
-    ("histogram", False) : ('2D_counts',),
-    ("histogram", True) : ("2D_weight_sums",)
+    "mean" : ('counts', "mean"),
+    "weightedmean" : (None, "mean"),
+    "variance" : ('counts', "mean", "variance"),
+    "weightedvariance" : (None, "mean", "variance"),
+    "histogram" : ('2D_counts',),
+    "weightedhistogram" : ("2D_weight_sums",)
 }
+
+_OTHER_NAMES = [f"omoment{i}" for i in [2,3,4]]
+
+_ALL_SF_STAT_NAMES = (
+    tuple(name for name in _LEGACY_PROPNAME_REMAP) +
+    tuple(_OTHER_NAMES) +
+    tuple(f'weighted{name}' for name in _OTHER_NAMES)
+)
 
 def _get_dset_props_helper(statconf, dist_bin_edges, use_legacy_names = True):
     """
@@ -1155,12 +1066,10 @@ def _get_dset_props_helper(statconf, dist_bin_edges, use_legacy_names = True):
     dset_props that corresponds to "weight_sum"
     """
     _check_dist_bin_edges(dist_bin_edges)
-    statprop, weighted = _find_statprop(statconf.name)
 
+    remap_list = None
     if use_legacy_names:
-        remap_list = _LEGACY_PROPNAME_REMAP.get((statprop.name, weighted), None)
-    else:
-        remap_list = []
+        remap_list = _LEGACY_PROPNAME_REMAP.get(statconf.name, None)
 
     num_dist_bins = np.size(dist_bin_edges) - 1
     def get_shape(count):
@@ -1181,15 +1090,8 @@ def _get_dset_props_helper(statconf, dist_bin_edges, use_legacy_names = True):
                 name = remap_list[i]
             dset_props.append(_DSetProp(name, dtype, get_shape(count)))
     count_weight_index = 0
-    return dset_props, count_weight_index
+    return dset_props
 
-
-def _get_counts_or_weights_key(statconf):
-    dist_bin_edges = (0.0, 1.0) # dummy value!
-    props, count_weight_index = _get_dset_props_helper(statconf, dist_bin_edges)
-    if count_weight_index is None:
-        return None
-    return props[count_weight_index][0]
 
 class StatConf:
     """
@@ -1198,35 +1100,38 @@ class StatConf:
     """
 
     def __init__(self, name, kwargs):
-        statprop, weighted = _find_statprop(name)
-        handle_kwargs_fn = statprop.handle_kwargs_fn
-        if handle_kwargs_fn is None:
-            if (kwargs is not None) and (len(kwargs) > 0):
-                raise ValueError(f"the {name} stat should have no kwargs")
-            sanitized_kwargs = {}
+        if name not in _ALL_SF_STAT_NAMES:
+            raise ValueError(f"There is no statistic known as `{name}`")
+        elif "histogram" in name:
+            if (kwargs is None) or (list(kwargs.keys()) != ['val_bin_edges']):
+                raise ValueError("'val_bin_edges' is required as the single kwarg for "
+                                 "computing histogram-statistics")
+            _check_bin_edges_arg(kwargs['val_bin_edges'], "'val_bin_edges' kwarg")
+        elif (kwargs is not None) and (len(kwargs) > 0):
+            raise ValueError(f"the {name} stat should have no kwargs")
         else:
-            sanitized_kwargs = handle_kwargs_fn(kwargs)
+            kwargs = {}
 
         # "public-facing" attributes:
         self.name = name
-        self.requires_weights = weighted
+        self.requires_weights = name.startswith('weighted')
 
         # "internal" attribute: (may change at any time)
-        self._internal_kwargs = sanitized_kwargs
+        self._internal_kwargs = kwargs
 
     def _kwargs(self):
         """Not for public consumption -- we may change this at any time"""
         return self._internal_kwargs
 
     def get_dset_props(self, dist_bin_edges):
-        return _get_dset_props_helper(self, dist_bin_edges)[0]
+        return _get_dset_props_helper(self, dist_bin_edges)
 
     def validate_rslt(self, rslt, dist_bin_edges, *, max_total_count=None):
         _validate_basic_quan_props(self, rslt, dist_bin_edges)
 
         # do some extra validation
-        key = _get_counts_or_weights_key(self)
-        _validate_counts_or_weights(self, rslt, key, max_total_count)
+        counts_or_weights_key = self.get_dset_props(dist_bin_edges)[0]
+        _validate_counts_or_weights(self, rslt, counts_or_weights_key, max_total_count)
 
     def postprocess_rslt(self, rslt):
         if len(rslt) == 0:
