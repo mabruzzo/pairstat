@@ -164,9 +164,12 @@ def direct_compute_stats(statconf, vals, weights=None):
             raise RuntimeError("can't handle omoment0")
         if statconf.name.startswith("weighted"):
             pair = np.average(vals, weights=weights, returned=True)
-            out = {"weight_sum": pair[1], "mean": pair[0]}
+            out = {"weight_sum": pair[1], "omoment1": pair[0]}
         else:
-            out = {"counts": np.array([len(vals)]), "mean": np.array([np.mean(vals)])}
+            out = {
+                "weight_sum": np.array([len(vals)]),
+                "omoment1": np.array([np.mean(vals)]),
+            }
         for i in range(2, order + 1):
             out[f"omoment{i}"] = np.array(
                 [np.average(np.power(vals, i), weights=weights)]
@@ -270,19 +273,19 @@ def test_against_pyimpl(statconf, vals, request):
     elif "omoment" in statconf.name:
         _order = int(statconf.name[-1])
         if statconf.name.startswith("weighted") and testid.endswith("simple_vals"):
-            _tol_triples = [("mean", "rtol", 2e-16)]
+            _tol_triples = [("omoment1", "rtol", 2e-16)]
         elif testid.endswith("simple_vals"):
             _tol_triples = [("omoment4", "rtol", 2e-16)]
         elif statconf.name.startswith("weighted"):
             _tol_triples = [
-                ("mean", "rtol", 2e-16),
+                ("omoment1", "rtol", 2e-16),
                 ("omoment3", "rtol", 3e-16),
                 ("omoment4", "rtol", 2e-16),
             ]
         else:
             _tol_triples = [("omoment2", "rtol", 2e-16), ("omoment3", "rtol", 2e-16)]
         for dset, tolkind, val in _tol_triples:
-            if (dset == "mean") or int(dset[-1]) <= _order:
+            if int(dset[-1]) <= _order:
                 tol_spec[dset, tolkind] = val
 
     assert_all_close(ref_result, actual_result, tol_spec=tol_spec)
@@ -313,12 +316,12 @@ def test_consolidate(statconf, vals, request):
     elif "omoment" in statconf.name:
         _order = int(statconf.name[-1])
         if statconf.name.startswith("weighted") and testid.endswith("simple_vals"):
-            _tol_triples = [("mean", "rtol", 2e-16), ("omoment3", "rtol", 2e-16)]
+            _tol_triples = [("omoment1", "rtol", 2e-16), ("omoment3", "rtol", 2e-16)]
         elif testid.endswith("simple_vals"):
             _tol_triples = [("omoment4", "rtol", 2e-16)]
         elif statconf.name.startswith("weighted"):
             _tol_triples = [
-                ("mean", "rtol", 6e-16),
+                ("omoment1", "rtol", 6e-16),
                 ("omoment2", "rtol", 7e-16),
                 ("omoment3", "rtol", 2e-15),
                 ("omoment4", "rtol", 3e-16),
@@ -331,6 +334,6 @@ def test_consolidate(statconf, vals, request):
             ]
 
         for dset, tolkind, val in _tol_triples:
-            if (dset == "mean") or int(dset[-1]) <= _order:
+            if int(dset[-1]) <= _order:
                 tol_spec[dset, tolkind] = val
     _test_consolidate(statconf, vals, weights, tol_spec=tol_spec)

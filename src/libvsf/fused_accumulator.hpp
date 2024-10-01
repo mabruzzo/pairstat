@@ -127,7 +127,7 @@ public:
 
   /// postprocess the values of `*this`
   inline void postprocess() noexcept {
-    for_each_tuple_entry(accum_collec_tuple_, [](auto &e) { e.postprocess(); });
+    for_each_tuple_entry(accum_collec_tuple_, [](auto& e) { e.postprocess(); });
   }
 
   /// Copies the int64_t values of each accumulator to an external buffer
@@ -144,15 +144,7 @@ public:
   }
 
   /// Dummy method that needs to be defined to match interface
-  static std::vector<std::pair<std::string, std::size_t>>
-  flt_val_props() noexcept {
-    error("Not Implemented");
-  }
-
-  /// Dummy method that needs to be defined to match interface
-  std::vector<std::pair<std::string, std::size_t>> i64_val_props() noexcept {
-    error("Not Implemented");
-  }
+  PropDescr try_get_prop_descr(int i) const { error("Not Implemented"); }
 
   /// Dummy method that needs to be defined to match interface
   template <typename T>

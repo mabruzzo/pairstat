@@ -93,6 +93,12 @@ cdef extern from "accum_handle.hpp":
 
     void accumhandle_postprocess(void* handle)
 
+    const char* accumhandle_prop_name(void* handle, int i)
+
+    int accumhandle_prop_isdouble(void* handle, int i)
+
+    int accumhandle_prop_count(void* handle, int i)
+
 
 def compiled_with_openmp():
     return bool(cxx_compiled_with_openmp())
@@ -969,12 +975,6 @@ def _validate_counts_or_weights(statconf, rslt, key, *, max_total_count = None):
                 f"is only {max_total_count}."
             )
 
-def _hist_dset_shape(statconf, dist_bin_edges):
-    assert statconf.name in ("histogram","weightedhistogram") # sanity check!
-    val_bin_edges = statconf._kwargs()['val_bin_edges']
-    shape = (np.size(dist_bin_edges) - 1, np.size(val_bin_edges) - 1)
-    return shape
-
 def _hist_sanitize_kwargs(kwargs):
     if (kwargs is None) or (list(kwargs.keys()) != ['val_bin_edges']):
         raise ValueError("'val_bin_edges' is required as the single kwarg for "
@@ -1066,12 +1066,6 @@ class _StatProps(NamedTuple):
     # when the following is True, then a weighted counterpart exists
     no_weighted_variant: bool = False
 
-    # the following 3 are intended to provide a mechanism for the histogram family of
-    # statistics to override some default behavior
-    # when specified, this provides custom behavior for determining dset shapes
-    nondflt_shape_fn: Optional[Callable] = None
-    # specify the name of the count dset and weight dset
-    count_weight_names: tuple[str,str] = ('counts', "weight_sum")
     # when specified, this provides custom behavior for processing kwargs
     handle_kwargs_fn: Optional[Callable] = None
 
@@ -1090,8 +1084,6 @@ def _construct_statprops():
         _StatProps(
             name="histogram",
             flt_dsets=(),
-            nondflt_shape_fn = _hist_dset_shape,
-            count_weight_names = ('2D_counts', '2D_weight_sums'),
             handle_kwargs_fn = _hist_sanitize_kwargs,
         )
     ]
@@ -1119,44 +1111,75 @@ def _find_statprop(name):
 
     return statprop, weighted
 
+def _get_prop_descr_l(statconf):
+
+    out = []
+    dist_bin_edges = np.array([0.0, 1.0])
+    cdef const char* name
+    cdef int is_f64, count
+    cdef int i = 0
+    cdef void* handle = _construct_accum_handle(dist_bin_edges, statconf)
+    try:
+        while True:
+            name = accumhandle_prop_name(handle, i)
+            if name == NULL:
+                break
+            is_f64 = accumhandle_prop_isdouble(handle, i)
+            count = accumhandle_prop_count(handle, i)
+            if is_f64:
+                out.append(((<bytes>name).decode('ascii'), np.float64, int(count)))
+            else:
+                out.append(((<bytes>name).decode('ascii'), np.int64, int(count)))
+            i+=1
+    finally:
+        accumhandle_destroy(handle)
+    return out
 
 class _DSetProp(NamedTuple):
     name : str
     dtype : Type[Union[np.float64, np.int64]]
     shape : Tuple[int, int]
 
+_LEGACY_PROPNAME_REMAP = {
+    ("mean", False) : ('counts', "mean"),
+    ("mean", True) : (None, "mean"),
+    ("variance", False) : ('counts', "mean", "variance"),
+    ("variance", True) : (None, "mean", "variance"),
+    ("histogram", False) : ('2D_counts',),
+    ("histogram", True) : ("2D_weight_sums",)
+}
 
-def _get_dset_props_helper(statconf, dist_bin_edges):
+def _get_dset_props_helper(statconf, dist_bin_edges, use_legacy_names = True):
     """
     Helper function that returns the dset_props and the index of
-    dset_props that corresponds to "counts" (or "weights")
-
-    Notes
-    -----
-    This needs to be updated whenever you add a new statistic. All integer
-    properties must come before the floating-point properties. The order
-    of the integer properties and the order of the floating point
-    properties must match the internals of the corresponding C++
-    accumulators.
-
-    In the future, it would be nice to be able to directly query the C++
-    layer for this information.
+    dset_props that corresponds to "weight_sum"
     """
     _check_dist_bin_edges(dist_bin_edges)
     statprop, weighted = _find_statprop(statconf.name)
-    if statprop.nondflt_shape_fn is None:
-        shape = (np.size(dist_bin_edges) - 1,)
-    else:
-        fn = statprop.nondflt_shape_fn
-        shape = fn(statconf, dist_bin_edges)
 
-    dset_props = []
-    if weighted:
-        dset_props.append(_DSetProp(statprop.count_weight_names[1], np.float64, shape))
+    if use_legacy_names:
+        remap_list = _LEGACY_PROPNAME_REMAP.get((statprop.name, weighted), None)
     else:
-        dset_props.append(_DSetProp(statprop.count_weight_names[0], np.int64, shape))
-    for dset_name in statprop.flt_dsets:
-        dset_props.append(_DSetProp(dset_name, np.float64, shape))
+        remap_list = []
+
+    num_dist_bins = np.size(dist_bin_edges) - 1
+    def get_shape(count):
+        if count == 1:
+            return (num_dist_bins,)
+        return (num_dist_bins, count)
+
+    tmp = _get_prop_descr_l(statconf)
+
+    if remap_list is None:
+        dset_props = [_DSetProp(name, dtype, get_shape(count))
+                      for (name, dtype, count) in tmp]
+    else:
+        assert len(remap_list) == len(tmp)
+        dset_props = []
+        for i, (name, dtype, count) in enumerate(tmp):
+            if remap_list[i] is not None:
+                name = remap_list[i]
+            dset_props.append(_DSetProp(name, dtype, get_shape(count)))
     count_weight_index = 0
     return dset_props, count_weight_index
 
