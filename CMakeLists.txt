@@ -1,6 +1,8 @@
 # Prologue
 # --------
-cmake_minimum_required(VERSION 3.16)
+# we require 3.21 at the recommendation of the cython-cmake python-package
+#   https://github.com/scikit-build/cython-cmake
+cmake_minimum_required(VERSION 3.21)
 project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 
@@ -34,25 +36,36 @@ else()
   message(FATAL_ERROR "this was a problem!")
 endif()
 
-# next, declare the cython packages
-
-include("cmake/use_cython.cmake")
+# read in cython utilities (provided by cython-cmake python-package)
+include(UseCython)
 
 # invoking include_directories is crude, but necessary for add_cython_target
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/libvsf")
 
-add_cython_target(_ArrayDict_cythonization "src/pyvsf/_ArrayDict_cy.pyx"
-  CXX PY3 OUTPUT_VAR _ArrayDict_cxx_file)
-python_add_library(_ArrayDict_cy MODULE ${_ArrayDict_cxx_file} WITH_SOABI)
+cython_transpile(
+  src/pyvsf/_ArrayDict_cy.pyx
+  LANGUAGE CXX
+  CYTHON_ARGS -3
+  OUTPUT_VARIABLE _ArrayDict_cxx
+)
+python_add_library(_ArrayDict_cy MODULE ${_ArrayDict_cxx} WITH_SOABI)
 
-add_cython_target(_kernels_cythonization "src/pyvsf/_kernels_cy.pyx"
-  CXX PY3 OUTPUT_VAR _kernels_cxx_file)
-python_add_library(_kernels_cy MODULE ${_kernels_cxx_file} WITH_SOABI)
+cython_transpile(
+  src/pyvsf/_kernels_cy.pyx
+  LANGUAGE CXX
+  CYTHON_ARGS -3
+  OUTPUT_VARIABLE _kernels_cxx
+)
+python_add_library(_kernels_cy MODULE ${_kernels_cxx} WITH_SOABI)
 target_link_libraries(_kernels_cy PRIVATE vsf_cpp)
 
-add_cython_target(_partition_cythonization "src/pyvsf/_partition_cy.pyx"
-  CXX PY3 OUTPUT_VAR _partition_cxx_file)
-python_add_library(_partition_cy MODULE ${_partition_cxx_file} WITH_SOABI)
+cython_transpile(
+  src/pyvsf/_partition_cy.pyx
+  LANGUAGE CXX
+  CYTHON_ARGS -3
+  OUTPUT_VARIABLE _partition_cxx
+)
+python_add_library(_partition_cy MODULE ${_partition_cxx} WITH_SOABI)
 
 # Installation Logic
 # ------------------
