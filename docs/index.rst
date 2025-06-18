@@ -9,13 +9,14 @@ pairstat: calculating 2-point statistics
 
 .. include:: fragment-overview.rst
 
-.. include:: ../../README.rst
+.. include:: ../README.rst
    :start-after: .. COMMENT:  README-MAIN-BODY-START-ANCHOR
 
 .. toctree::
    :hidden:
 
    Introduction <self>
+   Primer
    Install
    Usage
    pages/Example
