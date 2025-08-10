@@ -88,8 +88,8 @@ def _neighbor_vec_differences(
     """
     Computes differences between vectors
 
-    Parmeters
-    ---------
+    Parameters
+    ----------
     diff_type : str
         Accepts values of 'parallel', 'transverse', 'total'
     trailing_ghost_spec: TrailingGhostSpec, optional
@@ -146,7 +146,7 @@ def neighbor_vdiffs(
     quan_dict, extra_quan_dict, cr_map, kwargs, trailing_ghost_spec=_NO_GHOST_CELLS_SPEC
 ):
     """
-    Computes histograms of velocity differences between neigboring cells. The
+    Computes histograms of velocity differences between neighboring cells. The
     velocity differences are normalized by the maximum sound speed of each pair
     of cells.
 
@@ -163,7 +163,7 @@ def neighbor_vdiffs(
     kwargs: dict
         This should be a 3-element dict. The keys should be
         'aligned_vdiff_edges', 'transverse_vdiff_edges', and 'mag_vdiff_edges'.
-        The values associted with each key should be 1D arrays holding
+        The values associated with each key should be 1D arrays holding
         monotonically increasing velocity differences.
     trailing_ghost_spec: TrailingGhostSpec, optional
         Specifies the number of trailing ghost cells for each axis. The default

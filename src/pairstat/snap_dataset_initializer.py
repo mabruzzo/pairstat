@@ -7,7 +7,7 @@ _CACHED_DATA = None
 class SnapDatasetInitializer:
     """
     This is supposed to manage the creation of a yt-dataset (to help
-    facillitate pickling).
+    facilitate pickling).
 
     Parameters
     ----------

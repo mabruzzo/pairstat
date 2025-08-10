@@ -36,7 +36,7 @@ class PerfRegions:
             return NotImplemented
         elif self.any_active_regions() or other.any_active_regions():
             raise RuntimeError(
-                "__add__ was called for a PerfRegion which has " "an active region"
+                "__add__ was called for a PerfRegion which has an active region"
             )
         elif len(self.times) != len(other.times):
             raise ValueError("operands don't have the same region names")

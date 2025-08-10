@@ -114,8 +114,8 @@ def decompose_volume(ds, sf_params, subvol_side_len=None, force_subvols_per_ax=N
     """
     Constructs an instance of SubVolumeDecomposition.
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     ds
         The dataset object
     sf_params: StructureFuncProps
@@ -130,7 +130,7 @@ def decompose_volume(ds, sf_params, subvol_side_len=None, force_subvols_per_ax=N
     Notes
     -----
     If we want to support calculation of structure function as a function of
-    position in the future (analagous to a STFT without overlap), it might be
+    position in the future (analogous to a STFT without overlap), it might be
     nice to support the following:
     - Specify an arbitrary subvolume width
     - let SubVolumeDecomposition support a nominal subvolume size for all
@@ -209,8 +209,7 @@ def decompose_volume(ds, sf_params, subvol_side_len=None, force_subvols_per_ax=N
             subvol_side_len = ds.quan(*subvol_side_len)
             if force_subvols_per_ax is not None:
                 raise ValueError(
-                    "subvol_side_len and force_subvols_per_ax "
-                    "can't both be specified."
+                    "subvol_side_len and force_subvols_per_ax can't both be specified."
                 )
             elif subvol_side_len < min_subvol_width.max():
                 raise ValueError(
@@ -274,7 +273,7 @@ def subvol_index_batch_generator(
         if (subvols_per_chunk is not None) and (
             subvols_per_chunk > max_subvols_per_chunk
         ):
-            raise ValueError("subvols_per_chunk can't exceed " "max_subvols_per_chunk")
+            raise ValueError("subvols_per_chunk can't exceed max_subvols_per_chunk")
         elif int(max_subvols_per_chunk) != max_subvols_per_chunk:
             raise ValueError("max_subvols_per_chunk must be an integer")
         elif max_subvols_per_chunk <= 0:
@@ -369,7 +368,7 @@ class _PoolCallback:
                     # - consolidated_rslt includes the contribution from
                     #   main_subvol_rslt as well as cross-term contributions
                     #   between points in subvol_index and points in its 13 (or
-                    #   at least those that exist) nearest neigboring
+                    #   at least those that exist) nearest neighboring
                     #   subvolumes on the right side
                     consolidated_rslt = consolidated_rslts.retrieve_result(
                         stat_ind, cut_region_i
@@ -419,7 +418,7 @@ class _PoolCallback:
             template = (
                 (
                     "{_str_prefix} subvol #{cum_count} of {total_count} "
-                    + "({n_neighbors:2d} neigbors)\n"
+                    + "({n_neighbors:2d} neighbors)\n"
                 )
                 + "{pad}perf-sec - {perf_summary}\n"
                 + "{pad}num points from subvol: {subvol_available_pts}\n"
@@ -581,12 +580,12 @@ def small_dist_sf_props(
         An optional callable that can process the auto-structure function
         properties computed for individual subvolumes (for example, this could
         be used to save such quantities to disk). The callable should expect
-        the following arugments
+        the following arguments
         - an instance of `StructureFuncProps`. This should not be mutated.
         - an instance of `SubVolumeDecomposition` (specifying how the domain is
           broken up). This should not be mutated.
         - the subvolume index (a tuple of 3 integers),
-        - stat_index, the index corresponding to the statitic being computed.
+        - stat_index, the index corresponding to the statistic being computed.
           (If you're only computing a single statistic, this will always be 0)
         - the index corresponding to the cut_region
         - the structure function properties computed within the subvolume
@@ -627,7 +626,7 @@ def small_dist_sf_props(
 
     if (max_points is None) != (rand_seed is None):
         raise ValueError(
-            "max_points and rand_seed must both be " "specified or unspecified"
+            "max_points and rand_seed must both be specified or unspecified"
         )
     if max_points is not None:
         assert int(max_points) == max_points
@@ -662,8 +661,7 @@ def small_dist_sf_props(
         #     ...                      size = drawn[choice], replace = False)
 
         raise NotImplementedError(
-            "Support is not currently provided for randomly drawing a subset "
-            "of points"
+            "Support is not currently provided for randomly drawing a subset of points"
         )
 
     # some of the argument checking is automatically performed by validation in
@@ -773,8 +771,8 @@ def decompose_volume_intrinsic(ds):
     Constructs an instance of SubVolumeDecomposition (that matches the
     intrinsic subvolumes)
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     ds
         The dataset object
     """

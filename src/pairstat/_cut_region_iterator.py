@@ -26,7 +26,7 @@ def _neighbor_ind_iter(
     Generator that yields the indices of all valid neighboring subvolume indices
     for which the cross-structure function must be computed.
 
-    yield_batches can be used to yield batches of neighboring indicies that are
+    yield_batches can be used to yield batches of neighboring indices that are
     effectively organized into slices (this can be used for optimizing data
     loading)
     """
@@ -215,8 +215,7 @@ def _build_subvolume_cutstr(left_edge, right_edge):
 
     lunit = left_edge.units
     runit = right_edge.units
-    # now create a cut_region from box_region that discards all uneeded
-    # points
+    # now create a cut_region from box_region that discards all unneeded points
     lval, rval = left_edge.ndarray_view(), right_edge.ndarray_view()
     parts = []
     for i, ax in enumerate("xyz"):
@@ -280,7 +279,7 @@ def subvolume_dataobjects(ds, subvol_indices, subvol_decomp):
             or frozenset(subvol_indices) != expected
         ):
             raise RuntimeError(
-                "Something went wrong! There are gaps between " "subvolume indices"
+                "Something went wrong! There are gaps between subvolume indices"
             )
 
         # next, construct the box-region that contains all of the specified
