@@ -98,5 +98,3 @@ def build_task_it_factory(nproc, n_points, n_points_other = 0,
                           skip_small_prob_check = False):
     return _PyTaskItFactory(nproc, n_points, n_points_other,
                             skip_small_prob_check)
-
-
