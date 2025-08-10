@@ -179,7 +179,7 @@ struct StatTask {
 /// an "auto" structure/correlation function)
 ///
 /// This assumes that the consumer of the produced ``StatTask`` instances
-/// tracks 2 pointers refered to as collection A and collection B. These
+/// tracks 2 pointers referred to as collection A and collection B. These
 /// pointers should both point to the start of the same list of pointers.
 /// * this is necessary because we decompose the auto structure/correlation
 ///   function calculation into a combination of auto **AND** cross
@@ -301,7 +301,7 @@ struct AutoSFPartitionStrat {
 /// to compute the "cross" structure/correlation function)
 ///
 /// This assumes that the consumer of the produced ``StatTask`` instances
-/// tracks pointers, refered to as collection A and collection B, that refer to
+/// tracks pointers, referred to as collection A and collection B, that refer to
 /// **DIFFERENT** non-overlapping collections of points.
 struct CrossSFPartitionStrat {
   std::uint64_t n_points_A;
@@ -349,7 +349,7 @@ struct CrossSFPartitionStrat {
     }
 
     // we could definitely use a better algorithm to partition the work more
-    // equally (and more conciously of the cache)
+    // equally (and more consciously of the cache)
 
     const std::size_t small_npairs = 1000;
     bool exceed_small_npairs =  // try to work around an overflow
@@ -426,8 +426,8 @@ public:
   bool has_next() const noexcept { return next_index_1D_ < index_stop_1D_; }
 
   StatTask next() noexcept {
-    auto func = [&](const auto& strat) {
-      return strat.build_StatTask(next_index_2D_);
+    auto func = [&](const auto& strategy) {
+      return strategy.build_StatTask(next_index_2D_);
     };
 
     StatTask out = std::visit(func, partition_strat_);
@@ -437,8 +437,8 @@ public:
 
 private:
   inline void increment_index_() noexcept {
-    auto func = [&](const auto& strat) {
-      return strat.increment2D_index(next_index_2D_);
+    auto func = [&](const auto& strategy) {
+      return strategy.increment2D_index(next_index_2D_);
     };
     next_index_1D_++;
     std::visit(func, partition_strat_);
@@ -512,8 +512,9 @@ public:
 
   /// gives total number of chunks (or tasks) the problem is broken into
   std::uint64_t n_partitions() const noexcept {
-    return std::visit([](const auto& strat) { return strat.n_partitions(); },
-                      partition_strat_);
+    return std::visit(
+        [](const auto& strategy) { return strategy.n_partitions(); },
+        partition_strat_);
   }
 
   /// give the total number of task-groups (i.e. the max number of processe

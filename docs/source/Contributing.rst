@@ -13,8 +13,8 @@ There are 2 main points worth highlighting:
    A fair amount of refactoring could be done to simplify/improve certain aspects.
    Some of the required refactoring is described `here <https://github.com/mabruzzo/pairstat/issues/1>`__.
 
-2. There are a handful of oportunities for optimizing the performance of the package (most of them require significant structural changes).
-   A description of som of these opportunities can be found `here <https://github.com/mabruzzo/pairstat/issues/2>`__.
+2. There are a handful of opportunities for optimizing the performance of the package (most of them require significant structural changes).
+   A description of some of these opportunities can be found `here <https://github.com/mabruzzo/pairstat/issues/2>`__.
 
 
 Undocumented Functionality

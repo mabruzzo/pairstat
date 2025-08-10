@@ -309,7 +309,7 @@ void calc_pair_props_(const PointProps points_a, const PointProps points_b,
   if (nominal_nproc == 1) {
     if ((factory.n_partitions() != 1) || (factory.effective_nproc() != 1)) {
       error(
-          "A bug appeared to have occured. When there is 1 process, the "
+          "A bug appeared to have occurred. When there is 1 process, the "
           "calculations should only be divided into 1 part");
     }
     process_TaskIt_<AccumCollection, choice>(

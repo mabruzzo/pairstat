@@ -86,7 +86,7 @@ def calc_from_statconf_consolidation(
     add_empty_entries : bool
         Indicates whether we inject empty partial results
     pre_accumulate_idx_l : list of slice objects, optional
-        When an empty list is specifed (the default), we consolidate all of the values
+        When an empty list is specified (the default), we consolidate all of the values
         at once. When it contains slices, we separately compute the partial result for
         the elements in each slice (and any remaining points not in any slice), first,
         and then we consolidate those partial results.

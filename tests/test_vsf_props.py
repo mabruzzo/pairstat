@@ -214,7 +214,7 @@ def compare_vsf_implementations(
     #   statistics
     # - A 'scalar value' can be a number or a dict that associates tolerance
     #   values with the names of different quantities associated with the
-    #   statisitic
+    #   statistic
 
     assert alt_implementation_key != "actual"
     alt_impl_func, alt_impl_name = VSF_PROPS_IMPL_REGISTRY[alt_implementation_key]

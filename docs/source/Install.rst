@@ -78,7 +78,7 @@ The easiest way to get a different compiler is use homebrew to install a version
 
    When you use homebrew to install g++, the installed version of g++ will include the version number (e.g. it might create ``g++-10``, ``g++-11``, ``g++-14``, ...).
 
-Now that you have installed a version of g++, (for the sake of argument, we assum its called ``g++-14``), you should invoke
+Now that you have installed a version of g++, (for the sake of argument, we assume its called ``g++-14``), you should invoke
 
 .. tabs::
 

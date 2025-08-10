@@ -1,6 +1,6 @@
 // Define the C interface for creating a handle for accumulator collections
 //
-// This will support transfering data to and from the accumulator collection.
+// This will support transferring data to and from the accumulator collection.
 // This interface is primarily being created in anticipation of moving
 // consolidation routines to the C++ library
 //
@@ -9,7 +9,7 @@
 //       meaning of each value)
 //
 // TODO: I REALLY don't like the idea of passing unwrapped void pointers
-//       arround. It would be better to pass a pointer to an opaque type
+//       around. It would be better to pass a pointer to an opaque type
 
 #include "vsf.hpp"
 
@@ -33,7 +33,7 @@ extern "C" {
 ///
 /// @note
 /// We may remove FusedAccumulators in the future. At the moment, they just
-/// exist for backwards compatability.
+/// exist for backwards compatibility.
 void* accumhandle_create(const StatListItem* stat_list, size_t stat_list_len,
                          size_t num_dist_bins);
 

@@ -37,7 +37,7 @@ struct StatListItem {
   /// The name of the statistic to compute.
   const char* statistic;
 
-  /// Pointer to a struct that is designed to be passed to the construtor of
+  /// Pointer to a struct that is designed to be passed to the constructor of
   /// the accumulator for the specified statistic. In most cases, this should
   /// just be a nullptr
   void* arg_ptr;
