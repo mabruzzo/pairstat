@@ -11,4 +11,4 @@ build:
 
 sphinx:
   # Path to your Sphinx configuration file.
-  configuration: docs/source/conf.py
+  configuration: docs/conf.py
