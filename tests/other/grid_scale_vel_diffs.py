@@ -3,9 +3,9 @@ from functools import partial
 import numpy as np
 import yt
 
-from pyvsf import vsf_props
-from pyvsf.small_dist_sf_props import grid_scale_vel_diffs
-from pyvsf._kernels import BulkAverage, BulkVariance
+from pairstat import vsf_props
+from pairstat.small_dist_sf_props import grid_scale_vel_diffs
+from pairstat._kernels import BulkAverage, BulkVariance
 
 from bulk_statistics import compare_bulkstat, _kv_pair_cmp_iter, setup_ds
 

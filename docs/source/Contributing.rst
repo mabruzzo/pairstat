@@ -11,20 +11,20 @@ There are 2 main points worth highlighting:
 
 1. This module evolved very organically (features were added as they were needed). 
    A fair amount of refactoring could be done to simplify/improve certain aspects.
-   Some of the required refactoring is described `here <https://github.com/mabruzzo/pyvsf/issues/1>`__.
+   Some of the required refactoring is described `here <https://github.com/mabruzzo/pairstat/issues/1>`__.
 
 2. There are a handful of oportunities for optimizing the performance of the package (most of them require significant structural changes).
-   A description of som of these opportunities can be found `here <https://github.com/mabruzzo/pyvsf/issues/2>`__.
+   A description of som of these opportunities can be found `here <https://github.com/mabruzzo/pairstat/issues/2>`__.
 
 
 Undocumented Functionality
 ==========================
 
-This module also provides another primary function, ``pyvsf.small_dist_sf_props.small_dist_sf_props`` that can be used to compute statistics for an astrophysical simulation.
+This module also provides another primary function, ``pairstat.small_dist_sf_props.small_dist_sf_props`` that can be used to compute statistics for an astrophysical simulation.
 This function decomposes the simulation into smaller subvolumes (the size of each subvolume is related to the maximum separation).
 This can considerably reduce the complexity of the calculation.
 
-``pyvsf.small_dist_sf_props.small_dist_sf_props`` also offers parallelization
+``pairstat.small_dist_sf_props.small_dist_sf_props`` also offers parallelization
 using MPI/multiprocessing, using ``MPIPool`` or ``MultiPool`` from the ``schwimmbad`` package.
 A modified `MPIPool` is also provided to work around some MPI issues on some computing clusters.
 
@@ -34,7 +34,7 @@ The plan is to move most of this undocumented functionality to a separate develo
 Code Formatting
 ===============
 
-The pyvsf repository is configured with multiple automated tools to enforce formatting (and other properties) of various files in the repository.
+The pairstat repository is configured with multiple automated tools to enforce formatting (and other properties) of various files in the repository.
 At this time, there files fall into 3 broad categories: (i) C++ formatting and (ii) python formatting, and (iii) miscellaneous formatting.
 
 This page is organized as follows:
@@ -78,7 +78,7 @@ To address formatting issues, you can take 2 approaches:
 
      1. First, you need to make sure that the local copy of your ``my-new-feature`` git-branch (the version of the branch on your machine) is synchronized with your remote copy (i.e. the version of the branch on GitHub).
         In other words, you need to ensure that you synchronize any changes that you made since you originally issued the Pull Request.
-        If you are using the terminal, invoke ``git checkout my-new-feature`` from anywhere within the pyvsft repository and then immediately invoke ``git push``.
+        If you are using the terminal, invoke ``git checkout my-new-feature`` from anywhere within the pairstatt repository and then immediately invoke ``git push``.
         If you get a failure message, then you should get help.
         (It's good practice even if you don't think this is necessary)
 
@@ -88,7 +88,7 @@ To address formatting issues, you can take 2 approaches:
         Shortly thereafter, you should see a new commit appear on your screen.
 
      3. Finally, you need to "pull" the new commit from your GitHub repository back to your machine.
-        If you are using the terminal, invoke ``git checkout my-new-feature`` from anywhere within the pyvsf repository and then immediately invoke ``git pull``.
+        If you are using the terminal, invoke ``git checkout my-new-feature`` from anywhere within the pairstat repository and then immediately invoke ``git pull``.
 
 .. _intermediate-level-code-formatting:
 
@@ -113,11 +113,11 @@ We primarily use the pre-commit software because of its ability to automatically
    Because it's confusing, it's worth emphasizing that there are essentially 3 distinct entities named "pre-commit":
 
    1. the `pre-commit <https://pre-commit.com/>`__ software.
-      pyvsf contributors **only** need to know about this if they want to apply the enforcement tools locally.
+      pairstat contributors **only** need to know about this if they want to apply the enforcement tools locally.
 
    2. the `pre-commit.ci <https://pre-commit.ci/>`__ continuous integration service.
       This is named because the service simply executes the pre-commit software.
-      Just about all pyvsf contributors will encounter this at one time or another.
+      Just about all pairstat contributors will encounter this at one time or another.
 
    3. the "pre-commit" `git hook <https://git-scm.com/book/en/v2/Customizing-Git-Git-Hooks>__`.
       This is one of multiple different "hooks" offered by git.
@@ -132,11 +132,11 @@ To run the checks locally, we encourage you need to install the pre-commit softw
 This software is written in python and can be installed with ``pip``.
 The `installation instructions <https://pre-commit.com/#installation>`__ also mention an alternative approach where you can run download and run pre-commit without fully installing it (as a "zipapp").
 
-Once you have installed ``pre-commit``, you can enforce the checks by invoking the following command from the root of your pyvsf repository:
+Once you have installed ``pre-commit``, you can enforce the checks by invoking the following command from the root of your pairstat repository:
 
 .. code-block:: shell-session
 
-   ~/pyvsf $ pre-commit run --all-files
+   ~/pairstat $ pre-commit run --all-files
 
 The above command does 2 things:
 

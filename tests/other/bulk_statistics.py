@@ -4,8 +4,8 @@
 import numpy as np
 import yt
 
-from pyvsf.small_dist_sf_props import BoxSelector, small_dist_sf_props
-from pyvsf._kernels import BulkAverage, BulkVariance
+from pairstat.small_dist_sf_props import BoxSelector, small_dist_sf_props
+from pairstat._kernels import BulkAverage, BulkVariance
 
 
 def setup_ds():

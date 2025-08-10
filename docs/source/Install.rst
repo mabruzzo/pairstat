@@ -2,10 +2,10 @@
 Installation
 ************
 
-Getting pyvsf
-=============
+Getting pairstat
+================
 
-At this time, you must build pyvsf from source. 
+At this time, you must build pairstat from source.
 
 .. note::
 
@@ -14,27 +14,27 @@ At this time, you must build pyvsf from source.
 The primary dependency is having a modern C++ compiler installed.
 All other python dependencies will be handled by your python package manager.
 
-You currently have 2 options, install from a url or install from a local copy of the pyvsf reposiory.
+You currently have 2 options, install from a url or install from a local copy of the pairstat reposiory.
 
 Install from url (recommended for users)
 ----------------------------------------
 
-If you simply want to use pyvsf, then the easiest way to install it is to invoke:
+If you simply want to use pairstat, then the easiest way to install it is to invoke:
 
 .. code-block:: shell-session
 
-   $ python -m pip install -v pyvsf@git+https://github.com/mabruzzo/pyvsf
+   $ python -m pip install -v pairstat@git+https://github.com/mabruzzo/pairstat
 
 Install from local copy of repository
 -------------------------------------
 
-The other way to install pyvsf is to manually clone the repository and build the package from inside of it (this is recommended for contributors).
+The other way to install pairstat is to manually clone the repository and build the package from inside of it (this is recommended for contributors).
 You would invoke:
 
 .. code-block:: shell-session
 
-   $ git clone https://github.com/mabruzzo/pyvsf
-   $ cd pyvsf
+   $ git clone https://github.com/mabruzzo/pairstat
+   $ cd pairstat
    $ python -m pip install -v .
 
 The above command installs the minimum required dependencies.
@@ -60,7 +60,7 @@ To check if the package was compiled with OpenMP, you can invoke the following f
 
 .. code-block:: shell-session
 
-   $ python -m pyvsf
+   $ python -m pairstat
 
 Extra Steps to enable OpenMP for parallelization on macOS
 =========================================================
@@ -86,22 +86,30 @@ Now that you have installed a version of g++, (for the sake of argument, we assu
 
       .. code-block:: shell-session
 
-         $ CXX=g++-14 python -m pip install -v pyvsf@git+https://github.com/mabruzzo/pyvsf
+         $ CXX=g++-14 python -m pip install -v pairstat@git+https://github.com/mabruzzo/pairstat
 
 
    .. tab:: Install from Local Repository
 
       .. code-block:: shell-session
 
-         $ # from the root of your pyvsf repository
+         $ # from the root of your pairstat repository
          $ CXX=g++-14 python -m pip install -v .
 
 Tests
 =====
 
-To run the tests, you need to install pyvsf from a local copy of the repository and you should be sure to install the extra development requirements (at the time of writing, these dependencies just consists of ``pytest`` and ``scipy``, but that may change in the future).
+To run the tests, you need to install pairstat from a local copy of the repository.
 
-From the root of your pyvsf repository, you should invoke
+To do this, you need to install a handful of extra development dependencies, which are specified as dependency groups.
+They can be installed with pip (v25.1+) by invoking the following command from the root of the repository:
+
+
+.. code-block:: shell-session
+
+   $ pip install --group dev
+
+Once you install the development dependencies, you can invoke the tests by invoking the following (from the root of the repository):
 
 .. code-block:: shell-session
 

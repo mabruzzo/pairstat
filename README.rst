@@ -1,11 +1,11 @@
-#####
-pyvsf
-#####
+########
+pairstat
+########
 
 
-.. image:: https://github.com/mabruzzo/pyvsf/actions/workflows/ci.yml/badge.svg
-    :target: https://github.com/mabruzzo/pyvsf/actions
-    :alt: pyvsf's GitHub Actions CI Status
+.. image:: https://github.com/mabruzzo/pairstat/actions/workflows/ci.yml/badge.svg
+    :target: https://github.com/mabruzzo/pairstat/actions
+    :alt: pairstat's GitHub Actions CI Status
 
 .. image:: https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white
     :target: https://github.com/pre-commit/pre-commit
@@ -15,15 +15,17 @@ pyvsf
     :target: https://github.com/astral-sh/ruff
     :alt: Ruff
 
-`Documentation <https://pyvsf.readthedocs.io/en/latest/>`__ |
-`Installation <https://pyvsf.readthedocs.io/en/latest/Install.html>`__ |
-`Contributing <https://pyvsf.readthedocs.io/en/latest/Contributing.html>`__ |
-`Getting Help <https://pyvsf.readthedocs.io/en/latest/Help.html>`__
+`Documentation <https://pairstat.readthedocs.io/en/latest/>`__ |
+`Installation <https://pairstat.readthedocs.io/en/latest/Install.html>`__ |
+`Contributing <https://pairstat.readthedocs.io/en/latest/Contributing.html>`__ |
+`Getting Help <https://pairstat.readthedocs.io/en/latest/Help.html>`__
 
 
 .. COMMENT:  README-MAIN-BODY-START-ANCHOR
 
-``pyvsf`` is a python package that provides accelerated/parallelized routines for computing spatial 2-point statistics from spatial data data (e.g. 2-point correlation function, structure functions).
+``pairstat`` is a python package that provides accelerated/parallelized routines for computing spatial 2-point statistics from spatial data data (e.g. 2-point correlation function, structure functions).
+
+    The ``pairstat`` package was formerly known as ``pyvsf``
 
 **********
 Motivation
@@ -32,8 +34,8 @@ Motivation
 2-point statistics are important for characterizing the properties of `turbulence <https://en.wikipedia.org/wiki/Turbulence#Kolmogorov's_theory_of_1941>`__ (2-point statistics comes up in other contexts like `cosmology <https://en.wikipedia.org/wiki/Correlation_function_(astronomy)>`__).
 There hasn't been an easy-to-use package for computing these quantities, until now.
 
-The ``pyvsf`` package is most useful for datasets where Fourier methods are problematic (e.g. you don't have a regularly spaced periodic grid). 
-Before developing ``pyvsf``, I performed similar calculations by processing the outputs of ``scipy.spatial.distance.pdist`` and ``scipy.spatial.distance.cdist`` functions.
+The ``pairstat`` package is most useful for datasets where Fourier methods are problematic (e.g. you don't have a regularly spaced periodic grid). 
+Before developing ``pairstat``, I performed similar calculations by processing the outputs of ``scipy.spatial.distance.pdist`` and ``scipy.spatial.distance.cdist`` functions.
 This package implements equivalent functionality that uses more specialized C++ code in order to perform the calculation faster and with **far** less memory. [#of1]_ 
 It also supports parallelization (more on that below).
 
@@ -45,16 +47,16 @@ As long as you have a C++ compiler, the easiest way to get the package is by inv
 
 .. code-block:: shell-session
 
-   $ python -m pip install -v pyvsf@git+https://github.com/mabruzzo/pyvsf
+   $ python -m pip install -v pairstat@git+https://github.com/mabruzzo/pairstat
 
 The package is automatically compiled with OpenMP support if the compiler supports it.
-To confirm that ``pyvsf`` wass compiled with OpenMP support, you can check whether the output from the following command mentions OpenMP:
+To confirm that ``pairstat`` wass compiled with OpenMP support, you can check whether the output from the following command mentions OpenMP:
 
 .. code-block:: shell-session
 
-   $ python -m pyvsf
+   $ python -m pairstat
 
-See our `Installation Guide <https://pyvsf.readthedocs.io/en/latest/Install.html>`__ for more details (especially if the package wasn't compiled with OpenMP support).
+See our `Installation Guide <https://pairstat.readthedocs.io/en/latest/Install.html>`__ for more details (especially if the package wasn't compiled with OpenMP support).
 
 
 *****************************************
@@ -89,7 +91,7 @@ Contributions and Feature requests are welcome!
 
 License
 =======
-pyvsf is dual-licensed under either the MIT license and the Apache License (Version 2.0).
+pairstat is dual-licensed under either the MIT license and the Apache License (Version 2.0).
 
 
 

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.spatial.distance import pdist, cdist
 
-import pyvsf
+import pairstat
 
 
 def _twopoint_correlation_python(pos_a, pos_b, val_a, val_b, dist_bin_edges):
@@ -50,7 +50,7 @@ def test_twopoint_autocorrelation():
     bin_edges = np.array([0.0, 5.0, 10.0])
 
     ref = _twopoint_correlation_python(x_a, None, val_a, None, bin_edges)
-    actual = pyvsf.twopoint_correlation(x_a, None, val_a, None, bin_edges)
+    actual = pairstat.twopoint_correlation(x_a, None, val_a, None, bin_edges)
     for key in ["mean", "counts"]:
         assert np.all(ref[0][key] == actual[0][key])
 
@@ -62,7 +62,7 @@ def test_twopoint_crosscorrelation():
 
     bin_edges = np.array([17.0, 21.0, 25.0])
 
-    actual = pyvsf.twopoint_correlation(x_a, x_b, val_a, val_b, bin_edges)
+    actual = pairstat.twopoint_correlation(x_a, x_b, val_a, val_b, bin_edges)
     ref = _twopoint_correlation_python(x_a, x_b, val_a, val_b, bin_edges)
     for key in ["mean", "counts"]:
         assert np.all(ref[0][key] == actual[0][key])
