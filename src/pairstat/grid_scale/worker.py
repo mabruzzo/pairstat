@@ -1,10 +1,7 @@
 import sys
 import functools
 
-eprint = functools.partial(print, file=sys.stderr)
-
 import numpy as np
-
 
 from ..worker import (
     _BaseWorker,
@@ -14,11 +11,13 @@ from ..worker import (
     TaskResult,
 )
 
-from ._utils import _top_level_grid_indices, get_left_edge
+from ._utils import get_left_edge
 
 from .._perf import PerfRegions
-from .._kernels import get_kernel
 from ._kernels import TrailingGhostSpec, GridscaleVdiffHistogram
+
+
+eprint = functools.partial(print, file=sys.stderr)
 
 
 class WorkerStructuredGrid(_BaseWorker):

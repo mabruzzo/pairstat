@@ -4,6 +4,7 @@ import time
 
 import numpy as np
 from scipy.spatial.distance import pdist, cdist
+import pairstat
 
 
 def zip_equal(*args):
@@ -16,8 +17,6 @@ def zip_equal(*args):
                 raise ValueError(f"argument {i} doesn't have the same length as arg 0")
     return zip(*args)
 
-
-import pairstat
 
 # implement a python-version of vsf_props that just uses numpy and scipy
 
@@ -152,7 +151,8 @@ def _compare_vsf_implementation_single_rslt(
             f"output dict has the keys, {list(actual_val_dict.keys())}"
         )
 
-    _matching_array_dtype = lambda arr, dtype: isinstance(arr.flat[0], dtype)
+    def _matching_array_dtype(arr, dtype):
+        return isinstance(arr.flat[0], dtype)
 
     float_key_set = set()
     for key in actual_key_set:
@@ -163,7 +163,9 @@ def _compare_vsf_implementation_single_rslt(
     rtol_dict = _prep_tol_dict(float_key_set, rtol, "rtol")
 
     for key in actual_val_dict.keys():
-        if alt_val_dict[key].dtype != actual_val_dict[key].dtype:
+        actual_dtype = actual_val_dict[key].dtype
+        alt_dtype = alt_val_dict[key].dtype
+        if alt_dtype != actual_dtype:
             raise AssertionError(
                 f'The {actual_impl_name}\'s "{key}" entry has the dtype, '
                 f"{actual_dtype}, while the {alt_impl_name}'s entry has the "
@@ -192,7 +194,7 @@ def _compare_vsf_implementation_single_rslt(
         else:
             raise NotImplementedError(
                 "Unclear how to compare the contents of arrays with dtype = "
-                f"{actual_vals.dtype}"
+                f"{actual_dtype}"
             )
 
 

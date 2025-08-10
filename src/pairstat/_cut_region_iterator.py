@@ -1,6 +1,5 @@
 # module that defines some helper functions related to loading subvolume data
 # in save_sf_to_file
-import functools
 import gc
 from itertools import product
 import logging
@@ -30,8 +29,6 @@ def _neighbor_ind_iter(
     effectively organized into slices (this can be used for optimizing data
     loading)
     """
-
-    subvols_per_ax = subvol_decomp.subvols_per_ax
 
     if (
         (not yield_batches)
@@ -83,7 +80,8 @@ def _neighbor_ind_iter(
             ),
         )
 
-    is_valid = lambda ind: self.subvol_decomp.valid_subvol_index(ind)
+    def is_valid(ind):
+        return subvol_decomp.valid_subvol_index(ind)
 
     for b in _neighbor_delta_ind_batches:
         # determine all neigbor_ind in current batch
@@ -401,7 +399,7 @@ class EagerCutRegionIterBuilder(SimpleCutRegionIterBuilder):
         """
         if "force_traditional_neighbors" not in kwargs:
             kwargs["force_traditional_neighbors"] = True
-        elif kwargs["force_traditional_neighbors"] == False:
+        elif not kwargs["force_traditional_neighbors"]:
             raise ValueError(
                 f"instances of {self.__class__.__name__} don't allow "
                 "force_traditional_neighbors to be False"

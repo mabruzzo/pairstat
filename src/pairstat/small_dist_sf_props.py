@@ -9,7 +9,7 @@ from ._cut_region_iterator import get_root_level_cell_width
 
 from .worker import SFWorker, _PERF_REGION_NAMES, consolidate_partial_vsf_results
 
-from ._kernels import get_kernel, kernel_operates_on_pairs
+from ._kernels import get_kernel
 
 
 from ._perf import PerfRegions
@@ -94,8 +94,8 @@ class SubVolumeDecomposition(BaseModel):
 
     @property
     def subvol_widths(self):
-        l, r = np.array(self.left_edge), np.array(self.right_edge)
-        return (r - l) / np.array(self.subvols_per_ax), self.length_unit
+        left, right = np.array(self.left_edge), np.array(self.right_edge)
+        return (right - left) / np.array(self.subvols_per_ax), self.length_unit
 
     def valid_subvol_index(self, subvol_index):
         if len(subvol_index) != 3:
@@ -331,7 +331,7 @@ class _PoolCallback:
                 dist_bin_edges=dist_bin_edges, kwargs=stat_kw
             )
             commutative_consolidate = all(
-                np.issubdtype(dtype, np.integer) for name, dtype, shape in dest_props
+                np.issubdtype(dtype, np.integer) for name, dtype, shape in dset_props
             )
             if commutative_consolidate:
                 self.accum_rslt[stat_ind] = [{} for _ in range(n_cut_regions)]
@@ -611,7 +611,9 @@ def small_dist_sf_props(
     if not callable(ds_initializer):
         assert pool is None
         _ds = ds_initializer
-        ds_initializer = lambda: _ds
+
+        def ds_initializer():
+            return _ds
 
     pool, n_workers = _prep_pool(pool)
 
@@ -630,7 +632,7 @@ def small_dist_sf_props(
         )
     if max_points is not None:
         assert int(max_points) == max_points
-        max_points = int(maxpoints)
+        max_points = int(max_points)
         assert int(rand_seed) == rand_seed
         rand_seed = int(rand_seed)
 
@@ -762,8 +764,8 @@ def small_dist_sf_props(
 
 # --------------------------
 
-from .grid_scale.worker import WorkerStructuredGrid
-from .grid_scale._utils import _top_level_grid_indices
+from .grid_scale.worker import WorkerStructuredGrid  # noqa: E402
+from .grid_scale._utils import _top_level_grid_indices  # noqa: E402
 
 
 def decompose_volume_intrinsic(ds):
@@ -820,7 +822,9 @@ def grid_scale_vel_diffs(
     if not callable(ds_initializer):
         assert pool is None
         _ds = ds_initializer
-        ds_initializer = lambda: _ds
+
+        def ds_initializer():
+            return _ds
 
     pool, n_workers = _prep_pool(pool)
 
@@ -893,7 +897,6 @@ def grid_scale_vel_diffs(
     if single_statistic:
         prop_l = prop_l[0]
     total_num_points_used_arr = np.array(post_proc_callback.total_num_points_arr)
-    total_avail_points_arr = np.array(post_proc_callback.total_num_points_arr)
     return (
         prop_l,
         total_num_points_used_arr,

@@ -1,13 +1,8 @@
-from functools import partial
-
 import numpy as np
-import yt
 
-from pairstat import vsf_props
 from pairstat.small_dist_sf_props import grid_scale_vel_diffs
-from pairstat._kernels import BulkAverage, BulkVariance
 
-from bulk_statistics import compare_bulkstat, _kv_pair_cmp_iter, setup_ds
+from bulk_statistics import setup_ds
 
 
 import functools
@@ -76,7 +71,9 @@ def _neighbor_vec_differences(grid, axis, diff_type, field_components):
     else:
         raise ValueError(f"invalid axis value: {axis}")
 
-    kernel = lambda x0, x1: x1 - x0
+    def kernel(x0, x1):
+        return x1 - x0
+
     if diff_type == "transverse":
         diff_l = [exec_operation(kernel, comp, grid) for comp in transverse_comps]
         return np.sqrt(np.square(diff_l[0]) + np.square(diff_l[1]))
@@ -162,8 +159,8 @@ def _reference_calculation(ds, logX_e_bin_edges, hist_bin_edges):
     grid = ds.covering_grid(
         level=0, left_edge=ds.domain_left_edge, dims=ds.domain_dimensions
     )
-    measurements = dict((diff_type, []) for diff_type, _ in name_pairs)
-    shared_logXe_bin_ind_l = []
+    # measurements = dict((diff_type, []) for diff_type, _ in name_pairs)
+    # shared_logXe_bin_ind_l = []
     for axis in "xyz":
         print(f"reference calc {axis}-axis setup")
         shared_logXe_bin_ind = get_shared_logXe_bin_ind(

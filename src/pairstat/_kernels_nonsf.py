@@ -173,9 +173,6 @@ class BulkAverage:
 
     @classmethod
     def consolidate_stats(cls, *rslts):
-        out = {}
-        num_keys = 2
-
         # we could run into overflow problems.
         # We're using a compensated summation
         accum_prodsum = np.zeros((3,), np.float64)
