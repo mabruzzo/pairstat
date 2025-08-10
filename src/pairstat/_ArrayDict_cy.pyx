@@ -24,7 +24,7 @@ class ArrayMapEntrySpec:
     Parameters
     ----------
     entry_spec: sequence of tuples of ArrayMapEntrySpec
-        This should be an existing ArrayMapEntrySpec or a sequence of tuples 
+        This should be an existing ArrayMapEntrySpec or a sequence of tuples
         where each tuple is of the form (key, dtype, array shape)
     """
 
@@ -50,7 +50,7 @@ class ArrayMapEntrySpec:
         specify the amount of storage space needed to store data for each entry
         as a multiple of np.dtype(np.uint64).itemsize
         """
-        # specifies the amount of storage space (as 
+        # specifies the amount of storage space (as
         return max(map(lambda e: e[-1], self._entries))
 
     def num_bytes(self):
@@ -146,7 +146,7 @@ class ArrayMapEntrySpec:
                 float64_l.append(tup)
 
         return tuple(int64_l + uint64_l + float64_l)
-                
+
 
 # it would be simpler just to wrap a structured array, but I read something
 # online suggesting that structured arrays may have problems being sent over

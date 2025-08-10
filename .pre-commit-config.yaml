@@ -1,43 +1,56 @@
 ci:
-    autofix_prs: false
-    autoupdate_schedule: monthly
+  autofix_prs: false
+  autoupdate_schedule: monthly
 
 repos:
 
 # there are some other useful hooks we could enable from here in the future
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
-    hooks:
-    - id: check-added-large-files
-    - id: check-ast
-    - id: check-executables-have-shebangs
-    - id: check-illegal-windows-names
-    - id: check-toml
-    - id: check-yaml
-    - id: debug-statements
-    - id: end-of-file-fixer
-    - id: trailing-whitespace
-      args: [--markdown-linebreak-ext=md]
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.6.0
+  hooks:
+  - id: check-added-large-files
+  - id: check-ast
+  - id: check-executables-have-shebangs
+  - id: check-toml
+  - id: check-yaml
+  - id: debug-statements
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+    args: [--markdown-linebreak-ext=md]
 
-repos:
--   repo: https://github.com/pre-commit/mirrors-clang-format
-    # unlike most pre-commit tools, the version of this repository exactly
-    # matches the version of clang-format
-    rev: v18.1.3
-    hooks:
-    -   id: clang-format
-        verbose: true
-        types_or: [c++, c]
-        args: ["-style=file", "--verbose"]
+- repo: https://github.com/pre-commit/mirrors-clang-format
+  # unlike most pre-commit tools, the version of this repository exactly
+  # matches the version of clang-format
+  rev: v18.1.3
+  hooks:
+  - id: clang-format
+    verbose: true
+    types_or: [c++, c]
+    args: [-style=file, --verbose]
 
-# settings adopted from yt
+- repo: https://github.com/codespell-project/codespell
+  rev: v2.4.1
+  hooks:
+  - id: codespell
+    # we have to  exclude jupyter notebooks because embedded png files cause
+    # some issues
+    # - we currently need to embed the png images for now because we can't make
+    #   the test data available in arbitrary environments
+    # - we can reconsider this in the future
+    exclude_types: [jupyter]
+    #args: [-w]  # <- uncomment this to apply all changes
+
+- repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+  rev: v2.15.0
+  hooks:
+  - id: pretty-format-yaml
+    args: [--autofix, --indent, '2']
+
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.12.0
   hooks:
   - id: ruff-format
-    types_or: [ python, pyi, jupyter ]
-  #- id: ruff
-  #  types_or: [ python, pyi, jupyter ]
-  #  args: [--fix, "--show-fixes"]
-
-
+    types_or: [python, pyi, jupyter]
+  - id: ruff-check
+    types_or: [python, pyi, jupyter]
+    args: [--fix, --show-fixes]

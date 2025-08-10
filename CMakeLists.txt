@@ -29,7 +29,7 @@ add_library(vsf_cpp OBJECT src/libvsf/accum_handle.cpp src/libvsf/vsf.cpp)
 set_target_properties(vsf_cpp PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
-target_link_libraries(vsf_cpp PRIVATE 
+target_link_libraries(vsf_cpp PRIVATE
   $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
 target_include_directories(vsf_cpp PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/libvsf")

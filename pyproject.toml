@@ -117,4 +117,3 @@ cmake.build-type = "Release"
 minimum-version = "build-system.requires"
 
 wheel.exclude = ["**.pyx"]
-

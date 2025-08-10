@@ -77,12 +77,12 @@ We provide a list of the unweighted statistics supported down below:
      - ``stat_kw_pairs`` example
      - Description
    * - ``"mean"``
-     - ``[("mean", {})]`` 
+     - ``[("mean", {})]``
      - Computes the number of pairs and the mean.
-       When used with :py:func:`~pairstat.vsf_props` function, the ``"mean"`` result correspond to the 1st order structure function. 
+       When used with :py:func:`~pairstat.vsf_props` function, the ``"mean"`` result correspond to the 1st order structure function.
        When used with :py:func:`~pairstat.twopoint_correlation` function, the ``"mean"`` result correspond is usually the quantity that you are interested in.
    * - ``"variance"``
-     - ``[("variances", {})]`` 
+     - ``[("variances", {})]``
      - Computes the number of pairs, the mean, and the variance.
        We currently apply Bessel's correction to try to get an unbiased estimate of variance.
    * - ``"omoment2"``
@@ -130,5 +130,5 @@ At the moment, you can chain together:
 
 .. rubric:: Footnotes
 
-.. [#f1] The "pairwise-operation" for ``vsf_props`` computes the magnitude of the difference between 2 vectors. 
+.. [#f1] The "pairwise-operation" for ``vsf_props`` computes the magnitude of the difference between 2 vectors.
          For ``twopoint_correlation``, the "pairwise-operation" takes the product of 2 scalars.

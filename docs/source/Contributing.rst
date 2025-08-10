@@ -9,7 +9,7 @@ This page documents some areas where the package needs work (contributions are w
 
 There are 2 main points worth highlighting:
 
-1. This module evolved very organically (features were added as they were needed). 
+1. This module evolved very organically (features were added as they were needed).
    A fair amount of refactoring could be done to simplify/improve certain aspects.
    Some of the required refactoring is described `here <https://github.com/mabruzzo/pairstat/issues/1>`__.
 

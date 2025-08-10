@@ -224,14 +224,14 @@ def _construct_pointprops(pos, val, weights = None, val_is_vector = True,
     assert pos_arr.strides[1] == pos_arr.itemsize
     assert val_arr.strides[-1] == val_arr.itemsize
 
-    # in the future, consider relaxing the following conditions (to maybe 
+    # in the future, consider relaxing the following conditions (to maybe
     # facilitate better data alignment)
     assert pos_arr.strides[0] == (n_points * pos_arr.itemsize)
     if val_is_vector:
         assert val_arr.strides[0] == (n_points * val_arr.itemsize)
     spatial_dim_stride = int(n_points)
 
-    
+
     weights_arr = None
     if weights is not None:
         weights_arr = np.asarray(weights, dtype = dtype, order = 'C')
@@ -473,8 +473,8 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
               nproc = 1, force_sequential = False,
               postprocess_stat = True):
     """
-    Calculates properties pertaining to the vector structure function for 
-    pairs of points. It's commonly used for the velocity structure function in 
+    Calculates properties pertaining to the vector structure function for
+    pairs of points. It's commonly used for the velocity structure function in
     particular.
 
     If you set both ``pos_b`` and ``val_b`` to ``None`` then the structure
@@ -484,20 +484,20 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
     Parameters
     ----------
     pos_a, pos_b : array_like
-        2D arrays holding the positions of each point. Axis 0 should be the 
+        2D arrays holding the positions of each point. Axis 0 should be the
         number of spatial dimensions must be consistent for each array. Axis 1
         can be different for each array
     val_a, val_b : array_like
-        2D arrays holding the vector values at each point. The shape of 
-        ``val_a`` should match ``pos_a`` and the shape of ``val_b`` should 
+        2D arrays holding the vector values at each point. The shape of
+        ``val_a`` should match ``pos_a`` and the shape of ``val_b`` should
         match ``pos_b``.
     dist_bin_edges : array_like
-        1D array of monotonically increasing values that represent edges for 
-        distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
+        1D array of monotonically increasing values that represent edges for
+        distance bins. A distance ``x`` lies in bin ``i`` if it lies in the
         interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
     weights_a, weights_b : array_like, optional
         optional 1D arrays that can be used to specify weights for point. When
-        specified, the size of ``weights_a`` should match 
+        specified, the size of ``weights_a`` should match
         ``np.shape(pos_a)[1]`` and the size of ``weights_b`` should match
         ``np.shape(pos_b)[1]``. It is an error to specify weights when the
         specified statistics won't use them.
@@ -621,7 +621,7 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
 
     return _core_pairwise_work(
         pos_a = pos_a, pos_b = pos_b, val_a = _val_a, val_b = _val_b,
-        dist_bin_edges = dist_bin_edges, 
+        dist_bin_edges = dist_bin_edges,
         weights_a = weights_a, weights_b = weights_b,
         pairwise_op = pairwise_op,
         stat_kw_pairs = stat_kw_pairs, nproc = nproc,
@@ -636,14 +636,14 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
     """
     Calculates the 2pcf (two-point correlation function) for pairs of points.
 
-    If you set both ``pos_b`` and ``val_b`` to ``None`` then the two-point 
+    If you set both ``pos_b`` and ``val_b`` to ``None`` then the two-point
     correlation function will only be computed for unique pairs of the points
     specified by ``pos_a`` and ``val_a``
 
     Parameters
     ----------
     pos_a, pos_b : array_like
-        2D arrays holding the positions of each point. Axis 0 should be the 
+        2D arrays holding the positions of each point. Axis 0 should be the
         number of spatial dimensions must be consistent for each array. Axis 1
         can be different for each array
     val_a, val_b : array_like
@@ -653,8 +653,8 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
         these can be 2D arrays. In this case, the shape of ``val_a`` should match
         ``pos_a`` and the shape of ``val_b`` should match ``pos_b``.
     dist_bin_edges : array_like
-        1D array of monotonically increasing values that represent edges for 
-        distance bins. A distance ``x`` lies in bin ``i`` if it lies in the 
+        1D array of monotonically increasing values that represent edges for
+        distance bins. A distance ``x`` lies in bin ``i`` if it lies in the
         interval ``dist_bin_edges[i] <= x < dist_bin_edges[i+1]``.
     stat_kw_pairs : sequence of (str, dict) tuples, optional
         The default choice is most meaningful for the 2pcf. In practice, this
@@ -695,7 +695,7 @@ def twopoint_correlation(pos_a, pos_b, val_a, val_b, dist_bin_edges,
           statistic name (to specify the bin edges along axis 1). It
           should be associated with a 1D monotonic array.
 
-    
+
     Weighted versions of each of these statistics are also available. To
     access these, you should prepend ``"weighted"`` to the start of the
     string (so ``"weightedmean"`` instead of ``"mean"`` or
@@ -728,7 +728,7 @@ cdef BinSpecification _build_BinSpecification(arr, wrap_array = True):
     out.n_bins = <size_t>(arr.size - 1)
 
     cdef double[::1] arr_memview
-    
+
     if wrap_array:
         assert arr.dtype == np.float64
         assert arr.flags['C_CONTIGUOUS']
