@@ -106,7 +106,7 @@ def compute_bulkaverage(quan, extra_quantities, kwargs):
     assert averages.ndim == sum_of_weights.ndim == 1  # sanity check!
 
     # since sum_of_weights is 1D and has a length equal to quan.shape[1], all 3
-    # entires are identical
+    # entries are identical
     assert (sum_of_weights[0] == sum_of_weights).all()
     assert sum_of_weights[0] != 0.0  # we may want to revisit return vals if
     # untrue
@@ -276,7 +276,7 @@ def compute_bulk_variance(quan, extra_quantities, kwargs):
         )
 
         # since weights is 1D and has a length equal to quan.shape[1], all 3
-        # entires of cur_sum_of_weights are identical
+        # entries of cur_sum_of_weights are identical
         assert (cur_sum_of_weights[0] == cur_sum_of_weights).all()
 
         assert cur_sum_of_weights[0] != 0.0  # we may want to revisit return
@@ -478,8 +478,7 @@ class BulkVariance:
 
         if (out["weight_total"] == 0.0).any():
             raise RuntimeError(
-                "Encountered weight_total == 0. We may want to reconsider "
-                "some things."
+                "Encountered weight_total == 0. We may want to reconsider some things."
             )
 
         return out

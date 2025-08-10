@@ -189,7 +189,7 @@ def func(ds, phase_bin_edges):
     for i in range(len(phase_bin_edges) - 1):
         my_cut_regions.append(
             f'(obj["logX_e"].v >= {float(phase_bin_edges[i]):.15e}) & '
-            + f'(obj["logX_e"].v < {float(phase_bin_edges[i+1]):.15e})'
+            + f'(obj["logX_e"].v < {float(phase_bin_edges[i + 1]):.15e})'
         )
     my_cut_regions.append(f'(obj["logX_e"].v > {float(phase_bin_edges[-1]):.15e})')
 

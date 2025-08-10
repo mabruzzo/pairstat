@@ -56,7 +56,7 @@ def _process_stat_choices(stat_kw_pairs, sf_params):
     for stat_ind, (stat_name, kw) in enumerate(stat_kw_pairs):
         # 1. load the kernel
         kernels.append(get_kernel(stat_name))
-        # 2. update extra_quan_spec (if necesary)
+        # 2. update extra_quan_spec (if necessary)
         try:
             tmp = kernels[stat_ind].get_extra_fields(kw, sf_params=sf_params)
         except TypeError:
@@ -106,7 +106,7 @@ class StatRsltContainer:
     def store_all_empty_cut_region(self, cut_region_index):
         if any((e is not None) for e in self._arr[:, cut_region_index]):
             raise RuntimeError(
-                "At least one result in cut_region_index has " "already been set"
+                "At least one result in cut_region_index has already been set"
             )
         for i in range(self.num_statistics):
             self._arr[i, cut_region_index] = {}
@@ -222,7 +222,7 @@ class _BaseWorker:
     """
 
     def process_index(self, subvol_index, perf):
-        raise NotImplementedError("This method must be implemented by " "subclasses")
+        raise NotImplementedError("This method must be implemented by subclasses")
 
     def __call__(self, subvol_indices):
         tmp = []

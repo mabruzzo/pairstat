@@ -1,13 +1,15 @@
+"""
+Implement kernel machinery
+
+The basic idea here is to come up with a set of functions for each calculable
+type of Structure Function object that can be used to abstract over
+consolidation and such...
+"""
+
 from types import new_class
 import inspect
 
 import numpy as np
-
-"""
-The basic idea here is to come up with a set of functions for each calculatable
-type of Structure Function object that can be used to abstract over 
-consolidation and such...
-"""
 
 from ._kernels_cy import StatConf, _ALL_SF_STAT_NAMES
 

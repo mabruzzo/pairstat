@@ -153,7 +153,7 @@ class ArrayMapEntrySpec:
 # mpi4py using the interface for numpy arrays
 #
 # A hard and fast requirement is that numpy arrays are only allowed to have the
-# alignement of np.float64, np.int64, and np.uint64
+# alignment of np.float64, np.int64, and np.uint64
 
 class ArrayMap(Mapping):
     """

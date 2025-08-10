@@ -171,7 +171,7 @@ class LargeResultCommunication:
 
     def receive_result(self, comm):
         if self.max_message_size is None:
-            # first receive the dummy message (openning line for further
+            # first receive the dummy message (opening line for further
             # communication with a given rank)
             status = MPI.Status()
             dummy_result = comm.recv(

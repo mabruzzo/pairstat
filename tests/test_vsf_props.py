@@ -174,9 +174,7 @@ def _compare_vsf_implementation_single_rslt(
             np.testing.assert_equal(
                 actual=actual_val_dict[key],
                 desired=alt_val_dict[key],
-                err_msg=(
-                    f'The "{key}" entries of the output_dicts are not ' "the same"
-                ),
+                err_msg=(f'The "{key}" entries of the output_dicts are not the same'),
             )
         elif _matching_array_dtype(actual_val_dict[key], np.floating):
             np.testing.assert_allclose(

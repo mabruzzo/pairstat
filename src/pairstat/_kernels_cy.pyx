@@ -225,7 +225,7 @@ def _construct_pointprops(pos, val, weights = None, val_is_vector = True,
     assert val_arr.strides[-1] == val_arr.itemsize
 
     # in the future, consider relaxing the following conditions (to maybe 
-    # facillitate better data alignment)
+    # facilitate better data alignment)
     assert pos_arr.strides[0] == (n_points * pos_arr.itemsize)
     if val_is_vector:
         assert val_arr.strides[0] == (n_points * val_arr.itemsize)
@@ -400,7 +400,7 @@ def _core_pairwise_work(pos_a, pos_b, val_a, val_b, dist_bin_edges,
           points_b.has_non_positive_weights()):
         raise ValueError("you can't provide non-positive weights")
 
-    # check if any statistics requre weights
+    # check if any statistics require weights
     requires_weights = any(statconf.requires_weights for statconf in statconf_l)
     if requires_weights and (weights_a is None):
         raise ValueError("one of the statistics requires weights, but no "
@@ -557,7 +557,7 @@ def vsf_props(pos_a, pos_b, *args, val_a = _unspecified, val_b = _unspecified,
 
     # do some messy work to help us deprecate vel_a and vel_b
 
-    # Step 1: we do some basic preperation
+    # Step 1: we do some basic preparation
     is_provided = lambda arg: arg is not _unspecified
     _names = ("val_a", "val_b", "dist_bin_edges")
     _val_a, _val_b = _unspecified, _unspecified

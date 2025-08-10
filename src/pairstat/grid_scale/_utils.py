@@ -6,7 +6,7 @@ def _top_level_grid_indices(ds):
     Creates a 3D array holding the indices of the top level blocks for an
     Patch-based AMR dataset.
 
-    Note: we use the term block and grid interchangably
+    Note: we use the term block and grid interchangeably
     """
     assert ds.index.max_level == 0
     n_blocks = len(ds.index.grids)

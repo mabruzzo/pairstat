@@ -20,8 +20,8 @@ else()
   find_package(OpenMP OPTIONAL_COMPONENTS CXX)
 endif()
 
-# Actual Build Recipies
-# ---------------------
+# Actual Build Recipes
+# --------------------
 
 # first, declare the pure C++ part of the library
 
