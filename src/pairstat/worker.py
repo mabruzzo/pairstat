@@ -493,7 +493,7 @@ class SFWorker(_BaseWorker):
 
         all_inclusive_cr_index = self._get_all_inclusive_cr_index()
 
-        sf_param = self.sf_param
+        # sf_param = self.sf_param
         dist_bin_edges = np.copy(np.array(self.sf_param.dist_bin_edges))
 
         # define some lists that are used to store some data for the duration

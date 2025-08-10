@@ -13,7 +13,9 @@ def _top_level_grid_indices(ds):
 
     # there's probably a better way to do the following:
     root_block_width = (ds.index.grid_right_edge - ds.index.grid_left_edge)[0]
-    to_nearest_int = lambda arr: np.trunc(arr + 0.5).astype(np.int32)
+
+    def to_nearest_int(arr):
+        return np.trunc(arr + 0.5).astype(np.int32)
 
     blocks_per_axis = to_nearest_int((ds.domain_width / root_block_width).in_cgs().v)
     block_loc_array = np.empty(shape=blocks_per_axis, dtype=np.int32)

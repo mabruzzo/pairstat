@@ -9,16 +9,16 @@ import pickle
 import sys
 import traceback
 
+import numpy as np
+
 # On some systems mpi4py is available but broken we avoid crashes by importing
 # it only when an MPI Pool is explicitly created.
 # Still make it a global to avoid messing up other things.
 MPI = None
 
-import numpy as np
-
 # Project
-from schwimmbad import log, _VERBOSE
-from schwimmbad.pool import BasePool
+from schwimmbad import log, _VERBOSE  # noqa: E402
+from schwimmbad.pool import BasePool  # noqa: E402
 
 
 def _dummy_callback(x):

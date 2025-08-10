@@ -52,19 +52,19 @@ def assert_all_close(ref, actual, tol_spec=None):
 
 
 def _prep_entries(statconf, vals, weights, add_empty_entries=True):
-    l = []
+    entries = []
     for i, val in enumerate(vals):
         if add_empty_entries:
-            l.append({})
+            entries.append({})
         if weights is None:
             cur_weights = None
         else:
             cur_weights = [weights[i]]
 
-        l.append(_test_evaluate_statconf(statconf, [val], cur_weights))
+        entries.append(_test_evaluate_statconf(statconf, [val], cur_weights))
         if add_empty_entries:
-            l.append({})
-    return l
+            entries.append({})
+    return entries
 
 
 def calc_from_statconf_consolidation(

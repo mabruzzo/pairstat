@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import functools
 
 import numpy as np
 
@@ -121,7 +120,9 @@ def _neighbor_vec_differences(
     else:
         raise ValueError(f"invalid axis value: {axis}")
 
-    op = lambda x0, x1: x1 - x0
+    def op(x0, x1):
+        return x1 - x0
+
     if diff_type == "transverse":
         diff_l = [
             exec_operation.exec_on_field(op, comp, components)
@@ -268,7 +269,8 @@ class GridscaleVdiffHistogram:
 
     @classmethod
     def validate_rslt(cls, rslt, dist_bin_edges, kwargs={}):
-        _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
+        raise RuntimeError("figure out how to uncomment the next line!")
+        # _validate_basic_quan_props(cls, rslt, dist_bin_edges, kwargs)
 
     @classmethod
     def postprocess_rslt(cls, rslt, kwargs={}):

@@ -9,7 +9,6 @@ consolidation and such...
 from types import new_class
 import inspect
 
-import numpy as np
 
 from ._kernels_cy import StatConf, _ALL_SF_STAT_NAMES
 
@@ -97,7 +96,7 @@ def _stub_postprocess_rslt(cls, rslt, kwargs=None):
 def _default_zero_initialize_rslt(
     cls, dist_bin_edges, kwargs=None, postprocess_rslt=True
 ):
-    raise NotImplementedError(f"has not been implemented yet")
+    raise NotImplementedError("has not been implemented yet")
 
 
 # sequence of StatInfo names
@@ -159,9 +158,9 @@ def _make_kernel_class_callback(cls, statname):
 def _make_kernel_classes():
     out = []
     for statname in _ALL_SF_STAT_NAMES:
-        name = "SFKernel" + statconf_cls.__name__
+        name = "SFKernel" + statname
         out.append(new_class(name))
-        make_kernel_class_callback(out[-1], statname=statname)
+        _make_kernel_class_callback(out[-1], statname=statname)
     return out
 
 

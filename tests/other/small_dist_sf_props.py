@@ -1,7 +1,6 @@
 from functools import partial
 
 import numpy as np
-import yt
 
 from pairstat import vsf_props
 from pairstat.small_dist_sf_props import BoxSelector, small_dist_sf_props
@@ -148,6 +147,8 @@ def compare(
     print("computing the vsf_props from alternative approach")
     pool = None
     if nproc > 1:
+        import schwimmbad
+
         pool = schwimmbad.MultiPool(processes=nproc)
 
     tmp = small_dist_sf_props(

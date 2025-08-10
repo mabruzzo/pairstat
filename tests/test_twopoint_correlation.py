@@ -42,10 +42,6 @@ def _twopoint_correlation_python(pos_a, pos_b, val_a, val_b, dist_bin_edges):
 
 
 def test_twopoint_autocorrelation():
-    val_bin_edges = np.array(
-        [0] + np.geomspace(start=1e-16, stop=100, num=100).tolist()
-    )
-
     x_a, val_a = (np.arange(6.0, 24.0).reshape(3, 6), np.arange(-9.0, 9.0, 3.0))
     bin_edges = np.array([0.0, 5.0, 10.0])
 
