@@ -16,21 +16,6 @@ There are 2 main points worth highlighting:
 2. There are a handful of opportunities for optimizing the performance of the package (most of them require significant structural changes).
    A description of some of these opportunities can be found `here <https://github.com/mabruzzo/pairstat/issues/2>`__.
 
-
-Undocumented Functionality
-==========================
-
-This module also provides another primary function, ``pairstat.small_dist_sf_props.small_dist_sf_props`` that can be used to compute statistics for an astrophysical simulation.
-This function decomposes the simulation into smaller subvolumes (the size of each subvolume is related to the maximum separation).
-This can considerably reduce the complexity of the calculation.
-
-``pairstat.small_dist_sf_props.small_dist_sf_props`` also offers parallelization
-using MPI/multiprocessing, using ``MPIPool`` or ``MultiPool`` from the ``schwimmbad`` package.
-A modified `MPIPool` is also provided to work around some MPI issues on some computing clusters.
-
-The plan is to move most of this undocumented functionality to a separate development branch prior to a 1.0 release.
-
-
 Code Formatting
 ===============
 

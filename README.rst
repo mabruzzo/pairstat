@@ -77,20 +77,13 @@ In other words, this function is far more scalable that the alternative.
 **************
 Current Status
 **************
-The functionality in this package was developed for a particular science project that involved computing velocity structure functions from uniform resolution Enzo-E simulations of cloud-wind interactions.
-However, I later realized that the core functionality could be useful to a lot of people in a lot of contexts.
-
-The core functionality has already been refactored and is presented in this documentation as part of public API.
-I will do my best to maintain this compatibility with this API, but breaking changes may creep in before the 1.0 release.
-
-There is still a large amount of undocumented machinery in this repository.
-I plan to expose part of that machinery as part of the public API before the 1.0 release and remove the rest of it.
+We are planning to replace the C++ and Cython logic with the rust logic before the 1.0 release. This rewrite will allow us to significantly improve the code quality.
 
 Contributions and Feature requests are welcome!
 
-
+*******
 License
-=======
+*******
 pairstat is dual-licensed under either the MIT license and the Apache License (Version 2.0).
 
 
