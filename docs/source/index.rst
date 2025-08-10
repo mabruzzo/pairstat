@@ -10,17 +10,25 @@ Welcome to pyvsf's documentation!
 
 .. include:: fragment-overview.rst
 
+.. include:: ../../README.rst
+   :start-after: .. COMMENT:  README-MAIN-BODY-START-ANCHOR
 
 .. toctree::
-   :maxdepth: 2
+   :hidden:
 
+   Introduction <self>
    Install
    Usage
    pages/Example
    pages/Example-simulation
    API
-   Developing
+   Contributing
+   Help
 
-License
-=======
-Licensed under the 3-clause BSD license (see the ``LICENSE`` file for more details).
+.. toctree::
+   :caption: Useful links
+   :hidden:
+
+   pyvsf GitHub <https://github.com/mabruzzo/pyvsf>
+   pyvsf Tracker <https://github.com/mabruzzo/pyvsf/issues>
+

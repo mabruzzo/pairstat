@@ -4,15 +4,40 @@
 *.so
 
 # artifacts produced in cython builds
-pyvsf/**.cpp
-pyvsf/**.c
+src/pyvsf/**.cpp
+src/pyvsf/**.c
 
 # .pyc repository directories
 **/__pycache__
 
-# artifacts produced by python builds
+# artifacts produced by python builds with setuptools
 /pyvsf.egg-info
 /build
 
 # artifact by local build of documentation
 **/_build
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# I think we want to omit this for libraries
+uv.lock
+
+# from MacOS
+.DS_Store
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# mypy
+.mypy_cache/
+
+# Ruff stuff:
+.ruff_cache/

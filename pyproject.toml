@@ -13,22 +13,20 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "pyvsf"
 version = "0.2.0"
-description = "Module for computing velocity structure function properties"
+description = "Package for computing 2-point statistics (correlation functions and structure functions)"
 authors = [
   {name = "Matthew Abruzzo", email = "matthewabruzzo@gmail.com" },
 ]
-# I need to revisit the following
+requires-python = ">=3.11"
 dependencies = [
   'numpy',
-  # not sure we actually need the following (taken from yt)
-  # https://github.com/numpy/numpy/issues/27037
+  # https://github.com/numpy/numpy/issues/27037 (is this necessary? -- borrrowed from yt)
   "numpy!=2.0.1 ; platform_machine=='arm64' and platform_system=='Darwin'",
-  'cython',
 ]
+license = "MIT OR Apache-2.0"
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: BSD License",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Unix",
@@ -37,10 +35,10 @@ classifiers = [
     "Programming Language :: Cython",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Astronomy",
     "Topic :: Scientific/Engineering :: Physics",
 ]
@@ -49,46 +47,57 @@ classifiers = [
 file = "README.rst"
 content-type = "text/x-rst"
 
-[project.license]
-text = "BSD 3-Clause"
-
 [project.urls]
 Homepage = 'https://github.com/mabruzzo/pyvsf'
 Documentation = 'https://pyvsf.readthedocs.io/en/latest/'
 Source = 'https://github.com/mabruzzo/pyvsf'
 Tracker = 'https://github.com/mabruzzo/pyvsf/issues'
 
-[project.optional-dependencies]
+[dependency-groups]
+# these are development dependencies. They can be installed with pip (v25.1+)
+# by invoking `pip install --user --group {name}` from the directory holding this
+# configuration file
 docs = [
   "sphinx>=7.0",
   "furo>=2024.01.29",
+  "numpydoc>=1.8.0",
+  "sphinx-tabs>=3.0.0",
+  # the following could be used to embed notebooks in documentation
   'ipykernel',
   'matplotlib',
   'nbsphinx',
-  "numpydoc>=1.8.0",
-  "sphinx-tabs>=3.0.0"
 ]
 
 # these are for tests
 dev = [
   'scipy',
-  'pytest'
+  'pytest',
+  'h5py',
 ]
 
+[project.optional-dependencies]
 # these are dependencies for extraneous features that are not currently
 # documented. We will either start documenting these features, or we will
 # remove them before the first release
 extra-features = [
-  'h5py',
   'pydantic',
   'schwimmbad',
-  'scipy', # only needed for tests
   'yt',
 ]
 
 [tool.pytest.ini_options]
+# addopts inspired by: learn.scientific-python.org/development/guides/pytest/
+#  -ra: The -r tells pytest to report extra test summary info on the events
+#       corresponding to all characters following the r. Here, the "a"
+#       corresponds to "all" events (other than passing tests)
+#  --showlocals: directs pytest to show local variables in tracebacks
+#  --strict-markers: ensures we don't try to use an unspecified fixture
+#  --string-config: all configuration mistakes are reported as errors
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
 filterwarnings=["ignore::pyvsf._kernels_cy.ExperimentalWarning"]
 norecursedirs = ["other"]
+# by default, we treat any test marked xfail that doesn't fail as an error
+# (we can override this locally, if necessary)
 xfail_strict = true
 testpaths = [
   "tests",

@@ -1,0 +1,83 @@
+# inspired by
+# - https://learn.scientific-python.org/development/guides/gha-wheels/
+# - https://learn.scientific-python.org/development/guides/gha-pure/
+
+name: cd
+
+# builds and deploys sdists and wheels
+
+on:
+  pull_request:
+  push:
+    branches:
+    - main
+    tags:
+    - v[0-9].*
+  schedule:
+  #        ┌───────────── minute (0 - 59)
+  #        │  ┌───────────── hour (0 - 23)
+  #        │  │  ┌───────────── day of the month (1 - 31)
+  #        │  │  │ ┌───────────── month (1 - 12 or JAN-DEC)
+  #        │  │  │ │ ┌───────────── day of the week (0 - 6 or SUN-SAT)
+  #        │  │  │ │ │
+  - cron: 46 07 * * MON
+  workflow_dispatch:
+
+jobs:
+  make_sdist:
+    name: Make SDist
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+    - name: Build SDist
+      run: pipx run build --sdist
+
+    - name: Check README rendering for PyPI
+      run: pipx run twine check dist/*
+
+    - name: Test SDist
+      run: |
+        python -m venv my-sdist-venv
+        source my-sdist-venv/bin/activate
+        pip install --upgrade pip
+        python -m pip install --group dev "$(echo dist/*.tar.gz)"
+        pytest
+
+    # upload artifacts to GitHub
+    - uses: actions/upload-artifact@v4
+      with:
+        name: Packages
+        path: dist/*
+
+  #upload:
+  #  name: Publish to PyPI
+  #  needs: make_sdist
+  #  environment: pypi
+  #  permissions:
+  #    id-token: write
+  #    attestations: write
+  #    contents: read
+  #
+  #  runs-on: ubuntu-latest
+  #  # upload to PyPI on every tag starting with 'v'
+  #  if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
+  #  steps:
+  #  - uses: actions/download-artifact@v4
+  #    with:
+  #      pattern: Packages
+  #      path: tmp-Packages
+  #
+  #  - run: mkdir dist
+  #  - run: mv tmp-Packages/Packages/* dist
+  #
+  #  - name: Generate artifact attestations
+  #    uses: actions/attest-build-provenance@v2
+  #    with:
+  #      subject-path: dist/*
+  #
+  #  - name: Publish to pypi
+  #    uses: pypa/gh-action-pypi-publish@release/v1
