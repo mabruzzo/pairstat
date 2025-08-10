@@ -11,7 +11,7 @@ requires=[
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "pyvsf"
+name = "pairstat"
 version = "0.2.0"
 description = "Package for computing 2-point statistics (correlation functions and structure functions)"
 authors = [
@@ -48,10 +48,10 @@ file = "README.rst"
 content-type = "text/x-rst"
 
 [project.urls]
-Homepage = 'https://github.com/mabruzzo/pyvsf'
-Documentation = 'https://pyvsf.readthedocs.io/en/latest/'
-Source = 'https://github.com/mabruzzo/pyvsf'
-Tracker = 'https://github.com/mabruzzo/pyvsf/issues'
+Homepage = 'https://github.com/mabruzzo/pairstat'
+Documentation = 'https://pairstat.readthedocs.io/en/latest/'
+Source = 'https://github.com/mabruzzo/pairstat'
+Tracker = 'https://github.com/mabruzzo/pairstat/issues'
 
 [dependency-groups]
 # these are development dependencies. They can be installed with pip (v25.1+)
@@ -94,7 +94,7 @@ extra-features = [
 #  --strict-markers: ensures we don't try to use an unspecified fixture
 #  --string-config: all configuration mistakes are reported as errors
 addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
-filterwarnings=["ignore::pyvsf._kernels_cy.ExperimentalWarning"]
+filterwarnings=["ignore::pairstat._kernels_cy.ExperimentalWarning"]
 norecursedirs = ["other"]
 # by default, we treat any test marked xfail that doesn't fail as an error
 # (we can override this locally, if necessary)

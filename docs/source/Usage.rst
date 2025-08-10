@@ -2,7 +2,7 @@
 Usage
 *****
 
-The primary 2 functions offered by this package are: ``pyvsf.vsf_props`` and ``pyvsf.twopoint_correlation``.
+The primary 2 functions offered by this package are: ``pairstat.vsf_props`` and ``pairstat.twopoint_correlation``.
 The former computes the structure function (we typically use it for the velocity structure function, but it could work with any vector-quantity).
 The latter computes the two-point correlation function.
 
@@ -38,10 +38,10 @@ They functions support 2 primary operation-modes:
 
 In both cases, positions should be specified in a 2D array, with a shape ``(3,N)``, where ``N`` specifies the number of points and ``3`` specifies the number of dimensions.
 
-When using ``pyvsf.vsf_props``, the values specify vector quantities (usually velocity) that have the same number of dimensions as the position.
+When using ``pairstat.vsf_props``, the values specify vector quantities (usually velocity) that have the same number of dimensions as the position.
 In this case, the shape of ``val_a`` must match ``pos_a.shape`` and (if applicable) the shape of ``val_b`` must match ``pos_b.shape``.
 
-When using ``pyvsf.twopoint_correlation``, the values specify scalar quantities.
+When using ``pairstat.twopoint_correlation``, the values specify scalar quantities.
 In this case, ``val_a``  should be a 1D array with a shape ``(pos_a.shape[1],)``.
 When it isn't ``None``, ``val_b`` should be a 1D array with a shape ``(pos_b.shape[1],)``.
 
@@ -79,8 +79,8 @@ We provide a list of the unweighted statistics supported down below:
    * - ``"mean"``
      - ``[("mean", {})]`` 
      - Computes the number of pairs and the mean.
-       When used with :py:func:`~pyvsf.vsf_props` function, the ``"mean"`` result correspond to the 1st order structure function. 
-       When used with :py:func:`~pyvsf.twopoint_correlation` function, the ``"mean"`` result correspond is usually the quantity that you are interested in.
+       When used with :py:func:`~pairstat.vsf_props` function, the ``"mean"`` result correspond to the 1st order structure function. 
+       When used with :py:func:`~pairstat.twopoint_correlation` function, the ``"mean"`` result correspond is usually the quantity that you are interested in.
    * - ``"variance"``
      - ``[("variances", {})]`` 
      - Computes the number of pairs, the mean, and the variance.
@@ -88,17 +88,17 @@ We provide a list of the unweighted statistics supported down below:
    * - ``"omoment2"``
      - ``[("omoment2", {})]``
      - Computes the number of pairs, the mean, and the 2nd order moment about the origin.
-       When used with :py:func:`pyvsf.vsf_props` function, the ``"mean"`` and ``"omoment2"`` results correspond to the 1st and 2nd order structure functions.
+       When used with :py:func:`pairstat.vsf_props` function, the ``"mean"`` and ``"omoment2"`` results correspond to the 1st and 2nd order structure functions.
    * - ``"omoment3"``
      - ``[("omoment3", {})]``
      - Computes the number of pairs and the mean.
        It also computes the 2nd and 3rd order moment about the origin.
-       When used with :py:func:`pyvsf.vsf_props` function, the ``"mean"``, ``"omoment2"``, and ``"omoment3"`` results correspond to the 1st, 2nd, and 3rd order structure functions.
+       When used with :py:func:`pairstat.vsf_props` function, the ``"mean"``, ``"omoment2"``, and ``"omoment3"`` results correspond to the 1st, 2nd, and 3rd order structure functions.
    * - ``"omoment4"``
      - ``[("omoment4", {})]``
      - Computes the number of pairs and the mean.
        It also computes the 2nd and 3rd order moment about the origin.
-       When used with :py:func:`pyvsf.vsf_props` function, the ``"mean"``, ``"omoment2"``, ``"omoment3"``, and ``"omoment4"`` results correspond to the 1st, 2nd, 3rd, and 4th order structure functions.
+       When used with :py:func:`pairstat.vsf_props` function, the ``"mean"``, ``"omoment2"``, ``"omoment3"``, and ``"omoment4"`` results correspond to the 1st, 2nd, 3rd, and 4th order structure functions.
    * - ``"histogram"``
      - ``[("histogram", {"val_bin_edges" : [0.0, 1.0, 2.0]})]``
      - Tracks the number of value computed for each pair of bins based on the specified ``"val_bin_edges"`` kwarg.
@@ -108,7 +108,7 @@ Weighted Statistics
 
 We also support weighted versions of each of the statistics described in the previous section.
 To access these, you should prepend ``"weighted"`` to the start of the string (so ``"weightedmean"`` instead of ``"mean"`` or ``"weightedhistogram"`` instead of ``"histogram"``).
-At the moment, these statistics can't be used with :py:func:`pyvsf.twopoint_correlation`.
+At the moment, these statistics can't be used with :py:func:`pairstat.twopoint_correlation`.
 
 .. note::
 

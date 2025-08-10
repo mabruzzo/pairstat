@@ -4,12 +4,12 @@ import re
 import numpy as np
 import pytest
 
-from pyvsf._kernels_cy import (
+from pairstat._kernels_cy import (
     consolidate_partial_results,
     get_statconf,
     _test_evaluate_statconf,
 )
-from pyvsf.utils import weighted_variance
+from pairstat.utils import weighted_variance
 
 
 def assert_all_close(ref, actual, tol_spec=None):

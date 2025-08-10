@@ -17,7 +17,7 @@ def zip_equal(*args):
     return zip(*args)
 
 
-import pyvsf
+import pairstat
 
 # implement a python-version of vsf_props that just uses numpy and scipy
 
@@ -87,17 +87,17 @@ def _call_separately_for_each_stat_pair(
 
 
 VSF_PROPS_IMPL_REGISTRY = {
-    "actual": (pyvsf.vsf_props, "pyvsf.vsf_props"),
+    "actual": (pairstat.vsf_props, "pairstat.vsf_props"),
     "actual-3proc-seq": (
-        partial(pyvsf.vsf_props, nproc=3, force_sequential=True),
-        "pyvsf.vsf_props(nproc=3, force_sequential = True)",
+        partial(pairstat.vsf_props, nproc=3, force_sequential=True),
+        "pairstat.vsf_props(nproc=3, force_sequential = True)",
     ),
     "actual-3proc": (
-        partial(pyvsf.vsf_props, nproc=3, force_sequential=False),
-        "pyvsf.vsf_props(nproc=3, force_sequential = False)",
+        partial(pairstat.vsf_props, nproc=3, force_sequential=False),
+        "pairstat.vsf_props(nproc=3, force_sequential = False)",
     ),
     "individual-stats": (
-        partial(_call_separately_for_each_stat_pair, func=pyvsf.vsf_props),
+        partial(_call_separately_for_each_stat_pair, func=pairstat.vsf_props),
         "the individual-stats modified version",
     ),
     "python": (_vsf_props_python, "the python implementation"),
@@ -230,7 +230,7 @@ def compare_vsf_implementations(
         stat_kw_pairs=stat_kw_pairs,
     )
 
-    actual_rslt_l = pyvsf.vsf_props(
+    actual_rslt_l = pairstat.vsf_props(
         pos_a=pos_a,
         pos_b=pos_b,
         val_a=val_a,
@@ -253,7 +253,7 @@ def compare_vsf_implementations(
             atol=get_cur_tol(atol, i),
             rtol=get_cur_tol(rtol, i),
             alt_impl_name=alt_impl_name,
-            actual_impl_name="pyvsf.vsf_props",
+            actual_impl_name="pairstat.vsf_props",
         )
 
 
@@ -539,17 +539,17 @@ def benchmark(
     else:
         pos_b, val_b = _generate_vals(shape_b, generator)
 
-    # first, benchmark pyvsf.vsf_props
-    pyvsf.vsf_props(
+    # first, benchmark pairstat.vsf_props
+    pairstat.vsf_props(
         pos_a=pos_a, pos_b=pos_b, val_a=val_a, val_b=val_b, nproc=nproc, **kwargs
     )
     t0 = time.perf_counter()
-    pyvsf.vsf_props(
+    pairstat.vsf_props(
         pos_a=pos_a, pos_b=pos_b, val_a=val_a, val_b=val_b, nproc=nproc, **kwargs
     )
     t1 = time.perf_counter()
     dt = t1 - t0
-    print(f"pyvsf.vsf_props version: {dt} seconds")
+    print(f"pairstat.vsf_props version: {dt} seconds")
 
     if not skip_python_version:
         # second, benchmark scipy/numpy version:

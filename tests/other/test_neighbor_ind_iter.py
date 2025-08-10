@@ -2,8 +2,8 @@ import collections
 import itertools
 import functools
 
-from pyvsf._cut_region_iterator import _neighbor_ind_iter
-from pyvsf.small_dist_sf_props import SubVolumeDecomposition
+from pairstat._cut_region_iterator import _neighbor_ind_iter
+from pairstat.small_dist_sf_props import SubVolumeDecomposition
 
 
 def find_all_pairs(nx, ny, nz, get_neighbor_iter):

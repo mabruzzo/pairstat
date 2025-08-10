@@ -1,12 +1,11 @@
-.. pyvsf documentation master file, created by
+.. pairstat documentation master file, created by
    sphinx-quickstart on Thu Aug 22 08:52:48 2024.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to pyvsf's documentation!
-=================================
-
-
+########################################
+pairstat: calculating 2-point statistics
+########################################
 
 .. include:: fragment-overview.rst
 
@@ -29,6 +28,6 @@ Welcome to pyvsf's documentation!
    :caption: Useful links
    :hidden:
 
-   pyvsf GitHub <https://github.com/mabruzzo/pyvsf>
-   pyvsf Tracker <https://github.com/mabruzzo/pyvsf/issues>
+   pairstat @ GitHub <https://github.com/mabruzzo/pairstat>
+   pairstat Tracker <https://github.com/mabruzzo/pairstat/issues>
 

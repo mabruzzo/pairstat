@@ -48,7 +48,7 @@ include(UseCython)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/libvsf")
 
 cython_transpile(
-  src/pyvsf/_ArrayDict_cy.pyx
+  src/pairstat/_ArrayDict_cy.pyx
   LANGUAGE CXX
   CYTHON_ARGS -3
   OUTPUT_VARIABLE _ArrayDict_cxx
@@ -56,7 +56,7 @@ cython_transpile(
 python_add_library(_ArrayDict_cy MODULE ${_ArrayDict_cxx} WITH_SOABI)
 
 cython_transpile(
-  src/pyvsf/_kernels_cy.pyx
+  src/pairstat/_kernels_cy.pyx
   LANGUAGE CXX
   CYTHON_ARGS -3
   OUTPUT_VARIABLE _kernels_cxx
@@ -65,7 +65,7 @@ python_add_library(_kernels_cy MODULE ${_kernels_cxx} WITH_SOABI)
 target_link_libraries(_kernels_cy PRIVATE vsf_cpp)
 
 cython_transpile(
-  src/pyvsf/_partition_cy.pyx
+  src/pairstat/_partition_cy.pyx
   LANGUAGE CXX
   CYTHON_ARGS -3
   OUTPUT_VARIABLE _partition_cxx

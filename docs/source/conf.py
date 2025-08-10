@@ -9,7 +9,7 @@ from importlib.metadata import version as get_version
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "pyvsf"
+project = "pairstat"
 copyright = "2024, Matthew W. Abruzzo"
 author = "Matthew W. Abruzzo"
 release = get_version(project)

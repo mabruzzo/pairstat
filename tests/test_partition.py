@@ -1,6 +1,6 @@
 # this is designed for testing the partition algorithm
 
-from pyvsf._partition_cy import build_task_it_factory
+from pairstat._partition_cy import build_task_it_factory
 from itertools import product
 
 
