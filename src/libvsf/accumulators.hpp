@@ -38,7 +38,7 @@ inline constexpr bool dummy_false_v_ = false;
 /// * Order 2 computes the mean and variance.
 /// * Order 3 is the 3rd central moment. The 3rd central moment is closely
 ///   related to (but distinct from) skewness. (this logic was only ever
-///   implmented in the case without weights -- it is no longer used)
+///   implemented in the case without weights -- it is no longer used)
 ///
 /// @note
 /// If we ever want to generalize to higher order moments, we can look at

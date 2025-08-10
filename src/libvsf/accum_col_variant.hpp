@@ -35,7 +35,7 @@ using AccumColVariant = std::variant<
     WeightedMomentAccum<3>, MomentWithVarAccum<3>,
     WeightedMomentWithVarAccum<3>, MomentAccum<4>, WeightedMomentAccum<4>,
     MomentWithVarAccum<4>, WeightedMomentWithVarAccum<4>,
-    // list Historgram accumulators
+    // list Histogram accumulators
     HistogramAccumCollection, WeightedHistogramAccumCollection,
     // here we start listing the fused options
     MyFusedAccumCol<HistogramAccumCollection, MomentAccum<1>>,

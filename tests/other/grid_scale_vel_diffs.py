@@ -42,8 +42,8 @@ def _neighbor_vec_differences(grid, axis, diff_type, field_components):
     """
     Computes differences between vectors
 
-    Parmeters
-    ---------
+    Parameters
+    ----------
     diff_type : str
         Accepts values of 'parallel', 'transverse', 'total'
 

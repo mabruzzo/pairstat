@@ -247,7 +247,7 @@ public:
     }
   }
 
-  /// overwrite all entires in `this` with values of 0
+  /// overwrite all entries in `this` with values of 0
   void zero_fill() const {
     static_assert(std::is_trivially_copyable_v<element_type>);
     if (!is_empty()) std::memset(data_, 0, n_bytes_);
