@@ -34,9 +34,9 @@ Motivation
 2-point statistics are important for characterizing the properties of `turbulence <https://en.wikipedia.org/wiki/Turbulence#Kolmogorov's_theory_of_1941>`__ (2-point statistics comes up in other contexts like `cosmology <https://en.wikipedia.org/wiki/Correlation_function_(astronomy)>`__).
 There hasn't been an easy-to-use package for computing these quantities, until now.
 
-The ``pairstat`` package is most useful for datasets where Fourier methods are problematic (e.g. you don't have a regularly spaced periodic grid). 
+The ``pairstat`` package is most useful for datasets where Fourier methods are problematic (e.g. you don't have a regularly spaced periodic grid).
 Before developing ``pairstat``, I performed similar calculations by processing the outputs of ``scipy.spatial.distance.pdist`` and ``scipy.spatial.distance.cdist`` functions.
-This package implements equivalent functionality that uses more specialized C++ code in order to perform the calculation faster and with **far** less memory. [#of1]_ 
+This package implements equivalent functionality that uses more specialized C++ code in order to perform the calculation faster and with **far** less memory. [#of1]_
 It also supports parallelization (more on that below).
 
 ************
@@ -99,4 +99,3 @@ pairstat is dual-licensed under either the MIT license and the Apache License (V
 
 .. [#of1] Crude benchmarking (see ``tests/test_vsf_props.py``) suggests that this package's functions are ~9 times faster for ~4e8 pairs (than the pure python equivalents)
           For larger number of pairs of points, the performance gap may narrow to some extent, but this is regime where the pure python approach becomes untenable due to memory consumption.
-

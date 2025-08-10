@@ -74,7 +74,7 @@ The easiest way to get a different compiler is use homebrew to install a version
 .. note::
 
    By default, modern versions of macOS provides a file called ``g++`` that simply aliases the default clang++ compiler (they are trying to be helpful, but this can be a little confusing).
-   In other words, invoking ``g++`` on the command line ALWAYS redirects to clang++ (whether or not a version of g++ is actually installed). 
+   In other words, invoking ``g++`` on the command line ALWAYS redirects to clang++ (whether or not a version of g++ is actually installed).
 
    When you use homebrew to install g++, the installed version of g++ will include the version number (e.g. it might create ``g++-10``, ``g++-11``, ``g++-14``, ...).
 

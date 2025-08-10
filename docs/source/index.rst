@@ -30,4 +30,3 @@ pairstat: calculating 2-point statistics
 
    pairstat @ GitHub <https://github.com/mabruzzo/pairstat>
    pairstat Tracker <https://github.com/mabruzzo/pairstat/issues>
-

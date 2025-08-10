@@ -1,8 +1,8 @@
-# this is based on Google style, with a few tweaks based on LLVM style 
+# this is based on Google style, with a few tweaks based on LLVM style
 # -> the 2 styles are extremely similar
 # -> The Google style tries to put a function's return-type on the same line
 #    as the function's name (which a lot of people prefer). It also makes a
-#    few minor stylistic choices that generally produces slightly terser code 
+#    few minor stylistic choices that generally produces slightly terser code
 # -> LLVM style is a little more permissive about certain things
 
 # we inherit all defaults from Google style
