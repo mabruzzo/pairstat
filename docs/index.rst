@@ -28,5 +28,6 @@ pairstat: calculating 2-point statistics
    :caption: Useful links
    :hidden:
 
+   pairstat @ PyPI <https://pypi.org/project/pairstat/>
    pairstat @ GitHub <https://github.com/mabruzzo/pairstat>
    pairstat Tracker <https://github.com/mabruzzo/pairstat/issues>

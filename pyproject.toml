@@ -12,7 +12,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pairstat"
-version = "0.3.0"
+version = "0.4.dev0"
 description = "Package for computing 2-point statistics (correlation functions and structure functions)"
 authors = [
   {name = "Matthew Abruzzo", email = "matthewabruzzo@gmail.com" },

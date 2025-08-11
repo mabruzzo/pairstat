@@ -2,6 +2,9 @@
 pairstat
 ########
 
+.. image:: https://img.shields.io/pypi/v/pairstat
+   :target: https://pypi.org/project/pairstat
+   :alt: PyPI - Version
 
 .. image:: https://github.com/mabruzzo/pairstat/actions/workflows/ci.yml/badge.svg
     :target: https://github.com/mabruzzo/pairstat/actions
