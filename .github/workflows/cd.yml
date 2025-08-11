@@ -53,31 +53,31 @@ jobs:
         name: Packages
         path: dist/*
 
-  #upload:
-  #  name: Publish to PyPI
-  #  needs: make_sdist
-  #  environment: pypi
-  #  permissions:
-  #    id-token: write
-  #    attestations: write
-  #    contents: read
-  #
-  #  runs-on: ubuntu-latest
-  #  # upload to PyPI on every tag starting with 'v'
-  #  if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
-  #  steps:
-  #  - uses: actions/download-artifact@v4
-  #    with:
-  #      pattern: Packages
-  #      path: tmp-Packages
-  #
-  #  - run: mkdir dist
-  #  - run: mv tmp-Packages/Packages/* dist
-  #
-  #  - name: Generate artifact attestations
-  #    uses: actions/attest-build-provenance@v2
-  #    with:
-  #      subject-path: dist/*
-  #
-  #  - name: Publish to pypi
-  #    uses: pypa/gh-action-pypi-publish@release/v1
+  upload:
+    name: Publish to PyPI
+    needs: make_sdist
+    environment: pypi
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+
+    runs-on: ubuntu-latest
+    # upload to PyPI on every tag starting with 'v'
+    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: Packages
+        path: tmp-Packages
+
+    - run: mkdir dist
+    - run: mv tmp-Packages/Packages/* dist
+
+    - name: Generate artifact attestations
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-path: dist/*
+
+    - name: Publish to pypi
+      uses: pypa/gh-action-pypi-publish@release/v1

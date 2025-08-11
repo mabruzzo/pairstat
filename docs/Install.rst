@@ -23,7 +23,7 @@ If you simply want to use pairstat, then the easiest way to install it is to inv
 
 .. code-block:: shell-session
 
-   $ python -m pip install -v pairstat@git+https://github.com/mabruzzo/pairstat
+   $ python -m pip install pairstat
 
 Install from local copy of repository
 -------------------------------------

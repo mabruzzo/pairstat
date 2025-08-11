@@ -47,7 +47,7 @@ As long as you have a C++ compiler, the easiest way to get the package is by inv
 
 .. code-block:: shell-session
 
-   $ python -m pip install -v pairstat@git+https://github.com/mabruzzo/pairstat
+   $ python -m pip install pairstat
 
 The package is automatically compiled with OpenMP support if the compiler supports it.
 To confirm that ``pairstat`` was compiled with OpenMP support, you can check whether the output from the following command mentions OpenMP:
