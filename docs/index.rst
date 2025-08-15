@@ -16,6 +16,7 @@ pairstat: calculating 2-point statistics
    :hidden:
 
    Introduction <self>
+   Primer
    Install
    Usage
    pages/Example
