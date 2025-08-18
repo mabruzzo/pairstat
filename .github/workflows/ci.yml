@@ -16,7 +16,7 @@ jobs:
         python-version: ['3.11', '3.12', '3.13'] # no wheels available for 3.14-dev
     name: Check Python ${{ matrix.python-version }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         fetch-depth: 0   # Only needed if using setuptools-scm
 
