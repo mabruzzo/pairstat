@@ -22,6 +22,7 @@ dependencies = [
   'numpy',
   # https://github.com/numpy/numpy/issues/27037 (is this necessary? -- borrrowed from yt)
   "numpy!=2.0.1 ; platform_machine=='arm64' and platform_system=='Darwin'",
+  "pairstat-impl-rs",
 ]
 license = "MIT OR Apache-2.0"
 classifiers = [
@@ -117,3 +118,6 @@ cmake.build-type = "Release"
 minimum-version = "build-system.requires"
 
 wheel.exclude = ["**.pyx"]
+
+[tool.uv.sources]
+pairstat-impl-rs = { path = "impl_rs", editable = true }
