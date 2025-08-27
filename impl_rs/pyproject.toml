@@ -1,0 +1,22 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pairstat_impl_rs"
+requires-python = ">=3.11"
+version = "0.4.0.dev0"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.maturin]
+python-source = "src"
+module-name = "pairstat_impl_rs._pairstat_rs_pybind"
+features = ["pyo3/extension-module"]
