@@ -10,3 +10,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = "0.25.0"
+pairstat = { git = "https://github.com/mabruzzo/pairstat-rs.git", revision = "dd31367ead2f361b40e85e2a1b1d26fb343d5c9f" }

@@ -20,3 +20,6 @@ dev = ["pytest"]
 python-source = "src"
 module-name = "pairstat_impl_rs._pairstat_rs_pybind"
 features = ["pyo3/extension-module"]
+
+[tool.uv]
+cache-keys = [{ file = "**/*.toml" }, { file = "**/*.rs" }]
